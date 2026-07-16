@@ -6,6 +6,10 @@ export const STORAGE_KEYS = {
   notifications: 't3_company_os_notifications',
   salesDataImports: 't3_company_os_sales_data_imports',
   salesDataRows: 't3_company_os_sales_data_rows',
+  settlements: 't3_company_os_settlements',
+  settlementVersions: 't3_company_os_settlement_versions',
+  settlementDeductions: 't3_company_os_settlement_deductions',
+  settlementActivityLogs: 't3_company_os_settlement_activity_logs',
   notificationSendLogs: 't3_company_os_notification_send_logs',
 } as const
 

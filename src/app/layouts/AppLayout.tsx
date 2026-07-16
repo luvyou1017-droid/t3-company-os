@@ -6,16 +6,16 @@ import { Sidebar } from '../../shared/components/Sidebar'
 type AppLayoutProps = {
   activePage: AppPage
   children: ReactNode
-  onOpenCsCase: (csCaseId: string) => void
+  onOpenRelated: (targetId: string) => void
   onNavigate: (page: AppPage) => void
 }
 
-export function AppLayout({ activePage, children, onNavigate, onOpenCsCase }: AppLayoutProps) {
+export function AppLayout({ activePage, children, onNavigate, onOpenRelated }: AppLayoutProps) {
   return (
     <div className="app-shell">
       <Sidebar activePage={activePage} onNavigate={onNavigate} />
       <div className="app-content">
-        <Header onOpenCsCase={onOpenCsCase} />
+        <Header onOpenRelated={onOpenRelated} />
         <main className="main-content">{children}</main>
       </div>
     </div>

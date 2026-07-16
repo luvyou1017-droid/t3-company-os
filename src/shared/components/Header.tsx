@@ -1,10 +1,10 @@
 import { NotificationCenter } from '../notifications/NotificationCenter'
 
 type HeaderProps = {
-  onOpenCsCase: (csCaseId: string) => void
+  onOpenRelated: (targetId: string) => void
 }
 
-export function Header({ onOpenCsCase }: HeaderProps) {
+export function Header({ onOpenRelated }: HeaderProps) {
   return (
     <header className="header">
       <div>
@@ -12,7 +12,7 @@ export function Header({ onOpenCsCase }: HeaderProps) {
         <h1>오늘의 공동구매 운영 현황</h1>
       </div>
       <div className="header__right">
-        <NotificationCenter onOpenCsCase={onOpenCsCase} />
+        <NotificationCenter onOpenRelated={onOpenRelated} />
         <div className="header__user">
           <span className="header__role">대표</span>
           <strong>이현지</strong>

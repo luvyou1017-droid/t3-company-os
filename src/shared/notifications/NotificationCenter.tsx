@@ -3,10 +3,10 @@ import { notificationService } from '../../features/cs/services/notificationServ
 import type { CsNotification } from '../../features/cs/types'
 
 type NotificationCenterProps = {
-  onOpenCsCase: (csCaseId: string) => void
+  onOpenRelated: (targetId: string) => void
 }
 
-export function NotificationCenter({ onOpenCsCase }: NotificationCenterProps) {
+export function NotificationCenter({ onOpenRelated }: NotificationCenterProps) {
   const [open, setOpen] = useState(false)
   const [notifications, setNotifications] = useState<CsNotification[]>(() => notificationService.list())
 
@@ -37,7 +37,7 @@ export function NotificationCenter({ onOpenCsCase }: NotificationCenterProps) {
                   notificationService.markRead(notification.id)
                   setNotifications(notificationService.list())
                   setOpen(false)
-                  onOpenCsCase(notification.csCaseId)
+                  onOpenRelated(notification.relatedId || notification.csCaseId)
                 }}
                 type="button"
               >

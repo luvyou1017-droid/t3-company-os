@@ -730,6 +730,284 @@
   min-width: 1100px;
 }
 
+.settlement-page {
+  color: var(--text);
+}
+
+.settlement-kpi-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.settlement-money-kpis {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.settlement-money-kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.settlement-money-kpi span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.settlement-money-kpi strong {
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.settlement-money-kpi--danger strong {
+  color: var(--danger);
+}
+
+.settlement-money-kpi--complete strong {
+  color: var(--success);
+}
+
+.settlement-table {
+  min-width: 2200px;
+}
+
+.amount-cell {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.settlement-drawer {
+  max-width: 1080px;
+  width: min(100%, 1080px);
+}
+
+.settlement-warning {
+  background: var(--warning-soft);
+  border-color: #fde68a;
+  color: var(--warning);
+}
+
+.settlement-error-list {
+  background: var(--danger-soft);
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: var(--danger);
+  display: grid;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 6px;
+  padding: 12px;
+}
+
+.settlement-summary-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.settlement-summary-item {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.settlement-summary-item span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.settlement-summary-item strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.settlement-card {
+  box-shadow: none;
+}
+
+.calculation-timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.calculation-step {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  padding: 14px;
+}
+
+.calculation-step__index {
+  align-items: center;
+  background: var(--primary-soft);
+  border-radius: 8px;
+  color: var(--primary);
+  display: flex;
+  font-size: 15px;
+  font-weight: 900;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.calculation-step__head {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.calculation-step__head strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.calculation-step__head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.calculation-result {
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 900;
+  margin-top: 4px;
+}
+
+.calculation-step dl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 10px 0 0;
+}
+
+.calculation-step dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.calculation-step dd {
+  color: #374151;
+  font-size: 13px;
+  margin: 0;
+}
+
+.deduction-table {
+  min-width: 1180px;
+}
+
+.settlement-checklist {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settlement-preview-tabs {
+  margin-top: 4px;
+}
+
+.settlement-preview,
+.preview-text-list {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.settlement-preview p,
+.preview-text-list p {
+  color: #374151;
+  font-size: 13px;
+}
+
+.version-list {
+  display: grid;
+  gap: 10px;
+}
+
+.version-list article {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.version-list strong {
+  color: var(--settlement);
+}
+
+.version-list span,
+.version-list p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.version-list dl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.version-list dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.version-list dd {
+  color: #374151;
+  font-size: 13px;
+  margin: 0;
+}
+
+.settlement-modal-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.36);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 40;
+}
+
+.settlement-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 18px;
+  max-width: 760px;
+  padding: 22px;
+  width: min(100%, 760px);
+}
+
+.campaign-settlement-table {
+  min-width: 1440px;
+}
+
 .sales-manual-modal {
   max-width: 960px;
 }

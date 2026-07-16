@@ -8,9 +8,10 @@ import { MyWorkPage } from './pages/my-work/MyWorkPage'
 import { PublicCsIntakePage } from './pages/public-cs-intake/PublicCsIntakePage'
 import { SampleManagementPage } from './pages/sample-management/SampleManagementPage'
 import { SalesDataPage } from './pages/sales-data/SalesDataPage'
+import { SettlementPage } from './pages/settlement/SettlementPage'
 import './App.css'
 
-export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터'
+export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리'
 
 function App() {
   const isPublicCsIntake = window.location.hash === '#public-cs-intake'
@@ -19,6 +20,7 @@ function App() {
   const [selectedCsCaseId, setSelectedCsCaseId] = useState<string | null>(null)
   const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
   const [selectedSalesDataImportId, setSelectedSalesDataImportId] = useState<string | null>(null)
+  const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null)
 
   const handleNavigate = (page: AppPage) => {
     setActivePage(page)
@@ -26,6 +28,7 @@ function App() {
     setSelectedCsCaseId(null)
     setSelectedSampleId(null)
     setSelectedSalesDataImportId(null)
+    setSelectedSettlementId(null)
   }
 
   if (isPublicCsIntake) {
@@ -33,7 +36,7 @@ function App() {
   }
 
   return (
-    <AppLayout activePage={activePage} onNavigate={handleNavigate} onOpenCsCase={(targetId) => {
+    <AppLayout activePage={activePage} onNavigate={handleNavigate} onOpenRelated={(targetId) => {
       if (targetId.startsWith('s-') || targetId.includes('sample')) {
         setActivePage('샘플 관리')
         setSelectedSampleId(targetId)
@@ -44,6 +47,11 @@ function App() {
         setSelectedSalesDataImportId(targetId)
         return
       }
+      if (targetId.startsWith('settlement-')) {
+        setActivePage('정산 관리')
+        setSelectedSettlementId(targetId)
+        return
+      }
       setActivePage('CS 관리')
       setSelectedCsCaseId(targetId)
     }}>
@@ -52,6 +60,7 @@ function App() {
       {activePage === 'CS 관리' && <CsManagementPage initialCaseId={selectedCsCaseId} />}
       {activePage === '샘플 관리' && <SampleManagementPage initialSampleId={selectedSampleId} />}
       {activePage === '판매 데이터' && <SalesDataPage initialImportId={selectedSalesDataImportId} />}
+      {activePage === '정산 관리' && <SettlementPage initialSettlementId={selectedSettlementId} />}
       {activePage === '공동구매 일정' && !selectedScheduleId && (
         <CampaignSchedulePage onOpenDetail={setSelectedScheduleId} />
       )}
@@ -62,6 +71,11 @@ function App() {
             setActivePage('판매 데이터')
             setSelectedScheduleId(null)
             setSelectedSalesDataImportId(salesDataImportId)
+          }}
+          onOpenSettlement={(settlementId) => {
+            setActivePage('정산 관리')
+            setSelectedScheduleId(null)
+            setSelectedSettlementId(settlementId)
           }}
           scheduleId={selectedScheduleId}
         />
