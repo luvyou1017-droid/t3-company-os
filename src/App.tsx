@@ -1,0 +1,56 @@
+import { useState } from 'react'
+import { AppLayout } from './app/layouts/AppLayout'
+import { CampaignDetailPage } from './pages/campaign-detail/CampaignDetailPage'
+import { CampaignSchedulePage } from './pages/campaign-schedules/CampaignSchedulePage'
+import { CsManagementPage } from './pages/cs-management/CsManagementPage'
+import { DashboardPage } from './pages/dashboard/DashboardPage'
+import { MyWorkPage } from './pages/my-work/MyWorkPage'
+import { PublicCsIntakePage } from './pages/public-cs-intake/PublicCsIntakePage'
+import { SampleManagementPage } from './pages/sample-management/SampleManagementPage'
+import './App.css'
+
+export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리'
+
+function App() {
+  const isPublicCsIntake = window.location.hash === '#public-cs-intake'
+  const [activePage, setActivePage] = useState<AppPage>('Dashboard')
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null)
+  const [selectedCsCaseId, setSelectedCsCaseId] = useState<string | null>(null)
+  const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
+
+  const handleNavigate = (page: AppPage) => {
+    setActivePage(page)
+    setSelectedScheduleId(null)
+    setSelectedCsCaseId(null)
+    setSelectedSampleId(null)
+  }
+
+  if (isPublicCsIntake) {
+    return <PublicCsIntakePage />
+  }
+
+  return (
+    <AppLayout activePage={activePage} onNavigate={handleNavigate} onOpenCsCase={(targetId) => {
+      if (targetId.startsWith('s-') || targetId.includes('sample')) {
+        setActivePage('샘플 관리')
+        setSelectedSampleId(targetId)
+        return
+      }
+      setActivePage('CS 관리')
+      setSelectedCsCaseId(targetId)
+    }}>
+      {activePage === 'Dashboard' && <DashboardPage />}
+      {activePage === 'My Work' && <MyWorkPage />}
+      {activePage === 'CS 관리' && <CsManagementPage initialCaseId={selectedCsCaseId} />}
+      {activePage === '샘플 관리' && <SampleManagementPage initialSampleId={selectedSampleId} />}
+      {activePage === '공동구매 일정' && !selectedScheduleId && (
+        <CampaignSchedulePage onOpenDetail={setSelectedScheduleId} />
+      )}
+      {activePage === '공동구매 일정' && selectedScheduleId && (
+        <CampaignDetailPage onBack={() => setSelectedScheduleId(null)} scheduleId={selectedScheduleId} />
+      )}
+    </AppLayout>
+  )
+}
+
+export default App
