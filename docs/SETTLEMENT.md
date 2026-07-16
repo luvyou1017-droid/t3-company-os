@@ -2,9 +2,47 @@
 
 ## Purpose
 
-Settlement V2 explains why each payment amount was calculated. The MVP uses mock data and localStorage only. Supabase, bank transfer, Hometax, real PDF or Excel generation, and sensitive personal data are intentionally not connected.
+Settlement V2 explains why each settlement amount was calculated. The MVP uses mock data and localStorage only. Supabase, bank transfer, Hometax, real PDF or Excel generation, and sensitive personal data are intentionally not connected.
+
+## Core Terms
+
+- Gross commission: the full commission T3 receives from the brand. This is calculated from gross sales and total commission rate.
+- Seller commission: the commission paid to the seller. This is calculated separately from gross sales and seller commission rate.
+- Vendor commission: the remaining commission after seller commission is removed from gross commission.
+- Distributable vendor commission: the amount manager and company split after company-owned costs are deducted from vendor commission.
+
+The total commission rate and seller commission rate are different values. Example: if total commission rate is 25% and seller commission rate is 17%, the remaining 8% becomes vendor commission before cost deductions.
 
 ## Calculation Formula
+
+All amounts are VAT-inclusive and stored as integer KRW. Percent values are stored as numbers like `25`, not `0.25`.
+
+```text
+grossCommission = grossSales * totalCommissionRate
+sellerCommissionAmount = grossSales * sellerCommissionRate
+vendorCommission = grossCommission - sellerCommissionAmount
+
+distributableVendorCommission =
+  vendorCommission
+  - companySampleDeduction
+  - companyEventDeduction
+  - companyOtherDeduction
+
+managerAmount =
+  distributableVendorCommission * managerShareRate
+  - managerDeduction
+
+companyAmount = distributableVendorCommission - managerAmount
+
+finalSellerPaymentAmount =
+  sellerCommissionAmount
+  - sellerDeduction
+  - applicableTax
+```
+
+`companyAmount` is the reconciliation value so `managerAmount + companyAmount` exactly equals `distributableVendorCommission`. If manager deduction exists, it reduces `managerAmount`; the remaining difference stays in `companyAmount`.
+
+## Revenue Tiers
 
 Revenue tiers use VAT-inclusive gross sales.
 
@@ -21,25 +59,61 @@ Boundary values:
 - 19,999,999 KRW -> 60:40
 - 20,000,000 KRW -> 70:30
 
-Core formula:
+## Required Validation
+
+Settlement calculation is invalid when:
+
+- total commission rate is lower than seller commission rate
+- total commission rate is 0 or lower
+- seller commission rate is negative
+- vendor commission is negative
+- distributable vendor commission is negative
+- manager amount plus company amount differs from distributable vendor commission
+- any reflected deduction has `costOwner = undecided`
+
+## Required Example
 
 ```text
-grossCommission = netSales * commissionRate
-netCompanyCommission = grossCommission - company sample costs - company event costs - company other costs
-managerAmount = netCompanyCommission * managerRate - manager costs
-companyAmount = netCompanyCommission - managerAmount
-sellerPaymentAmount = netSales - grossCommission - seller costs
+grossSales = 3,136,000
+totalCommissionRate = 25
+sellerCommissionRate = 17
+companySampleDeduction = 112,000
+
+grossCommission = 3,136,000 * 25% = 784,000
+sellerCommissionAmount = 3,136,000 * 17% = 533,120
+vendorCommission = 784,000 - 533,120 = 250,880
+distributableVendorCommission = 250,880 - 112,000 = 138,880
+managerShareRate = 50
+companyShareRate = 50
+managerAmount = 69,440
+companyAmount = 69,440
 ```
 
-All amounts are rounded to integer KRW. `companyAmount` is the final reconciliation value so `managerAmount + companyAmount` exactly equals `netCompanyCommission`.
+These equations must hold:
+
+```text
+grossCommission = sellerCommissionAmount + vendorCommission
+vendorCommission = distributableVendorCommission + companySampleDeduction + companyEventDeduction + companyOtherDeduction
+distributableVendorCommission = managerAmount + companyAmount
+```
+
+## Brand Tax Invoice Amount
+
+For brand-owned links, the tax invoice amount issued to the brand is the gross commission.
+
+```text
+brand tax invoice amount = grossCommission
+```
+
+Example: if gross commission is 784,000 KRW, the brand tax invoice amount is 784,000 KRW.
 
 ## Deduction Rules
 
 Deduction owners:
 
-- `company`: subtract from company remaining commission.
-- `seller`: subtract from seller payment.
-- `manager`: subtract from manager payment.
+- `company`: subtract from distributable vendor commission.
+- `seller`: subtract from final seller payment amount.
+- `manager`: subtract from manager amount.
 - `brand`: record only, not reflected in calculations.
 - `undecided`: blocks review completion and approval request.
 
@@ -55,7 +129,7 @@ Withholding tax uses:
 
 ```text
 taxAmount = Math.round(paymentTargetAmount * 0.033)
-finalPaymentAmount = paymentTargetAmount - taxAmount
+finalSellerPaymentAmount = sellerCommissionAmount - sellerDeduction - taxAmount
 ```
 
 Tax invoice or cash receipt settlements cannot move to payment ready until evidence is confirmed.
@@ -72,30 +146,37 @@ Tax invoice or cash receipt settlements cannot move to payment ready until evide
 - modified flag
 - calculated time
 
-The detail drawer displays these steps as a timeline so operators can trace Sales Data, Campaign commission rate, Sample deductions, manual event costs, manual changes, and system-calculated values.
+The detail drawer displays steps in this order:
+
+1. Gross sales
+2. Total commission rate
+3. Gross commission
+4. Seller commission rate
+5. Seller payment amount
+6. Vendor commission after seller payment
+7. Company sample deduction
+8. Company event deduction
+9. Company other deduction
+10. Distributable vendor commission
+11. Revenue tier
+12. Manager share rate
+13. Company share rate
+14. Manager amount
+15. Company amount
 
 ## Calculation Snapshot
 
 When a settlement reaches manager review or approval states, the current calculation is saved as `calculationSnapshot`.
 
-Snapshot fields include gross sales, net sales, commission rate, gross commission, deductions, net company commission, share rates, manager amount, company amount, seller payment amount, tax amount, final payment amount, calculated time, and calculator.
+Snapshot fields include gross sales, total commission rate, gross commission, seller commission rate, seller commission amount, vendor commission, company deductions, seller deduction, manager deduction, distributable vendor commission, share rates, manager amount, company amount, final seller payment amount, tax amount, calculated time, and calculator.
 
 If Sales Data or deduction values change later, the settlement is marked `revision_required` and the UI shows "원본 데이터 변경됨". The previous snapshot remains available for version comparison.
 
 ## Version Management
 
-Settlement changes create `SettlementVersion` records instead of overwriting approved values. Each version stores:
+Settlement changes create `SettlementVersion` records instead of overwriting approved values. Each version stores version number, changed time, changed by, reason, before amount, after amount, status, and snapshot.
 
-- version number
-- changed time
-- changed by
-- reason
-- before amount
-- after amount
-- status
-- snapshot
-
-The version comparison modal compares gross sales, commission rate, gross commission, deduction total, net company commission, manager amount, company amount, seller payment amount, tax, and final payment amount.
+The version comparison modal compares gross sales, total commission rate, seller commission rate, gross commission, seller commission, vendor commission, deduction total, distributable vendor commission, manager amount, company amount, seller payment amount, tax, and final payment amount.
 
 ## Activity History
 
@@ -113,30 +194,15 @@ Only Sales Data imports that meet these conditions can create settlements:
 - campaignId exists
 - option row totals match header totals
 
-Sales Data remains the source for gross sales, net sales, sales period, and commission defaults.
+Sales Data remains the source for gross sales, sales period, total commission rate, and seller commission rate.
 
 ## Sample Connection
 
-Sample candidates are read by campaignId. Only paid samples with `settlementReflected = false` are proposed as deductions. The sample cost owner decides where the amount is reflected.
+Sample candidates are read by campaignId. Only paid samples with `settlementReflected = false` are proposed as deductions. The sample cost owner decides where the amount is reflected. Paid sample mock settlement amount is quantity times sample cost plus shipping.
 
 ## My Work Connection
 
-Settlement service creates work items for:
-
-- settlement writing
-- manager review
-- evidence confirmation
-- payment approval
-- revision review
-
-Assignees in the MVP:
-
-- Settlement writing: 허수정
-- Manager review: Campaign manager
-- Approval: 허윤정
-- Brand/evidence confirmation: 유시철 MD
-
-Notifications use `relatedType = settlement` and open the settlement detail drawer.
+Settlement service creates work items for settlement writing, manager review, evidence confirmation, payment approval, and revision review. Notifications use `relatedType = settlement` and open the settlement detail drawer.
 
 ## localStorage Structure
 

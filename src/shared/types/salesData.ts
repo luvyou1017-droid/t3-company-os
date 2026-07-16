@@ -32,6 +32,8 @@ export type SalesDataImport = {
   salesEndDate?: string
   reviewerId?: string
   reviewerName?: string
+  totalCommissionRate?: number
+  sellerCommissionRate?: number
   commissionRate?: number
   sampleDeductionAmount?: number
   eventDeductionAmount?: number

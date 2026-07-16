@@ -44,7 +44,7 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
       </div>
       <div className="comparison-table-wrap">
         <table className="comparison-table campaign-settlement-table">
-          <thead><tr><th>상태</th><th>버전</th><th>총매출</th><th>총수수료</th><th>차감 합계</th><th>회사 잔여 수수료</th><th>매니저 지급액</th><th>회사 귀속액</th><th>셀러 지급액</th><th>증빙 상태</th><th>지급 상태</th><th>액션</th></tr></thead>
+          <thead><tr><th>상태</th><th>버전</th><th>총매출</th><th>총수수료</th><th>벤더 수수료</th><th>차감 합계</th><th>최종 배분 대상 금액</th><th>매니저 지급액</th><th>회사 귀속액</th><th>셀러 지급액</th><th>증빙 상태</th><th>지급 상태</th><th>액션</th></tr></thead>
           <tbody>
             {settlements.map((settlement) => (
               <tr key={settlement.id}>
@@ -52,11 +52,12 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
                 <td>v{settlement.settlementVersion}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.grossSales)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.grossCommission)}</td>
+                <td className="amount-cell">{formatCurrency(settlement.currentCalculation.vendorCommission)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.deductionTotal)}</td>
-                <td className="amount-cell">{formatCurrency(settlement.currentCalculation.netCompanyCommission)}</td>
+                <td className="amount-cell">{formatCurrency(settlement.currentCalculation.distributableVendorCommission)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.managerAmount)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.companyAmount)}</td>
-                <td className="amount-cell">{formatCurrency(settlement.currentCalculation.sellerPaymentAmount)}</td>
+                <td className="amount-cell">{formatCurrency(settlement.currentCalculation.finalSellerPaymentAmount)}</td>
                 <td>{settlement.evidenceStatus === 'confirmed' ? '확인 완료' : '미확인'}</td>
                 <td>{settlement.status === 'completed' ? '완료' : settlement.status === 'payment_ready' ? '지급 준비' : '대기'}</td>
                 <td>

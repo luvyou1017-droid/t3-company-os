@@ -54,17 +54,30 @@ export type SettlementCalculationStep = {
 export type SettlementCalculationSnapshot = {
   grossSales: number
   netSales: number
+  totalCommissionRate: number
+  sellerCommissionRate: number
   commissionRate: number
   grossCommission: number
+  sellerCommissionAmount: number
+  vendorCommission: number
   deductions: SettlementDeduction[]
   deductionTotal: number
+  companySampleDeduction: number
+  companyEventDeduction: number
+  companyOtherDeduction: number
+  sellerDeduction: number
   sellerDeductionTotal: number
+  managerDeduction: number
   managerDeductionTotal: number
+  distributableVendorCommission: number
   netCompanyCommission: number
+  managerShareRate: number
+  companyShareRate: number
   managerRate: number
   companyRate: number
   managerAmount: number
   companyAmount: number
+  finalSellerPaymentAmount: number
   sellerPaymentAmount: number
   taxAmount: number
   finalPaymentAmount: number

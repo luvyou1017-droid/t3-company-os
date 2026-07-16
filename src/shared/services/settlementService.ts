@@ -351,12 +351,12 @@ export const settlementService = {
   },
   refreshRevisionFlags(settlements: Settlement[]) {
     const next = settlements.map((settlement) => {
-      if (!settlement.calculationSnapshot || settlement.status === 'revision_required') return settlement
       const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
       if (!salesImport) return settlement
       const deductions = this.getDeductionsBySettlementId(settlement.id)
       const current = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), deductions, settlement.taxType)
-      const changed = current.grossSales !== settlement.calculationSnapshot.grossSales || current.netSales !== settlement.calculationSnapshot.netSales || current.deductionTotal !== settlement.calculationSnapshot.deductionTotal
+      if (!settlement.calculationSnapshot || settlement.status === 'revision_required') return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current) }
+      const changed = current.grossSales !== settlement.calculationSnapshot.grossSales || current.grossCommission !== settlement.calculationSnapshot.grossCommission || current.sellerCommissionAmount !== settlement.calculationSnapshot.sellerCommissionAmount || current.deductionTotal !== settlement.calculationSnapshot.deductionTotal
       if (!changed) return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current), hasSourceChanged: false }
       return { ...settlement, status: 'revision_required' as const, currentCalculation: current, calculationSteps: createCalculationSteps(current), hasSourceChanged: true, sourceChangeReason: '원본 데이터 변경됨' }
     })

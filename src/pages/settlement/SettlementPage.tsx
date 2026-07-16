@@ -74,8 +74,8 @@ export function SettlementPage({ initialSettlementId }: { initialSettlementId?: 
     ['최종 완료', settlements.filter((item) => item.status === 'completed').length],
   ] as const
 
-  const dueThisWeek = settlements.filter((item) => item.status !== 'completed').reduce((total, item) => total + item.currentCalculation.finalPaymentAmount + item.currentCalculation.sellerPaymentAmount, 0)
-  const sellerDue = settlements.filter((item) => item.status !== 'completed').reduce((total, item) => total + item.currentCalculation.sellerPaymentAmount, 0)
+  const dueThisWeek = settlements.filter((item) => item.status !== 'completed').reduce((total, item) => total + item.currentCalculation.finalPaymentAmount + item.currentCalculation.finalSellerPaymentAmount, 0)
+  const sellerDue = settlements.filter((item) => item.status !== 'completed').reduce((total, item) => total + item.currentCalculation.finalSellerPaymentAmount, 0)
   const managerDue = settlements.filter((item) => item.status !== 'completed').reduce((total, item) => total + item.currentCalculation.finalPaymentAmount, 0)
   const evidenceMissing = settlements.filter((item) => item.evidenceStatus !== 'confirmed').length
   const calculationErrors = settlements.filter((item) => !validateSettlement(item).valid).length
@@ -131,7 +131,7 @@ export function SettlementPage({ initialSettlementId }: { initialSettlementId?: 
             <table className="schedule-table settlement-table">
               <thead>
                 <tr>
-                  <th>공동구매</th><th>셀러</th><th>브랜드</th><th>판매 기간</th><th>정산 버전</th><th>총매출</th><th>총수수료</th><th>차감 합계</th><th>회사 잔여 수수료</th><th>매니저 지급액</th><th>회사 귀속액</th><th>셀러 지급액</th><th>증빙 상태</th><th>정산 상태</th><th>정산 담당자</th><th>지급 예정일</th>
+                  <th>공동구매</th><th>셀러</th><th>브랜드</th><th>판매 기간</th><th>정산 버전</th><th>총매출</th><th>총수수료</th><th>벤더 수수료</th><th>차감 합계</th><th>최종 배분 대상 금액</th><th>매니저 지급액</th><th>회사 귀속액</th><th>셀러 지급액</th><th>증빙 상태</th><th>정산 상태</th><th>정산 담당자</th><th>지급 예정일</th>
                 </tr>
               </thead>
               <tbody>
@@ -147,11 +147,12 @@ export function SettlementPage({ initialSettlementId }: { initialSettlementId?: 
                       <td>v{settlement.settlementVersion}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.grossSales)}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.grossCommission)}</td>
+                      <td className="amount-cell">{money(settlement.currentCalculation.vendorCommission)}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.deductionTotal)}</td>
-                      <td className="amount-cell">{money(settlement.currentCalculation.netCompanyCommission)}</td>
+                      <td className="amount-cell">{money(settlement.currentCalculation.distributableVendorCommission)}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.managerAmount)}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.companyAmount)}</td>
-                      <td className="amount-cell">{money(settlement.currentCalculation.sellerPaymentAmount)}</td>
+                      <td className="amount-cell">{money(settlement.currentCalculation.finalSellerPaymentAmount)}</td>
                       <td>{settlement.evidenceStatus === 'confirmed' ? '확인 완료' : '미확인'}</td>
                       <td><Badge label={statusLabel(settlement.status)} tone={statusTone[settlement.status]} /></td>
                       <td>{settlement.assigneeName}</td>
@@ -195,7 +196,7 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
   }
 
   const copySummary = async () => {
-    const summary = `${campaign?.campaignName ?? settlement.campaignId} 정산 요약: 총매출 ${money(settlement.currentCalculation.grossSales)}, 총수수료 ${money(settlement.currentCalculation.grossCommission)}, 매니저 지급액 ${money(settlement.currentCalculation.managerAmount)}, 회사 귀속액 ${money(settlement.currentCalculation.companyAmount)}, 셀러 지급액 ${money(settlement.currentCalculation.sellerPaymentAmount)}`
+    const summary = `${campaign?.campaignName ?? settlement.campaignId} 정산 요약: 총매출 ${money(settlement.currentCalculation.grossSales)}, 총수수료 ${money(settlement.currentCalculation.grossCommission)}, 벤더 수수료 ${money(settlement.currentCalculation.vendorCommission)}, 최종 배분 대상 금액 ${money(settlement.currentCalculation.distributableVendorCommission)}, 매니저 지급액 ${money(settlement.currentCalculation.managerAmount)}, 회사 귀속액 ${money(settlement.currentCalculation.companyAmount)}, 셀러 지급액 ${money(settlement.currentCalculation.finalSellerPaymentAmount)}`
     await navigator.clipboard?.writeText(summary)
   }
 
@@ -226,16 +227,29 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
           <Summary label="정산 상태" value={statusLabel(settlement.status)} />
           <Summary label="버전" value={`v${settlement.settlementVersion}`} />
           <Summary label="총매출" value={money(settlement.currentCalculation.grossSales)} amount />
+          <Summary label="총수수료율" value={`${settlement.currentCalculation.totalCommissionRate}%`} />
           <Summary label="총수수료" value={money(settlement.currentCalculation.grossCommission)} amount />
+          <Summary label="셀러 수수료율" value={`${settlement.currentCalculation.sellerCommissionRate}%`} />
+          <Summary label="셀러 수수료" value={money(settlement.currentCalculation.sellerCommissionAmount)} amount />
+          <Summary label="벤더 수수료" value={money(settlement.currentCalculation.vendorCommission)} amount />
           <Summary label="차감 합계" value={money(settlement.currentCalculation.deductionTotal)} amount />
-          <Summary label="회사 잔여 수수료" value={money(settlement.currentCalculation.netCompanyCommission)} amount />
+          <Summary label="최종 배분 대상 금액" value={money(settlement.currentCalculation.distributableVendorCommission)} amount />
           <Summary label="매니저 지급액" value={money(settlement.currentCalculation.managerAmount)} amount />
           <Summary label="회사 귀속액" value={money(settlement.currentCalculation.companyAmount)} amount />
-          <Summary label="셀러 지급액" value={money(settlement.currentCalculation.sellerPaymentAmount)} amount />
+          <Summary label="셀러 지급액" value={money(settlement.currentCalculation.finalSellerPaymentAmount)} amount />
           <Summary label="증빙 상태" value={settlement.evidenceStatus === 'confirmed' ? '확인 완료' : '미확인'} />
           <Summary label="지급 상태" value={settlement.status === 'completed' ? '완료' : settlement.status === 'payment_ready' ? '지급 준비' : '대기'} />
           <Summary label="세무 유형" value={settlement.taxType === 'tax_invoice' ? '세금계산서' : settlement.taxType === 'cash_receipt' ? '현금영수증' : '3.3% 원천징수'} />
         </section>
+
+        {campaign?.linkOwner === '브랜드사' && (
+          <section className="detail-card settlement-card">
+            <div className="checklist-head">
+              <div><h3>브랜드사 세금계산서 발행 금액</h3><p>브랜드사에 발행할 세금계산서 금액: 총수수료</p></div>
+              <strong>{money(settlement.currentCalculation.grossCommission)}</strong>
+            </div>
+          </section>
+        )}
 
         <section className="detail-card settlement-card">
           <div className="checklist-head">
@@ -364,7 +378,7 @@ const checklistLabels = {
 
 function applyLocationLabel(location: SettlementDeduction['applyLocation']) {
   const labels: Record<SettlementDeduction['applyLocation'], string> = {
-    net_company_commission: '회사 잔여 수수료 차감',
+    net_company_commission: '최종 배분 대상 금액 차감',
     seller_payment: '셀러 지급액 차감',
     manager_payment: '매니저 지급액 차감',
     record_only: '기록만 유지',
@@ -381,10 +395,11 @@ function PreviewContent({ activeTab, settlement, logs }: { activeTab: PreviewTab
   return (
     <div className="settlement-preview">
       <p>총매출 {money(settlement.currentCalculation.grossSales)} / 총수수료 {money(settlement.currentCalculation.grossCommission)}</p>
-      <p>셀러 지급액 {money(settlement.currentCalculation.sellerPaymentAmount)}</p>
+      <p>셀러 지급액 {money(settlement.currentCalculation.finalSellerPaymentAmount)}</p>
+      {showInternal && <p>벤더 수수료 {money(settlement.currentCalculation.vendorCommission)} / 최종 배분 대상 금액 {money(settlement.currentCalculation.distributableVendorCommission)}</p>}
       {showInternal && <p>매니저 지급액 {money(settlement.currentCalculation.managerAmount)} / 회사 귀속액 {money(settlement.currentCalculation.companyAmount)}</p>}
       {!showInternal && <p>내부 회사 배분정보 숨김</p>}
-      <p>세금 {money(settlement.currentCalculation.taxAmount)} / 실지급액 {money(settlement.currentCalculation.finalPaymentAmount)}</p>
+      <p>적용 세금 {money(settlement.currentCalculation.taxAmount)} / 매니저 지급액 {money(settlement.currentCalculation.finalPaymentAmount)}</p>
     </div>
   )
 }
