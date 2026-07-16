@@ -15,14 +15,16 @@ import { CampaignOverviewTab } from './components/CampaignOverviewTab'
 import { CampaignPlaceholderTab } from './components/CampaignPlaceholderTab'
 import { CampaignProposalTab } from './components/CampaignProposalTab'
 import { CampaignSampleTab } from './components/CampaignSampleTab'
+import { CampaignSalesDataTab } from './components/CampaignSalesDataTab'
 import { PriceBannerEditor } from './components/PriceBannerEditor'
 
 type CampaignDetailPageProps = {
   scheduleId: string
   onBack: () => void
+  onOpenSalesData?: (salesDataImportId: string) => void
 }
 
-export function CampaignDetailPage({ scheduleId, onBack }: CampaignDetailPageProps) {
+export function CampaignDetailPage({ scheduleId, onBack, onOpenSalesData }: CampaignDetailPageProps) {
   const [activeTab, setActiveTab] = useState<DetailTab>('개요')
   const [checklist, setChecklist] = useState<CampaignChecklistItem[]>(campaignDetailMock.checklist)
   const [linkInfo, setLinkInfo] = useState<CampaignLinkInfo>(campaignDetailMock.linkInfo)
@@ -102,6 +104,10 @@ export function CampaignDetailPage({ scheduleId, onBack }: CampaignDetailPagePro
 
     if (activeTab === 'CS') {
       return <CampaignCsTab campaignId={schedule.id} />
+    }
+
+    if (activeTab === '판매 데이터') {
+      return <CampaignSalesDataTab campaignId={schedule.id} onOpenSalesData={onOpenSalesData} />
     }
 
     return <CampaignPlaceholderTab title={activeTab} />

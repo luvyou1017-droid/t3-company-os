@@ -4,6 +4,8 @@ export const STORAGE_KEYS = {
   samples: 't3_company_os_samples',
   workItems: 't3_company_os_work_items',
   notifications: 't3_company_os_notifications',
+  salesDataImports: 't3_company_os_sales_data_imports',
+  salesDataRows: 't3_company_os_sales_data_rows',
   notificationSendLogs: 't3_company_os_notification_send_logs',
 } as const
 

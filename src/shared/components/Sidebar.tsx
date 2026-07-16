@@ -20,7 +20,7 @@ type SidebarProps = {
 }
 
 function isNavigablePage(item: string): item is AppPage {
-  return item === 'Dashboard' || item === 'My Work' || item === '공동구매 일정' || item === 'CS 관리' || item === '샘플 관리'
+  return item === 'Dashboard' || item === 'My Work' || item === '공동구매 일정' || item === 'CS 관리' || item === '샘플 관리' || item === '판매 데이터'
 }
 
 export function Sidebar({ activePage, onNavigate }: SidebarProps) {

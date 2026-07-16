@@ -7,9 +7,10 @@ import { DashboardPage } from './pages/dashboard/DashboardPage'
 import { MyWorkPage } from './pages/my-work/MyWorkPage'
 import { PublicCsIntakePage } from './pages/public-cs-intake/PublicCsIntakePage'
 import { SampleManagementPage } from './pages/sample-management/SampleManagementPage'
+import { SalesDataPage } from './pages/sales-data/SalesDataPage'
 import './App.css'
 
-export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리'
+export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터'
 
 function App() {
   const isPublicCsIntake = window.location.hash === '#public-cs-intake'
@@ -17,12 +18,14 @@ function App() {
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null)
   const [selectedCsCaseId, setSelectedCsCaseId] = useState<string | null>(null)
   const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
+  const [selectedSalesDataImportId, setSelectedSalesDataImportId] = useState<string | null>(null)
 
   const handleNavigate = (page: AppPage) => {
     setActivePage(page)
     setSelectedScheduleId(null)
     setSelectedCsCaseId(null)
     setSelectedSampleId(null)
+    setSelectedSalesDataImportId(null)
   }
 
   if (isPublicCsIntake) {
@@ -36,6 +39,11 @@ function App() {
         setSelectedSampleId(targetId)
         return
       }
+      if (targetId.startsWith('sales-')) {
+        setActivePage('판매 데이터')
+        setSelectedSalesDataImportId(targetId)
+        return
+      }
       setActivePage('CS 관리')
       setSelectedCsCaseId(targetId)
     }}>
@@ -43,11 +51,20 @@ function App() {
       {activePage === 'My Work' && <MyWorkPage />}
       {activePage === 'CS 관리' && <CsManagementPage initialCaseId={selectedCsCaseId} />}
       {activePage === '샘플 관리' && <SampleManagementPage initialSampleId={selectedSampleId} />}
+      {activePage === '판매 데이터' && <SalesDataPage initialImportId={selectedSalesDataImportId} />}
       {activePage === '공동구매 일정' && !selectedScheduleId && (
         <CampaignSchedulePage onOpenDetail={setSelectedScheduleId} />
       )}
       {activePage === '공동구매 일정' && selectedScheduleId && (
-        <CampaignDetailPage onBack={() => setSelectedScheduleId(null)} scheduleId={selectedScheduleId} />
+        <CampaignDetailPage
+          onBack={() => setSelectedScheduleId(null)}
+          onOpenSalesData={(salesDataImportId) => {
+            setActivePage('판매 데이터')
+            setSelectedScheduleId(null)
+            setSelectedSalesDataImportId(salesDataImportId)
+          }}
+          scheduleId={selectedScheduleId}
+        />
       )}
     </AppLayout>
   )

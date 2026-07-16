@@ -418,6 +418,12 @@
   border-radius: 8px;
   box-shadow: var(--shadow);
   padding: 16px;
+  text-align: left;
+}
+
+.summary-count-card.is-active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
 .summary-count-card span {
@@ -621,6 +627,133 @@
 .campaign-status--muted {
   background: #f3f4f6;
   color: var(--muted);
+}
+
+.sales-data-table {
+  min-width: 1760px;
+}
+
+.sales-data-drawer {
+  max-width: 760px;
+  width: min(100%, 760px);
+}
+
+.sales-data-detail-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sales-upload-box {
+  background: var(--surface-subtle);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.sales-upload-box strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.sales-upload-box p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sales-upload-box dl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.sales-upload-box div {
+  display: grid;
+  gap: 2px;
+}
+
+.sales-upload-box dt,
+.sales-summary-item span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.sales-upload-box dd {
+  color: #374151;
+  font-size: 13px;
+  margin: 0;
+}
+
+.sales-summary-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sales-summary-item {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.sales-summary-item strong {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.sales-ai-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.sales-ai-card ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.sales-ai-card li {
+  color: #374151;
+  font-size: 13px;
+}
+
+.sales-row-table {
+  min-width: 1100px;
+}
+
+.sales-manual-modal {
+  max-width: 960px;
+}
+
+.manual-row-list {
+  display: grid;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.manual-row {
+  align-items: end;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1.2fr repeat(4, minmax(90px, 1fr)) auto;
+  padding: 12px;
+}
+
+.manual-row label {
+  display: grid;
+  gap: 6px;
 }
 
 .empty-state {
@@ -1885,6 +2018,12 @@
   .cs-summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .sales-summary-grid,
+  .sales-data-detail-list,
+  .manual-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1931,6 +2070,13 @@
 
   .preview-drawer {
     max-width: none;
+  }
+
+  .sales-upload-box dl,
+  .sales-summary-grid,
+  .sales-data-detail-list,
+  .manual-row {
+    grid-template-columns: 1fr;
   }
 
   .detail-hero {

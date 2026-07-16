@@ -14,6 +14,7 @@ export type WorkType =
   | '17시 매출 전달'
   | 'CS 답변'
   | '판매 데이터 요청'
+  | '판매 데이터 검수'
   | '정산서 작성'
   | '정산서 검토'
   | '세금계산서 발행'
@@ -45,7 +46,7 @@ export type WorkItem = {
   workType: WorkType
   status: WorkStatus
   campaignId: string
-  sourceType: 'manual' | 'cs' | 'sample' | 'settlement' | 'payment' | 'ai'
+  sourceType: 'manual' | 'cs' | 'sample' | 'sales_data' | 'settlement' | 'payment' | 'ai'
   sourceId: string
   campaignName: string
   sellerName: string
