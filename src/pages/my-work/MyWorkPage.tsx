@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { dailyBriefings, workUsers } from '../../features/myWork/mockData'
 import { workService } from '../../features/cs/services/workService'
 import {
@@ -44,6 +44,12 @@ export function MyWorkPage() {
   const [selectedItem, setSelectedItem] = useState<WorkItem | null>(null)
   const [completeTarget, setCompleteTarget] = useState<WorkItem | null>(null)
   const [briefingNonce, setBriefingNonce] = useState(0)
+
+  useEffect(() => {
+    const sync = () => setItems(workService.listWorkItems())
+    window.addEventListener('t3-storage-updated', sync)
+    return () => window.removeEventListener('t3-storage-updated', sync)
+  }, [])
 
   const selectedUser = workUsers.find((user) => user.id === selectedUserId) ?? workUsers[0]
   const userItems = items.filter((item) => item.assigneeId === selectedUser.id)

@@ -2,7 +2,7 @@ export type WorkRole = '대표' | '팀장' | '매니저' | 'MD' | '정산 담당
 
 export type WorkPriority = 'urgent' | 'high' | 'medium' | 'low'
 
-export type WorkStatus = 'todo' | 'in_progress' | 'blocked' | 'completed' | 'on_hold'
+export type WorkStatus = 'pending' | 'todo' | 'in_progress' | 'blocked' | 'completed' | 'on_hold'
 
 export type WorkType =
   | '링크 요청'
@@ -26,6 +26,7 @@ export type WorkType =
   | '회사 수익 확인'
   | '예외 승인'
   | '일정 충돌 확인'
+  | '체크리스트'
 
 export type WorkUser = {
   id: string
@@ -46,7 +47,7 @@ export type WorkItem = {
   workType: WorkType
   status: WorkStatus
   campaignId: string
-  sourceType: 'manual' | 'cs' | 'sample' | 'sales_data' | 'settlement' | 'payment' | 'ai'
+  sourceType: 'manual' | 'checklist' | 'cs' | 'sample' | 'sales_data' | 'settlement' | 'payment' | 'ai'
   sourceId: string
   campaignName: string
   sellerName: string

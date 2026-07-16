@@ -1,13 +1,8 @@
 import type { DailyBriefing, WorkItem, WorkUser } from './types'
 import { findCampaignByName } from '../../shared/data/campaigns'
+import { appUsers } from '../../shared/data/users'
 
-export const workUsers: WorkUser[] = [
-  { id: 'u-001', name: '허윤정', role: '대표' },
-  { id: 'u-002', name: '허수정', role: '정산 담당자' },
-  { id: 'u-003', name: '배민성', role: '팀장' },
-  { id: 'u-004', name: '유시철', role: 'MD' },
-  { id: 'u-005', name: '김병희', role: '매니저' },
-]
+export const workUsers: WorkUser[] = appUsers
 
 const log = (message: string) => [{ id: crypto.randomUUID(), at: '2026-07-15 09:10', message }]
 

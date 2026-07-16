@@ -14,6 +14,12 @@ export function CampaignCsTab({ campaignId }: { campaignId: string }) {
         </div>
         <strong className="result-count">{campaignCases.length}건</strong>
       </div>
+      {campaignCases.length === 0 ? (
+        <div className="empty-state">
+          <strong>아직 등록된 CS가 없습니다.</strong>
+          <p>외부 접수 또는 CS 관리에서 신규 CS를 등록하면 이곳에 표시됩니다.</p>
+        </div>
+      ) : (
       <div className="comparison-table-wrap">
         <table className="comparison-table">
           <thead>
@@ -34,6 +40,7 @@ export function CampaignCsTab({ campaignId }: { campaignId: string }) {
           </tbody>
         </table>
       </div>
+      )}
     </section>
   )
 }

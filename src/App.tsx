@@ -37,6 +37,11 @@ function App() {
 
   return (
     <AppLayout activePage={activePage} onNavigate={handleNavigate} onOpenRelated={(targetId) => {
+      if (targetId.startsWith('SCH-')) {
+        setActivePage('공동구매 일정')
+        setSelectedScheduleId(targetId)
+        return
+      }
       if (targetId.startsWith('s-') || targetId.includes('sample')) {
         setActivePage('샘플 관리')
         setSelectedSampleId(targetId)

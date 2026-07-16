@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { campaignSchedules } from '../../features/campaignSchedules/mockData'
 import { campaignDetailMock } from '../../features/campaignDetail/mockData'
+import { campaignService } from '../../shared/services/campaignService'
+import type { Campaign } from '../../shared/types/campaign'
 import type {
   CampaignChecklistItem,
   CampaignLinkInfo,
@@ -19,6 +21,42 @@ import { CampaignSalesDataTab } from './components/CampaignSalesDataTab'
 import { CampaignSettlementTab } from './components/CampaignSettlementTab'
 import { PriceBannerEditor } from './components/PriceBannerEditor'
 
+function toSchedule(campaign: Campaign) {
+  return {
+    id: campaign.id,
+    campaignName: campaign.campaignName,
+    sellerName: campaign.sellerName,
+    brandName: campaign.brandName,
+    productName: campaign.productName,
+    managerName: campaign.managerName,
+    mdName: campaign.mdName,
+    startDate: campaign.startDate || undefined,
+    endDate: campaign.endDate || undefined,
+    linkOwner: campaign.linkOwner,
+    landingPageCompleted: Boolean(campaign.landingPageCompleted),
+    sellerBusinessType: campaign.businessType,
+    pendingTaskCount: campaign.pendingTaskCount ?? 0,
+    pendingCsCount: campaign.pendingCsCount ?? 0,
+    pendingSampleCount: campaign.pendingSampleCount ?? 0,
+    linkReviewPending: Boolean(campaign.linkReviewPending),
+    orderPending: Boolean(campaign.orderPending),
+    vendorSettlementCompleted: Boolean(campaign.vendorSettlementCompleted),
+    settlementDocumentCompleted: Boolean(campaign.settlementDocumentCompleted),
+    sellerPaymentCompleted: Boolean(campaign.sellerPaymentCompleted),
+    managerPaymentCompleted: Boolean(campaign.managerPaymentCompleted),
+    todayTask: campaign.todayTask ?? '',
+  }
+}
+
+function toChecklistItem(item: ReturnType<typeof campaignService.getChecklistItemsByCampaignId>[number]): CampaignChecklistItem {
+  return {
+    id: item.id,
+    group: (item.group ?? campaignDetailMock.checklist.find((mockItem) => mockItem.title === item.title)?.group ?? 'D-DAY') as CampaignChecklistItem['group'],
+    title: `${item.status === 'overdue' ? '[지연] ' : ''}${item.title}`,
+    completed: item.status === 'completed',
+  }
+}
+
 type CampaignDetailPageProps = {
   scheduleId: string
   onBack: () => void
@@ -28,19 +66,46 @@ type CampaignDetailPageProps = {
 
 export function CampaignDetailPage({ scheduleId, onBack, onOpenSalesData, onOpenSettlement }: CampaignDetailPageProps) {
   const [activeTab, setActiveTab] = useState<DetailTab>('개요')
-  const [checklist, setChecklist] = useState<CampaignChecklistItem[]>(campaignDetailMock.checklist)
+  const generatedChecklist = campaignService.getChecklistItemsByCampaignId(scheduleId).map(toChecklistItem)
+  const [checklist, setChecklist] = useState<CampaignChecklistItem[]>(generatedChecklist.length ? generatedChecklist : campaignDetailMock.checklist)
   const [linkInfo, setLinkInfo] = useState<CampaignLinkInfo>(campaignDetailMock.linkInfo)
   const [priceBannerConfig, setPriceBannerConfig] = useState<PriceBannerConfig>(campaignDetailMock.priceBanner)
   const [proposalNotice, setProposalNotice] = useState('')
   const [linkNotice, setLinkNotice] = useState('')
   const [bannerNotice, setBannerNotice] = useState('')
 
-  const schedule = useMemo(
-    () => campaignSchedules.find((item) => item.id === scheduleId) ?? campaignSchedules[0],
-    [scheduleId],
-  )
+  const schedule = useMemo(() => {
+    const campaign = campaignService.getCampaignById(scheduleId)
+    if (campaign) return toSchedule(campaign)
+    return campaignSchedules.find((item) => item.id === scheduleId) ?? campaignSchedules[0]
+  }, [scheduleId])
 
-  const detail = campaignDetailMock
+  const campaign = campaignService.getCampaignById(scheduleId)
+  const detail = campaign
+    ? {
+        ...campaignDetailMock,
+        id: campaign.id,
+        campaignName: campaign.campaignName,
+        sellerName: campaign.sellerName,
+        brandName: campaign.brandName,
+        productName: campaign.productName,
+        managerName: campaign.managerName,
+        mdName: campaign.mdName,
+        startDate: campaign.startDate,
+        endDate: campaign.endDate,
+        settlementDueDate: campaign.settlementDueDate,
+        linkOwner: campaign.linkOwner,
+        sellerBusinessType: campaign.businessType,
+        pendingCsCount: campaign.pendingCsCount ?? 0,
+        summary: [
+          `체크리스트 ${checklist.filter((item) => item.completed).length} / ${checklist.length}`,
+          campaign.linkReviewPending ? '링크 검수 대기' : '링크 검수 완료',
+          `미처리 CS ${campaign.pendingCsCount ?? 0}건`,
+          '판매 데이터 대기',
+          '정산 시작 전',
+        ],
+      }
+    : campaignDetailMock
 
   const toggleChecklistItem = (id: string) => {
     setChecklist((items) =>

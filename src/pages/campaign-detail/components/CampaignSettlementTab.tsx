@@ -28,7 +28,7 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
           </div>
           <button className="primary-button" disabled={!readySales} onClick={createSettlement} type="button">정산 생성</button>
         </div>
-        <div className="empty-state"><strong>연결된 정산이 없습니다.</strong><span>{readySales ? '정산 생성 버튼으로 초안을 만들 수 있습니다.' : '정산 가능한 Sales Data가 없습니다.'}</span></div>
+        <div className="empty-state"><strong>판매 데이터 확정 후 정산을 생성할 수 있습니다.</strong><span>{readySales ? '정산 생성 버튼으로 초안을 만들 수 있습니다.' : '정산 가능한 Sales Data가 없습니다.'}</span></div>
       </section>
     )
   }

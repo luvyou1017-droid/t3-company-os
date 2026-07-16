@@ -12,6 +12,10 @@ export function CampaignSalesDataTab({ campaignId, onOpenSalesData }: { campaign
     return (
       <section className="detail-card">
         <div className="checklist-head"><div><h3>판매 데이터</h3><p>아직 연결된 판매 데이터가 없습니다.</p></div></div>
+        <div className="empty-state">
+          <strong>아직 판매 데이터가 없습니다.</strong>
+          <p>파일을 업로드하거나 수기로 입력해주세요.</p>
+        </div>
       </section>
     )
   }

@@ -2,6 +2,10 @@ export type LinkOwner = '자사' | '브랜드사' | '셀러'
 
 export type BusinessType = '개인사업자' | '법인사업자' | '미정'
 
+export type CampaignLinkOwnerInput = 'company' | 'brand' | 'seller'
+
+export type CampaignBusinessTypeInput = 'corporation' | 'sole_proprietor' | 'freelancer'
+
 export type Campaign = {
   id: string
   campaignCode: string
@@ -20,7 +24,11 @@ export type Campaign = {
   endDate: string
   linkOwner: LinkOwner
   businessType: BusinessType
+  totalCommissionRate?: number
+  sellerCommissionRate?: number
+  landingPageType?: string
   settlementDueDate: string
+  memo?: string
   createdAt: string
   updatedAt: string
   status?: 'draft' | 'preparing' | 'active' | 'closed' | 'settled'

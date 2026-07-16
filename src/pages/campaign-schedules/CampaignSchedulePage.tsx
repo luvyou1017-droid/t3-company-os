@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
-import { campaignSchedules, currentManagerName } from '../../features/campaignSchedules/mockData'
+import { currentManagerName } from '../../features/campaignSchedules/mockData'
 import {
   getCampaignStatus,
   getDaysBetweenCalendarDates,
   isSettlementPending,
 } from '../../features/campaignSchedules/scheduleStatus'
+import { campaignService } from '../../shared/services/campaignService'
+import type { Campaign } from '../../shared/types/campaign'
 import type {
   CampaignFilters,
   CampaignSchedule,
@@ -12,6 +14,7 @@ import type {
 } from '../../features/campaignSchedules/types'
 import { CampaignFilters as CampaignFiltersPanel } from './components/CampaignFilters'
 import { CampaignPreviewDrawer } from './components/CampaignPreviewDrawer'
+import { CreateCampaignModal } from './components/CreateCampaignModal'
 import { CampaignSummary } from './components/CampaignSummary'
 import { CampaignTable } from './components/CampaignTable'
 import { CampaignViewTabs } from './components/CampaignViewTabs'
@@ -65,6 +68,33 @@ function matchesDateRange(schedule: CampaignSchedule, filters: CampaignFilters) 
   return true
 }
 
+function toSchedule(campaign: Campaign): CampaignSchedule {
+  return {
+    id: campaign.id,
+    campaignName: campaign.campaignName,
+    sellerName: campaign.sellerName,
+    brandName: campaign.brandName,
+    productName: campaign.productName,
+    managerName: campaign.managerName,
+    mdName: campaign.mdName,
+    startDate: campaign.startDate || undefined,
+    endDate: campaign.endDate || undefined,
+    linkOwner: campaign.linkOwner,
+    landingPageCompleted: Boolean(campaign.landingPageCompleted),
+    sellerBusinessType: campaign.businessType,
+    pendingTaskCount: campaign.pendingTaskCount ?? 0,
+    pendingCsCount: campaign.pendingCsCount ?? 0,
+    pendingSampleCount: campaign.pendingSampleCount ?? 0,
+    linkReviewPending: Boolean(campaign.linkReviewPending),
+    orderPending: Boolean(campaign.orderPending),
+    vendorSettlementCompleted: Boolean(campaign.vendorSettlementCompleted),
+    settlementDocumentCompleted: Boolean(campaign.settlementDocumentCompleted),
+    sellerPaymentCompleted: Boolean(campaign.sellerPaymentCompleted),
+    managerPaymentCompleted: Boolean(campaign.managerPaymentCompleted),
+    todayTask: campaign.todayTask ?? '',
+  }
+}
+
 type CampaignSchedulePageProps = {
   onOpenDetail: (scheduleId: string) => void
 }
@@ -73,7 +103,11 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
   const [activeTab, setActiveTab] = useState<CampaignViewTab>('전체')
   const [filters, setFilters] = useState<CampaignFilters>(initialFilters)
   const [selectedSchedule, setSelectedSchedule] = useState<CampaignSchedule | null>(null)
+  const [creating, setCreating] = useState(false)
   const [notice, setNotice] = useState('')
+  const [campaigns, setCampaigns] = useState<Campaign[]>(() => campaignService.getCampaigns())
+
+  const campaignSchedules = useMemo(() => campaigns.map(toSchedule), [campaigns])
 
   const filteredSchedules = useMemo(() => {
     const normalizedSearch = filters.search.trim().toLowerCase()
@@ -97,7 +131,15 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
   }, [activeTab, filters])
 
   const handleCreateClick = () => {
-    setNotice('새 일정 등록은 다음 단계에서 modal form으로 연결됩니다.')
+    setNotice('')
+    setCreating(true)
+  }
+
+  const handleCreated = (campaign: Campaign) => {
+    setCampaigns(campaignService.getCampaigns())
+    setCreating(false)
+    setNotice('새 공동구매 일정이 등록되었습니다.')
+    onOpenDetail(campaign.id)
   }
 
   return (
@@ -137,6 +179,13 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
         }}
         schedule={selectedSchedule}
       />
+
+      {creating && (
+        <CreateCampaignModal
+          onClose={() => setCreating(false)}
+          onCreated={handleCreated}
+        />
+      )}
     </section>
   )
 }
