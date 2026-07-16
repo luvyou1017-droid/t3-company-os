@@ -1,17 +1,18 @@
-import { useState } from 'react'
+import { useRef, useState, type RefObject } from 'react'
 import { campaignService } from '../../shared/services/campaignService'
 import { salesDataService } from '../../shared/services/salesDataService'
 import { sampleService } from '../../shared/services/sampleService'
 import { settlementService } from '../../shared/services/settlementService'
 import type { SampleRequest } from '../../features/samples/types'
+import type { SalesDataRow } from '../../shared/types/salesData'
 import type { Settlement, SettlementDeduction, SettlementStatus, SettlementVersion } from '../../shared/types/settlement'
 import { canMoveToReview, runSettlementAssertions, statusLabel, validateSettlement } from '../../shared/utils/settlement'
 import { formatCurrency } from '../../shared/utils/salesData'
 
-type PreviewTab = '내부 검토용 정산서' | '셀러 전달용 정산서' | '계산 로그' | '수정 이력' | '승인 이력'
-type DetailTab = '요약' | '계산 과정' | '차감 내역' | '세무·증빙' | '승인' | '이력'
+type DocumentMode = '내부 검토용' | '셀러 전달용'
+type DetailTab = '요약' | '계산 과정' | '차감 내역' | '세무·증빙' | '검토·승인' | '정산서' | '이력'
 
-const detailTabs: DetailTab[] = ['요약', '계산 과정', '차감 내역', '세무·증빙', '승인', '이력']
+const detailTabs: DetailTab[] = ['요약', '계산 과정', '차감 내역', '세무·증빙', '검토·승인', '정산서', '이력']
 
 const statusTone: Record<SettlementStatus, string> = {
   draft: 'muted',
@@ -181,9 +182,11 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: s
 }
 
 export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: Settlement | null; onClose: () => void; onSync: () => void }) {
-  const [activeTab, setActiveTab] = useState<PreviewTab>('내부 검토용 정산서')
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTab>('요약')
+  const [documentMode, setDocumentMode] = useState<DocumentMode>('셀러 전달용')
+  const [documentNotice, setDocumentNotice] = useState('')
   const [compareOpen, setCompareOpen] = useState(false)
+  const sellerDocumentRef = useRef<HTMLDivElement | null>(null)
   if (!settlement) return null
 
   const campaign = getCampaign(settlement)
@@ -193,6 +196,7 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
   const samples = sampleService.getSamplesByCampaignId(settlement.campaignId)
   const validation = validateSettlement(settlement)
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
+  const salesRows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
   const salesDataConfirmed = salesImport?.reviewStatus === '확정 완료'
   const reviewReady = canMoveToReview(settlement, salesDataConfirmed)
   const checklistDone = Object.values(settlement.reviewChecklist).every(Boolean)
@@ -202,14 +206,58 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
     onSync()
   }
 
-  const copySummary = async () => {
-    const summary = `${campaign?.campaignName ?? settlement.campaignId} 정산 요약: 총매출 ${money(settlement.currentCalculation.grossSales)}, 총수수료 ${money(settlement.currentCalculation.grossCommission)}, 벤더 수수료 ${money(settlement.currentCalculation.vendorCommission)}, 최종 배분 대상 금액 ${money(settlement.currentCalculation.distributableVendorCommission)}, 매니저 지급액 ${money(settlement.currentCalculation.managerAmount)}, 회사 귀속액 ${money(settlement.currentCalculation.companyAmount)}, 셀러 지급액 ${money(settlement.currentCalculation.finalSellerPaymentAmount)}`
-    await navigator.clipboard?.writeText(summary)
+  const copySellerMessage = async () => {
+    const evidenceName = settlement.taxType === 'tax_invoice' ? '세금계산서' : settlement.taxType === 'cash_receipt' ? '현금영수증' : '3.3%'
+    const message = `안녕하세요.\n${campaign?.campaignName ?? settlement.campaignId} 정산서를 전달드립니다.\n\n정산금액: ${money(settlement.currentCalculation.finalSellerPaymentAmount)}\n증빙 유형: ${evidenceName}\n증빙 요청일: ${new Date().toISOString().slice(0, 10)}\n지급 예정일: ${settlement.paymentDueDate}\n\n정산 내용을 확인해주시고,\n수정이 필요한 부분이 있다면 담당 매니저에게 전달 부탁드립니다.`
+    await navigator.clipboard?.writeText(message)
+    setDocumentNotice('전달 문구를 클립보드에 복사했습니다.')
+  }
+
+  const copySellerDocumentText = async () => {
+    await navigator.clipboard?.writeText(sellerDocumentRef.current?.innerText ?? '')
+    setDocumentNotice('셀러용 정산서 내용을 클립보드에 복사했습니다.')
+  }
+
+  const saveSellerDocumentImage = async () => {
+    const node = sellerDocumentRef.current
+    if (!node) return
+    try {
+      const rect = node.getBoundingClientRect()
+      const cloned = node.cloneNode(true) as HTMLElement
+      cloned.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml')
+      const markup = new XMLSerializer().serializeToString(cloned)
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(rect.width)}" height="${Math.ceil(rect.height)}"><foreignObject width="100%" height="100%">${markup}</foreignObject></svg>`
+      const image = new Image()
+      const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }))
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve()
+        image.onerror = () => reject(new Error('이미지 변환에 실패했습니다.'))
+        image.src = url
+      })
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.ceil(rect.width * 2)
+      canvas.height = Math.ceil(rect.height * 2)
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('브라우저 캔버스를 사용할 수 없습니다.')
+      context.scale(2, 2)
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, rect.width, rect.height)
+      context.drawImage(image, 0, 0)
+      URL.revokeObjectURL(url)
+      const pngUrl = canvas.toDataURL('image/png')
+      const link = document.createElement('a')
+      link.href = pngUrl
+      link.download = `정산서_${campaign?.sellerName ?? '셀러'}_${campaign?.campaignName ?? settlement.id}_${new Date().toISOString().slice(0, 10)}.png`
+      link.click()
+      setDocumentNotice('셀러용 정산서를 이미지로 저장했습니다.')
+    } catch (error) {
+      setDocumentNotice(error instanceof Error ? error.message : '이미지 저장에 실패했습니다.')
+    }
   }
 
   return (
     <div className="drawer-backdrop">
-      <aside className="preview-drawer settlement-drawer" onClick={(event) => event.stopPropagation()}>
+      <aside className="preview-drawer settlement-drawer settlement-detail-modal" onClick={(event) => event.stopPropagation()}>
         <div className="preview-drawer__header">
           <div>
             <p className="page-eyebrow">Settlement Detail</p>
@@ -229,6 +277,16 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
             {validation.errors.map((error) => <span key={error}>{error}</span>)}
           </div>
         )}
+
+        <section className="settlement-top-meta">
+          <Summary label="공동구매명" value={campaign?.campaignName ?? settlement.campaignId} />
+          <Summary label="셀러" value={campaign?.sellerName ?? '-'} />
+          <Summary label="브랜드" value={campaign?.brandName ?? '-'} />
+          <Summary label="판매 기간" value={`${salesImport?.salesStartDate || '-'} ~ ${salesImport?.salesEndDate || '-'}`} />
+          <Summary label="정산 상태" value={statusLabel(settlement.status)} />
+          <Summary label="버전" value={`v${settlement.settlementVersion}`} />
+          <Summary label="정산 담당자" value={settlement.assigneeName} />
+        </section>
 
         <section className="settlement-summary-grid settlement-summary-grid--primary">
           <Summary label="총매출" value={money(settlement.currentCalculation.grossSales)} amount />
@@ -320,7 +378,7 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
           </div>
         </section>}
 
-        {activeDetailTab === '승인' && <section className="detail-card settlement-card">
+        {activeDetailTab === '검토·승인' && <section className="detail-card settlement-card">
           <div className="checklist-head">
             <div><h3>검토 체크리스트</h3><p>모든 필수 항목이 완료되어야 매니저 검토 완료가 가능합니다.</p></div>
             <strong>{Object.values(settlement.reviewChecklist).filter(Boolean).length}/10</strong>
@@ -342,17 +400,36 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
           </div>
         </section>}
 
+        {activeDetailTab === '정산서' && <section className="detail-card settlement-card settlement-document-tab">
+          <div className="checklist-head">
+            <div><h3>정산서</h3><p>내부 검토용과 셀러 전달용 정산서를 분리해서 확인합니다.</p></div>
+            <div className="action-row settlement-document-actions">
+              <button className="secondary-button" onClick={() => setDocumentMode('내부 검토용')} type="button">내부 검토용</button>
+              <button className="secondary-button" onClick={() => setDocumentMode('셀러 전달용')} type="button">셀러 전달용</button>
+            </div>
+          </div>
+          {documentMode === '내부 검토용' ? (
+            <InternalSettlementDocument campaignName={campaign?.campaignName ?? settlement.campaignId} settlement={settlement} />
+          ) : (
+            <>
+              <SettlementDocumentActions
+                onCopyText={copySellerDocumentText}
+                onCopyMessage={copySellerMessage}
+                onPreview={() => setDocumentNotice('아래 셀러용 정산서 영역이 이미지 미리보기 기준입니다.')}
+                onPrint={() => window.print()}
+                onSaveImage={saveSellerDocumentImage}
+              />
+              {documentNotice && <p className="mock-notice">{documentNotice}</p>}
+              <SellerSettlementDocument campaignName={campaign?.campaignName ?? settlement.campaignId} rows={salesRows} sellerDocumentRef={sellerDocumentRef} settlement={settlement} />
+            </>
+          )}
+        </section>}
+
         {activeDetailTab === '이력' && <section className="detail-card settlement-card">
           <div className="checklist-head">
-            <div><h3>수정·활동 이력</h3><p>정산서 미리보기, 버전, 승인 이력을 한 곳에서 확인합니다.</p></div>
-            <button className="secondary-button" onClick={copySummary} type="button">요약 복사</button>
+            <div><h3>수정·활동 이력</h3><p>계산, 수정, 검토, 승인, 지급 이력을 확인합니다.</p></div>
           </div>
-          <div className="view-tabs settlement-preview-tabs">
-            {(['내부 검토용 정산서', '셀러 전달용 정산서', '계산 로그', '수정 이력', '승인 이력'] as PreviewTab[]).map((tab) => (
-              <button className={activeTab === tab ? 'view-tab is-active' : 'view-tab'} key={tab} onClick={() => setActiveTab(tab)} type="button">{tab}</button>
-            ))}
-          </div>
-          <PreviewContent activeTab={activeTab} settlement={settlement} logs={logs} />
+          <HistoryContent logs={logs} settlement={settlement} />
           <div className="checklist-head">
             <div><h3>버전 관리</h3><p>승인본은 직접 덮어쓰지 않고 버전을 증가시켜 비교합니다.</p></div>
             <button className="secondary-button" disabled={versions.length < 2} onClick={() => setCompareOpen(true)} type="button">버전 비교</button>
@@ -370,16 +447,14 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
         </section>}
 
         <div className="preview-drawer__actions">
-          <button className="secondary-button" onClick={() => syncAction(() => settlementService.recalculateSettlement(settlement.id))} type="button">계산 실행</button>
-          <button className="secondary-button" disabled={!reviewReady} onClick={() => syncAction(() => settlementService.requestReview(settlement.id))} type="button">매니저 검토 요청</button>
-          <button className="secondary-button" disabled={!checklistDone} onClick={() => syncAction(() => settlementService.completeManagerReview(settlement.id))} type="button">매니저 검토 완료</button>
-          <button className="secondary-button" onClick={() => syncAction(() => settlementService.updateEvidence(settlement.id, 'confirmed', true, true))} type="button">증빙·계좌 확인</button>
-          <button className="secondary-button" onClick={() => syncAction(() => settlementService.requestApproval(settlement.id))} type="button">대표 승인 요청</button>
-          <button className="secondary-button" onClick={() => syncAction(() => settlementService.approveSettlement(settlement.id))} type="button">대표 승인</button>
-          <button className="secondary-button" onClick={() => syncAction(() => settlementService.markPaymentReady(settlement.id))} type="button">지급 준비</button>
-          <button className="secondary-button" onClick={() => syncAction(() => settlementService.markCompanySettlementCompleted(settlement.id))} type="button">업체 정산 완료</button>
-          <button className="secondary-button" onClick={() => syncAction(() => settlementService.markSellerPaymentCompleted(settlement.id))} type="button">셀러 지급 완료</button>
-          <button className="primary-button" onClick={() => syncAction(() => settlementService.markManagerPaymentCompleted(settlement.id))} type="button">매니저 지급 완료</button>
+          <SettlementStatusActions
+            checklistDone={checklistDone}
+            onHistory={() => setActiveDetailTab('이력')}
+            onSetDocument={() => setActiveDetailTab('정산서')}
+            reviewReady={reviewReady}
+            settlement={settlement}
+            syncAction={syncAction}
+          />
         </div>
 
         {compareOpen && <VersionCompareModal versions={versions} onClose={() => setCompareOpen(false)} />}
@@ -473,21 +548,152 @@ function getProposalSampleWarning(sample: SampleRequest, actualUnitPrice: number
   return differs ? '제안서 예상값과 실제 샘플 비용이 다릅니다.' : null
 }
 
-function PreviewContent({ activeTab, settlement, logs }: { activeTab: PreviewTab; settlement: Settlement; logs: ReturnType<typeof settlementService.getActivityLogsBySettlementId> }) {
-  const showInternal = activeTab === '내부 검토용 정산서'
-  if (activeTab === '계산 로그') return <div className="preview-text-list">{settlement.calculationSteps.map((step) => <p key={step.id}>{step.order}. {step.label}: {typeof step.result === 'number' ? money(step.result) : step.result}</p>)}</div>
-  if (activeTab === '수정 이력') return <div className="preview-text-list">{logs.filter((log) => log.action.includes('deduction') || log.action.includes('revision')).map((log) => <p key={log.id}>{log.at} · {actionLabels[log.action]} · v{log.version} · {log.reason}</p>)}</div>
-  if (activeTab === '승인 이력') return <div className="preview-text-list">{logs.filter((log) => ['manager_review_requested', 'manager_review_completed', 'approval_requested', 'approved', 'payment_ready', 'completed'].includes(log.action)).map((log) => <p key={log.id}>{log.at} · {actionLabels[log.action]} · {log.previousStatus ? statusLabel(log.previousStatus) : '-'} → {log.nextStatus ? statusLabel(log.nextStatus) : '-'}</p>)}</div>
+function InternalSettlementDocument({ campaignName, settlement }: { campaignName: string; settlement: Settlement }) {
   return (
-    <div className="settlement-preview">
-      <p>총매출 {money(settlement.currentCalculation.grossSales)} / 총수수료 {money(settlement.currentCalculation.grossCommission)}</p>
-      <p>셀러 지급액 {money(settlement.currentCalculation.finalSellerPaymentAmount)}</p>
-      {showInternal && <p>벤더 수수료 {money(settlement.currentCalculation.vendorCommission)} / 최종 배분 대상 금액 {money(settlement.currentCalculation.distributableVendorCommission)}</p>}
-      {showInternal && <p>매니저 지급액 {money(settlement.currentCalculation.managerAmount)} / 회사 귀속액 {money(settlement.currentCalculation.companyAmount)}</p>}
-      {!showInternal && <p>내부 회사 배분정보 숨김</p>}
-      <p>적용 세금 {money(settlement.currentCalculation.taxAmount)} / 매니저 지급액 {money(settlement.currentCalculation.finalPaymentAmount)}</p>
+    <div className="internal-settlement-document">
+      <div className="checklist-head">
+        <div><h4>{campaignName} 내부 검토용 정산서</h4><p>내부 수수료, 벤더 배분, 승인 상태를 포함합니다.</p></div>
+        <Badge label={statusLabel(settlement.status)} tone={statusTone[settlement.status]} />
+      </div>
+      <div className="settlement-summary-grid">
+        <Summary label="총매출" value={money(settlement.currentCalculation.grossSales)} amount />
+        <Summary label="총수수료율" value={`${settlement.currentCalculation.totalCommissionRate}%`} />
+        <Summary label="총수수료" value={money(settlement.currentCalculation.grossCommission)} amount />
+        <Summary label="셀러 수수료율" value={`${settlement.currentCalculation.sellerCommissionRate}%`} />
+        <Summary label="셀러 지급액" value={money(settlement.currentCalculation.finalSellerPaymentAmount)} amount />
+        <Summary label="벤더 수수료" value={money(settlement.currentCalculation.vendorCommission)} amount />
+        <Summary label="샘플비" value={money(settlement.currentCalculation.companySampleDeduction)} amount />
+        <Summary label="이벤트비" value={money(settlement.currentCalculation.companyEventDeduction)} amount />
+        <Summary label="기타 차감" value={money(settlement.currentCalculation.companyOtherDeduction)} amount />
+        <Summary label="최종 배분 대상 금액" value={money(settlement.currentCalculation.distributableVendorCommission)} amount />
+        <Summary label="매니저 지급액" value={money(settlement.currentCalculation.managerAmount)} amount />
+        <Summary label="회사 귀속액" value={money(settlement.currentCalculation.companyAmount)} amount />
+      </div>
+      <div className="preview-text-list">
+        {settlement.calculationSteps.map((step) => <p key={step.id}>{step.order}. {step.label}: {typeof step.result === 'number' ? money(step.result) : step.result}</p>)}
+      </div>
     </div>
   )
+}
+
+function SellerSettlementDocument({ campaignName, rows, sellerDocumentRef, settlement }: { campaignName: string; rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
+  const campaign = getCampaign(settlement)
+  const totalQuantity = rows.reduce((total, row) => total + row.netQuantity, 0)
+  const evidenceLabel = settlement.taxType === 'tax_invoice' ? '세금계산서 발행금액' : settlement.taxType === 'cash_receipt' ? '현금영수증 발행금액' : '최종 지급액'
+
+  return (
+    <div className="seller-document-shell">
+      <div className="seller-document" ref={sellerDocumentRef}>
+        <header className="seller-document__header">
+          <div className="seller-document__logo">T3</div>
+          <div>
+            <h2>{campaign?.sellerName ?? '셀러'} 공동구매 정산서</h2>
+            <p>발행일 {new Date().toISOString().slice(0, 10)}</p>
+          </div>
+        </header>
+
+        <section className="seller-document__meta">
+          <div><span>공동구매명</span><strong>{campaignName}</strong></div>
+          <div><span>공급 기간</span><strong>{campaign?.startDate ?? '-'} ~ {campaign?.endDate ?? '-'}</strong></div>
+          <div><span>진행 상품</span><strong>{campaign?.productName ?? '-'}</strong></div>
+          <div><span>셀러명</span><strong>{campaign?.sellerName ?? '-'}</strong></div>
+        </section>
+
+        <table className="seller-document__table">
+          <thead><tr><th>상품명</th><th>옵션</th><th>판매수량</th><th>판매가</th><th>매출액</th><th>수수료율</th><th>셀러 수수료</th></tr></thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td>{campaign?.productName ?? '-'}</td>
+                <td>{row.optionName}</td>
+                <td className="amount-cell">{row.netQuantity.toLocaleString('ko-KR')}</td>
+                <td className="amount-cell">{money(row.unitPrice)}</td>
+                <td className="amount-cell">{money(row.grossSales)}</td>
+                <td className="amount-cell">{settlement.currentCalculation.sellerCommissionRate}%</td>
+                <td className="amount-cell">{money(Math.round(row.grossSales * (settlement.currentCalculation.sellerCommissionRate / 100)))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <section className="seller-document__totals">
+          <div><span>총 판매수량</span><strong>{totalQuantity.toLocaleString('ko-KR')}개</strong></div>
+          <div><span>총매출</span><strong>{money(settlement.currentCalculation.grossSales)}</strong></div>
+          <div><span>셀러 수수료율</span><strong>{settlement.currentCalculation.sellerCommissionRate}%</strong></div>
+          <div><span>셀러 정산금액</span><strong>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</strong></div>
+        </section>
+
+        <section className="seller-document__tax">
+          <h3>세무·증빙</h3>
+          {settlement.taxType === 'withholding_3_3' ? (
+            <dl>
+              <div><dt>정산금액</dt><dd>{money(settlement.currentCalculation.sellerCommissionAmount)}</dd></div>
+              <div><dt>3.3% 원천징수액</dt><dd>{money(settlement.currentCalculation.taxAmount)}</dd></div>
+              <div><dt>{evidenceLabel}</dt><dd>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</dd></div>
+            </dl>
+          ) : (
+            <dl>
+              <div><dt>{evidenceLabel}</dt><dd>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</dd></div>
+              <div><dt>증빙 요청 안내</dt><dd>정산 확인 후 증빙 발행을 요청드립니다.</dd></div>
+            </dl>
+          )}
+        </section>
+
+        <footer className="seller-document__footer">
+          <p>입금 계좌: ****-***-****** (확인 후 별도 안내)</p>
+          <p>지급 예정일: {settlement.paymentDueDate}</p>
+          <p>T3 Company · 사업자등록번호 000-00-00000 · 대표자 이현지 · settlement@t3.company</p>
+          <p>본 정산서는 셀러 전달용으로 내부 벤더 수수료, 매니저 지급액, 회사 귀속액을 표시하지 않습니다.</p>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
+function SettlementDocumentActions({ onCopyMessage, onCopyText, onPreview, onPrint, onSaveImage }: { onCopyMessage: () => void; onCopyText: () => void; onPreview: () => void; onPrint: () => void; onSaveImage: () => void }) {
+  return (
+    <div className="action-row seller-document-actions no-print">
+      <button className="secondary-button" onClick={onPreview} type="button">이미지 미리보기</button>
+      <button className="primary-button" onClick={onSaveImage} type="button">이미지로 저장</button>
+      <button className="secondary-button" onClick={onCopyText} type="button">클립보드에 복사</button>
+      <button className="secondary-button" onClick={onPrint} type="button">인쇄</button>
+      <button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button>
+    </div>
+  )
+}
+
+function HistoryContent({ logs, settlement }: { logs: ReturnType<typeof settlementService.getActivityLogsBySettlementId>; settlement: Settlement }) {
+  return (
+    <div className="preview-text-list">
+      {settlement.calculationSteps.map((step) => <p key={step.id}>계산 · {step.order}. {step.label}: {typeof step.result === 'number' ? money(step.result) : step.result}</p>)}
+      {logs.map((log) => <p key={log.id}>{log.at} · {actionLabels[log.action]} · {log.previousStatus ? statusLabel(log.previousStatus) : '-'} → {log.nextStatus ? statusLabel(log.nextStatus) : '-'} · v{log.version}</p>)}
+    </div>
+  )
+}
+
+function SettlementStatusActions({ checklistDone, onHistory, onSetDocument, reviewReady, settlement, syncAction }: { checklistDone: boolean; onHistory: () => void; onSetDocument: () => void; reviewReady: boolean; settlement: Settlement; syncAction: (action: () => unknown) => void }) {
+  if (settlement.status === 'draft') {
+    return <><button className="primary-button" onClick={() => syncAction(() => settlementService.recalculateSettlement(settlement.id))} type="button">계산 실행</button><button className="secondary-button" disabled={!reviewReady} onClick={() => syncAction(() => settlementService.requestReview(settlement.id))} type="button">저장</button></>
+  }
+  if (settlement.status === 'review_pending') {
+    return <><button className="secondary-button" onClick={() => syncAction(() => settlementService.recalculateSettlement(settlement.id, '수정 요청'))} type="button">수정 요청</button><button className="primary-button" disabled={!checklistDone} onClick={() => syncAction(() => settlementService.completeManagerReview(settlement.id))} type="button">매니저 검토 완료</button></>
+  }
+  if (settlement.status === 'manager_reviewed') {
+    return <><button className="secondary-button" onClick={() => syncAction(() => settlementService.updateEvidence(settlement.id, 'confirmed', true, true))} type="button">증빙·계좌 확인</button><button className="primary-button" onClick={() => syncAction(() => settlementService.requestApproval(settlement.id))} type="button">대표 승인 요청</button></>
+  }
+  if (settlement.status === 'approval_pending') {
+    return <><button className="secondary-button" onClick={() => syncAction(() => settlementService.recalculateSettlement(settlement.id, '반려'))} type="button">반려</button><button className="primary-button" onClick={() => syncAction(() => settlementService.approveSettlement(settlement.id))} type="button">대표 승인</button></>
+  }
+  if (settlement.status === 'approved') {
+    return <button className="primary-button" onClick={() => syncAction(() => settlementService.markPaymentReady(settlement.id))} type="button">지급 준비</button>
+  }
+  if (settlement.status === 'payment_ready') {
+    return <><button className="secondary-button" onClick={() => syncAction(() => settlementService.markCompanySettlementCompleted(settlement.id))} type="button">업체 정산 완료</button><button className="secondary-button" onClick={() => syncAction(() => settlementService.markSellerPaymentCompleted(settlement.id))} type="button">셀러 지급 완료</button><button className="primary-button" onClick={() => syncAction(() => settlementService.markManagerPaymentCompleted(settlement.id))} type="button">매니저 지급 완료</button></>
+  }
+  if (settlement.status === 'completed') {
+    return <><button className="primary-button" onClick={onSetDocument} type="button">정산서 보기</button><button className="secondary-button" onClick={onHistory} type="button">이력 보기</button></>
+  }
+  return <button className="primary-button" onClick={() => syncAction(() => settlementService.recalculateSettlement(settlement.id))} type="button">계산 실행</button>
 }
 
 function VersionCompareModal({ versions, onClose }: { versions: SettlementVersion[]; onClose: () => void }) {

@@ -263,6 +263,109 @@ Comparison targets are expected quantity vs actual quantity, expected unit price
 
 Settlement service creates work items for settlement writing, manager review, evidence confirmation, payment approval, and revision review. Notifications use `relatedType = settlement` and open the settlement detail drawer.
 
+## Settlement Documents
+
+Settlement Detail provides a dedicated document tab with two modes:
+
+- Internal review document
+- Seller delivery document
+
+The internal review document can show the full calculation context:
+
+- gross sales
+- total commission rate
+- gross commission
+- seller commission rate
+- seller payment amount
+- vendor commission
+- sample deduction
+- event deduction
+- other deduction
+- distributable vendor commission
+- manager amount
+- company amount
+- calculation steps
+- review and approval status
+
+The seller delivery document is an external-facing document. It is designed as a vertical white document that can be captured, printed, or sent as an image.
+
+Seller delivery document includes:
+
+- document title: `[sellerName] 공동구매 정산서`
+- campaign name
+- supply period
+- product
+- seller name
+- issue date
+- sales row table with product, option, quantity, unit price, sales amount, seller commission rate, seller commission
+- total quantity
+- gross sales
+- seller commission rate
+- seller settlement amount
+- tax/evidence amount by tax type
+- masked account placeholder
+- evidence request notice
+- payment due date
+- company placeholder information
+
+## External Information Hiding Rules
+
+The seller delivery document must not expose internal company allocation data:
+
+- vendor commission
+- distributable vendor commission
+- manager amount
+- company amount
+- internal approval history
+- internal memo
+
+Seller-facing amounts should focus on seller commission rate and seller settlement amount.
+
+## Image, Clipboard, and Print
+
+The MVP does not connect a PDF server. Browser-side actions are provided:
+
+- Image preview: identifies the seller document DOM region used for image generation.
+- Save as image: converts the seller document DOM area to a PNG in the browser using SVG `foreignObject` and canvas.
+- Copy to clipboard: copies the seller document text content.
+- Print: uses print CSS and A4 portrait layout.
+- Copy delivery message: generates a seller-facing message from Settlement data.
+
+If image generation fails, the UI shows an error message and users can use print as the fallback.
+
+Print CSS hides:
+
+- Sidebar
+- Header
+- tabs
+- buttons
+- internal review information
+- settlement status controls
+
+Print CSS shows:
+
+- seller delivery document body
+- company information
+- tables
+- totals
+- tax notice
+- issue date
+
+Delivery message format:
+
+```text
+안녕하세요.
+[공동구매명] 정산서를 전달드립니다.
+
+정산금액: [셀러 지급액]
+증빙 유형: [세금계산서/현금영수증/3.3%]
+증빙 요청일: [날짜]
+지급 예정일: [날짜]
+
+정산 내용을 확인해주시고,
+수정이 필요한 부분이 있다면 담당 매니저에게 전달 부탁드립니다.
+```
+
 ## localStorage Structure
 
 Settlement uses only `storageService`.

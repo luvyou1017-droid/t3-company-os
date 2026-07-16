@@ -787,8 +787,19 @@
 }
 
 .settlement-drawer {
-  max-width: 1080px;
-  width: min(100%, 1080px);
+  max-width: none;
+  width: min(90vw, 1320px);
+}
+
+.settlement-detail-modal {
+  border-radius: 8px 0 0 8px;
+  gap: 16px;
+}
+
+.settlement-top-meta {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
 .settlement-warning {
@@ -816,7 +827,7 @@
 }
 
 .settlement-summary-grid--primary {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .settlement-summary-item {
@@ -837,6 +848,7 @@
 .settlement-summary-item strong {
   color: var(--text);
   font-size: 15px;
+  overflow-wrap: anywhere;
 }
 
 .settlement-card {
@@ -931,6 +943,168 @@
   position: sticky;
   top: 0;
   z-index: 2;
+}
+
+.settlement-document-tab {
+  align-content: start;
+}
+
+.settlement-document-actions {
+  justify-content: flex-end;
+}
+
+.internal-settlement-document {
+  display: grid;
+  gap: 14px;
+}
+
+.seller-document-actions {
+  justify-content: flex-end;
+}
+
+.seller-document-shell {
+  background: #f3f4f6;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  justify-items: center;
+  overflow: auto;
+  padding: 18px;
+}
+
+.seller-document {
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  color: #111827;
+  display: grid;
+  gap: 24px;
+  max-width: 980px;
+  min-height: 1180px;
+  padding: 48px;
+  width: 100%;
+}
+
+.seller-document__header {
+  align-items: center;
+  border-bottom: 2px solid #111827;
+  display: flex;
+  gap: 18px;
+  padding-bottom: 20px;
+}
+
+.seller-document__logo {
+  align-items: center;
+  border: 2px solid #111827;
+  border-radius: 8px;
+  display: flex;
+  flex: 0 0 56px;
+  font-size: 18px;
+  font-weight: 900;
+  height: 56px;
+  justify-content: center;
+}
+
+.seller-document__header h2 {
+  font-size: 28px;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.seller-document__header p,
+.seller-document__footer p {
+  color: #374151;
+  font-size: 13px;
+}
+
+.seller-document__meta,
+.seller-document__totals {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.seller-document__meta div,
+.seller-document__totals div {
+  border: 1px solid #d1d5db;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.seller-document__meta span,
+.seller-document__totals span {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.seller-document__meta strong,
+.seller-document__totals strong {
+  color: #111827;
+  font-size: 14px;
+}
+
+.seller-document__table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.seller-document__table th,
+.seller-document__table td {
+  border: 1px solid #d1d5db;
+  font-size: 13px;
+  padding: 11px;
+  text-align: left;
+}
+
+.seller-document__table th {
+  background: #f9fafb;
+  color: #374151;
+  font-weight: 900;
+}
+
+.seller-document__tax {
+  border: 1px solid #d1d5db;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.seller-document__tax h3 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.seller-document__tax dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.seller-document__tax div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.seller-document__tax dt {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.seller-document__tax dd {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.seller-document__footer {
+  border-top: 1px solid #d1d5db;
+  display: grid;
+  gap: 6px;
+  padding-top: 16px;
 }
 
 .settlement-preview,
@@ -2355,6 +2529,18 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .settlement-top-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settlement-summary-grid--primary,
+  .settlement-summary-grid,
+  .seller-document__meta,
+  .seller-document__totals,
+  .sample-deduction-card dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .sales-summary-grid,
   .sales-data-detail-list,
   .manual-row {
@@ -2406,6 +2592,44 @@
 
   .preview-drawer {
     max-width: none;
+  }
+
+  .settlement-drawer {
+    border-radius: 0;
+    width: 100%;
+  }
+
+  .settlement-top-meta,
+  .settlement-summary-grid,
+  .settlement-summary-grid--primary,
+  .calculation-step,
+  .calculation-step dl,
+  .settlement-checklist,
+  .seller-document__meta,
+  .seller-document__totals,
+  .sample-deduction-card dl {
+    grid-template-columns: 1fr;
+  }
+
+  .seller-document-shell {
+    overflow: visible;
+    padding: 0;
+  }
+
+  .seller-document {
+    border: 0;
+    min-height: 0;
+    padding: 24px;
+  }
+
+  .seller-document__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .seller-document__table {
+    display: block;
+    overflow-x: auto;
   }
 
   .sales-upload-box dl,
@@ -2465,5 +2689,68 @@
 
   .cs-attachment-preview {
     grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  .sidebar,
+  .header,
+  .settlement-page > .schedule-summary,
+  .settlement-page > .panel,
+  .preview-drawer__header,
+  .settlement-top-meta,
+  .settlement-summary-grid--primary,
+  .settlement-detail-tabs,
+  .preview-drawer__actions,
+  .no-print,
+  .settlement-document-tab > .checklist-head,
+  .internal-settlement-document,
+  .settlement-card:not(.settlement-document-tab),
+  .settlement-modal-backdrop {
+    display: none !important;
+  }
+
+  .app-shell,
+  .app-content,
+  .main-content,
+  .drawer-backdrop,
+  .preview-drawer,
+  .settlement-drawer,
+  .settlement-document-tab {
+    background: #ffffff !important;
+    box-shadow: none !important;
+    display: block !important;
+    height: auto !important;
+    inset: auto !important;
+    margin: 0 !important;
+    max-width: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    position: static !important;
+    width: 100% !important;
+  }
+
+  .seller-document-shell {
+    background: #ffffff !important;
+    border: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .seller-document {
+    border: 0 !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    padding: 16mm !important;
+    width: 210mm !important;
+  }
+
+  @page {
+    margin: 0;
+    size: A4 portrait;
   }
 }
