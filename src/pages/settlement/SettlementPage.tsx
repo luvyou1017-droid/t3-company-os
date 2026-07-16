@@ -1,12 +1,17 @@
 import { useState } from 'react'
 import { campaignService } from '../../shared/services/campaignService'
 import { salesDataService } from '../../shared/services/salesDataService'
+import { sampleService } from '../../shared/services/sampleService'
 import { settlementService } from '../../shared/services/settlementService'
+import type { SampleRequest } from '../../features/samples/types'
 import type { Settlement, SettlementDeduction, SettlementStatus, SettlementVersion } from '../../shared/types/settlement'
 import { canMoveToReview, runSettlementAssertions, statusLabel, validateSettlement } from '../../shared/utils/settlement'
 import { formatCurrency } from '../../shared/utils/salesData'
 
 type PreviewTab = '내부 검토용 정산서' | '셀러 전달용 정산서' | '계산 로그' | '수정 이력' | '승인 이력'
+type DetailTab = '요약' | '계산 과정' | '차감 내역' | '세무·증빙' | '승인' | '이력'
+
+const detailTabs: DetailTab[] = ['요약', '계산 과정', '차감 내역', '세무·증빙', '승인', '이력']
 
 const statusTone: Record<SettlementStatus, string> = {
   draft: 'muted',
@@ -177,6 +182,7 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: s
 
 export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: Settlement | null; onClose: () => void; onSync: () => void }) {
   const [activeTab, setActiveTab] = useState<PreviewTab>('내부 검토용 정산서')
+  const [activeDetailTab, setActiveDetailTab] = useState<DetailTab>('요약')
   const [compareOpen, setCompareOpen] = useState(false)
   if (!settlement) return null
 
@@ -184,6 +190,7 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
   const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
   const versions = settlementService.getSettlementVersionsBySettlementId(settlement.id)
   const logs = settlementService.getActivityLogsBySettlementId(settlement.id)
+  const samples = sampleService.getSamplesByCampaignId(settlement.campaignId)
   const validation = validateSettlement(settlement)
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
   const salesDataConfirmed = salesImport?.reviewStatus === '확정 완료'
@@ -223,35 +230,41 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
           </div>
         )}
 
-        <section className="settlement-summary-grid">
-          <Summary label="정산 상태" value={statusLabel(settlement.status)} />
-          <Summary label="버전" value={`v${settlement.settlementVersion}`} />
+        <section className="settlement-summary-grid settlement-summary-grid--primary">
           <Summary label="총매출" value={money(settlement.currentCalculation.grossSales)} amount />
-          <Summary label="총수수료율" value={`${settlement.currentCalculation.totalCommissionRate}%`} />
           <Summary label="총수수료" value={money(settlement.currentCalculation.grossCommission)} amount />
-          <Summary label="셀러 수수료율" value={`${settlement.currentCalculation.sellerCommissionRate}%`} />
-          <Summary label="셀러 수수료" value={money(settlement.currentCalculation.sellerCommissionAmount)} amount />
+          <Summary label="셀러 지급액" value={money(settlement.currentCalculation.finalSellerPaymentAmount)} amount />
           <Summary label="벤더 수수료" value={money(settlement.currentCalculation.vendorCommission)} amount />
-          <Summary label="차감 합계" value={money(settlement.currentCalculation.deductionTotal)} amount />
           <Summary label="최종 배분 대상 금액" value={money(settlement.currentCalculation.distributableVendorCommission)} amount />
           <Summary label="매니저 지급액" value={money(settlement.currentCalculation.managerAmount)} amount />
           <Summary label="회사 귀속액" value={money(settlement.currentCalculation.companyAmount)} amount />
-          <Summary label="셀러 지급액" value={money(settlement.currentCalculation.finalSellerPaymentAmount)} amount />
-          <Summary label="증빙 상태" value={settlement.evidenceStatus === 'confirmed' ? '확인 완료' : '미확인'} />
-          <Summary label="지급 상태" value={settlement.status === 'completed' ? '완료' : settlement.status === 'payment_ready' ? '지급 준비' : '대기'} />
-          <Summary label="세무 유형" value={settlement.taxType === 'tax_invoice' ? '세금계산서' : settlement.taxType === 'cash_receipt' ? '현금영수증' : '3.3% 원천징수'} />
         </section>
 
-        {campaign?.linkOwner === '브랜드사' && (
+        <div className="view-tabs settlement-detail-tabs">
+          {detailTabs.map((tab) => (
+            <button className={activeDetailTab === tab ? 'view-tab is-active' : 'view-tab'} key={tab} onClick={() => setActiveDetailTab(tab)} type="button">{tab}</button>
+          ))}
+        </div>
+
+        {activeDetailTab === '요약' && (
           <section className="detail-card settlement-card">
             <div className="checklist-head">
-              <div><h3>브랜드사 세금계산서 발행 금액</h3><p>브랜드사에 발행할 세금계산서 금액: 총수수료</p></div>
-              <strong>{money(settlement.currentCalculation.grossCommission)}</strong>
+              <div><h3>정산 요약</h3><p>핵심 금액과 현재 처리 상태만 표시합니다.</p></div>
+              <Badge label={statusLabel(settlement.status)} tone={statusTone[settlement.status]} />
+            </div>
+            <div className="settlement-summary-grid">
+              <Summary label="정산 상태" value={statusLabel(settlement.status)} />
+              <Summary label="버전" value={`v${settlement.settlementVersion}`} />
+              <Summary label="총수수료율" value={`${settlement.currentCalculation.totalCommissionRate}%`} />
+              <Summary label="셀러 수수료율" value={`${settlement.currentCalculation.sellerCommissionRate}%`} />
+              <Summary label="셀러 수수료" value={money(settlement.currentCalculation.sellerCommissionAmount)} amount />
+              <Summary label="차감 합계" value={money(settlement.currentCalculation.deductionTotal)} amount />
+              <Summary label="지급 상태" value={settlement.status === 'completed' ? '완료' : settlement.status === 'payment_ready' ? '지급 준비' : '대기'} />
             </div>
           </section>
         )}
 
-        <section className="detail-card settlement-card">
+        {activeDetailTab === '계산 과정' && <section className="detail-card settlement-card">
           <div className="checklist-head">
             <div><h3>계산 과정</h3><p>각 단계의 입력값, 공식, 출처, 수정 여부, 계산 시간을 표시합니다.</p></div>
           </div>
@@ -272,11 +285,11 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
               </article>
             ))}
           </div>
-        </section>
+        </section>}
 
-        <section className="detail-card settlement-card">
+        {activeDetailTab === '차감 내역' && <section className="detail-card settlement-card">
           <div className="checklist-head">
-            <div><h3>차감 항목</h3><p>브랜드사 부담 비용은 기록만 유지하고 계산에는 반영하지 않습니다.</p></div>
+            <div><h3>차감 내역</h3><p>샘플비는 제안서가 아닌 Sample 관리의 실제값만 반영합니다.</p></div>
           </div>
           <div className="comparison-table-wrap">
             <table className="comparison-table deduction-table">
@@ -290,9 +303,24 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
               </tbody>
             </table>
           </div>
-        </section>
+          <SampleDeductionDetails deductions={deductions} samples={samples} />
+        </section>}
 
-        <section className="detail-card settlement-card">
+        {activeDetailTab === '세무·증빙' && <section className="detail-card settlement-card">
+          <div className="checklist-head">
+            <div><h3>세무·증빙</h3><p>세무 유형, 증빙 상태, 브랜드사 세금계산서 금액을 확인합니다.</p></div>
+            <button className="secondary-button" onClick={() => syncAction(() => settlementService.updateEvidence(settlement.id, 'confirmed', true, true))} type="button">증빙·계좌 확인</button>
+          </div>
+          <div className="settlement-summary-grid">
+            <Summary label="세무 유형" value={settlement.taxType === 'tax_invoice' ? '세금계산서' : settlement.taxType === 'cash_receipt' ? '현금영수증' : '3.3% 원천징수'} />
+            <Summary label="증빙 상태" value={settlement.evidenceStatus === 'confirmed' ? '확인 완료' : '미확인'} />
+            <Summary label="계좌 확인" value={settlement.accountConfirmed ? '확인 완료' : '미확인'} />
+            <Summary label="적용 세금" value={money(settlement.currentCalculation.taxAmount)} amount />
+            {campaign?.linkOwner === '브랜드사' && <Summary label="브랜드사 세금계산서 발행 금액" value={money(settlement.currentCalculation.grossCommission)} amount />}
+          </div>
+        </section>}
+
+        {activeDetailTab === '승인' && <section className="detail-card settlement-card">
           <div className="checklist-head">
             <div><h3>검토 체크리스트</h3><p>모든 필수 항목이 완료되어야 매니저 검토 완료가 가능합니다.</p></div>
             <strong>{Object.values(settlement.reviewChecklist).filter(Boolean).length}/10</strong>
@@ -308,11 +336,15 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
               </label>
             ))}
           </div>
-        </section>
+          <div className="settlement-preview">
+            <p>승인 상태: {statusLabel(settlement.status)} / 증빙: {settlement.evidenceStatus === 'confirmed' ? '확인 완료' : '미확인'}</p>
+            <p>매니저 지급액 {money(settlement.currentCalculation.managerAmount)} / 회사 귀속액 {money(settlement.currentCalculation.companyAmount)}</p>
+          </div>
+        </section>}
 
-        <section className="detail-card settlement-card">
+        {activeDetailTab === '이력' && <section className="detail-card settlement-card">
           <div className="checklist-head">
-            <div><h3>정산서 미리보기</h3><p>실제 PDF·엑셀 생성 없이 화면 미리보기와 요약 복사만 제공합니다.</p></div>
+            <div><h3>수정·활동 이력</h3><p>정산서 미리보기, 버전, 승인 이력을 한 곳에서 확인합니다.</p></div>
             <button className="secondary-button" onClick={copySummary} type="button">요약 복사</button>
           </div>
           <div className="view-tabs settlement-preview-tabs">
@@ -321,9 +353,6 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
             ))}
           </div>
           <PreviewContent activeTab={activeTab} settlement={settlement} logs={logs} />
-        </section>
-
-        <section className="detail-card settlement-card">
           <div className="checklist-head">
             <div><h3>버전 관리</h3><p>승인본은 직접 덮어쓰지 않고 버전을 증가시켜 비교합니다.</p></div>
             <button className="secondary-button" disabled={versions.length < 2} onClick={() => setCompareOpen(true)} type="button">버전 비교</button>
@@ -338,7 +367,7 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
               </article>
             ))}
           </div>
-        </section>
+        </section>}
 
         <div className="preview-drawer__actions">
           <button className="secondary-button" onClick={() => syncAction(() => settlementService.recalculateSettlement(settlement.id))} type="button">계산 실행</button>
@@ -385,6 +414,63 @@ function applyLocationLabel(location: SettlementDeduction['applyLocation']) {
     needs_review: '확인 필요',
   }
   return labels[location]
+}
+
+function SampleDeductionDetails({ deductions, samples }: { deductions: SettlementDeduction[]; samples: SampleRequest[] }) {
+  const sampleDeductions = deductions.filter((item) => item.type === 'sample' && item.linkedData.startsWith('sample:'))
+  if (!sampleDeductions.length) return <div className="empty-state"><strong>반영 대상 샘플비가 없습니다.</strong><span>실제 발주된 유상 Sample 확정값만 표시됩니다.</span></div>
+
+  return (
+    <div className="sample-deduction-list">
+      {sampleDeductions.map((deduction) => {
+        const sampleId = deduction.linkedData.replace('sample:', '')
+        const sample = samples.find((item) => item.id === sampleId)
+        const unitPrice = sample?.unitPrice ?? sample?.sampleCost ?? 0
+        const sampleCost = sample ? unitPrice * sample.quantity : deduction.amount
+        const shippingCost = sample?.shippingCost ?? 0
+        const totalCost = sampleCost + shippingCost
+        const proposalWarning = sample ? getProposalSampleWarning(sample, unitPrice, totalCost) : null
+        return (
+          <article className="sample-deduction-card" key={deduction.id}>
+            <div className="checklist-head">
+              <div>
+                <h4>{sample?.productName ?? deduction.title}</h4>
+                <p>{sample?.optionName ?? 'Sample 원본 확인 필요'}</p>
+              </div>
+              <Badge label={deduction.reflected ? '정산 반영' : '기록만 유지'} tone={deduction.reflected ? 'complete' : 'muted'} />
+            </div>
+            <dl>
+              <div><dt>수량</dt><dd>{sample?.quantity.toLocaleString('ko-KR') ?? '-'}개</dd></div>
+              <div><dt>단가</dt><dd className="amount-cell">{money(unitPrice)}</dd></div>
+              <div><dt>샘플비</dt><dd className="amount-cell">{money(sampleCost)}</dd></div>
+              <div><dt>배송비</dt><dd className="amount-cell">{money(shippingCost)}</dd></div>
+              <div><dt>총비용</dt><dd className="amount-cell">{money(totalCost)}</dd></div>
+              <div><dt>비용 부담자</dt><dd>{sample?.costOwner ?? deduction.costOwner}</dd></div>
+              <div><dt>발주 상태</dt><dd>{sample?.orderStatus ?? sample?.status ?? '-'}</dd></div>
+              <div><dt>수령 상태</dt><dd>{sample?.deliveryStatus ?? '-'}</dd></div>
+              <div><dt>정산 반영 상태</dt><dd>{sample?.settlementReflected ? `완료 (${sample.settlementId ?? deduction.settlementId})` : '대기'}</dd></div>
+              <div><dt>원본 Sample 바로가기</dt><dd>{sample?.id ?? deduction.linkedData}</dd></div>
+            </dl>
+            {sample && sample.quantity === 2 && unitPrice === 56_000 && totalCost === 112_000 && (
+              <p className="mock-notice">회사 부담 유상 샘플 56,000원 × 2개가 실제 Sample 값으로 반영되었습니다.</p>
+            )}
+            {proposalWarning && <p className="settlement-warning-text">{proposalWarning}</p>}
+          </article>
+        )
+      })}
+    </div>
+  )
+}
+
+function getProposalSampleWarning(sample: SampleRequest, actualUnitPrice: number, actualTotal: number) {
+  const hasExpected = sample.proposalExpectedQuantity !== undefined || sample.proposalExpectedUnitPrice !== undefined || sample.proposalExpectedCostOwner !== undefined || sample.proposalExpectedTotalAmount !== undefined
+  if (!hasExpected) return null
+  const differs =
+    (sample.proposalExpectedQuantity !== undefined && sample.proposalExpectedQuantity !== sample.quantity) ||
+    (sample.proposalExpectedUnitPrice !== undefined && sample.proposalExpectedUnitPrice !== actualUnitPrice) ||
+    (sample.proposalExpectedCostOwner !== undefined && sample.proposalExpectedCostOwner !== sample.costOwner) ||
+    (sample.proposalExpectedTotalAmount !== undefined && sample.proposalExpectedTotalAmount !== actualTotal)
+  return differs ? '제안서 예상값과 실제 샘플 비용이 다릅니다.' : null
 }
 
 function PreviewContent({ activeTab, settlement, logs }: { activeTab: PreviewTab; settlement: Settlement; logs: ReturnType<typeof settlementService.getActivityLogsBySettlementId> }) {

@@ -72,25 +72,61 @@ function applyLocationFromOwner(owner: SettlementCostOwner): SettlementApplyLoca
   return 'needs_review'
 }
 
+function getSampleTotalCost(sample: SampleRequest) {
+  return Math.max(Math.round((sample.unitPrice ?? sample.sampleCost) * sample.quantity + sample.shippingCost), 0)
+}
+
+function isActualOrderedSample(sample: SampleRequest) {
+  const orderedStatuses: SampleRequest['status'][] = ['발주 완료', '배송 중', '수령 완료', '회수 예정', '회수 완료', '정산 반영 대기', '완료']
+  return orderedStatuses.includes(sample.orderStatus ?? sample.status) || sample.deliveryStatus !== '발주 전'
+}
+
+function isSettlementSampleCandidate(sample: SampleRequest) {
+  return sample.paymentType === '유상' && sample.status !== '취소' && isActualOrderedSample(sample) && !sample.settlementReflected
+}
+
+function markSamplesReflected(settlementId: string, deductions: SettlementDeduction[]) {
+  const reflectedSampleIds = deductions
+    .filter((item) => item.type === 'sample' && item.linkedData.startsWith('sample:') && item.costOwner !== 'undecided')
+    .map((item) => item.linkedData.replace('sample:', ''))
+  if (!reflectedSampleIds.length) return
+  sampleService.saveSamples(sampleService.getSamples().map((sample) => (
+    reflectedSampleIds.includes(sample.id)
+      ? { ...sample, settlementReflected: true, settlementId, settlementReflectedAt: now(), settlementReflectedBy: '허수정' }
+      : sample
+  )))
+}
+
+function rollbackSampleReflection(deduction: SettlementDeduction) {
+  if (deduction.type !== 'sample' || !deduction.linkedData.startsWith('sample:')) return
+  const sampleId = deduction.linkedData.replace('sample:', '')
+  sampleService.saveSamples(sampleService.getSamples().map((sample) => (
+    sample.id === sampleId
+      ? { ...sample, settlementReflected: false, settlementId: undefined, settlementReflectedAt: undefined, settlementReflectedBy: undefined }
+      : sample
+  )))
+}
+
 function createSampleDeductions(settlementId: string, campaignId: string, samples: SampleRequest[]) {
   const createdAt = now()
   return samples
-    .filter((sample) => sample.paymentType === '유상' && !sample.settlementReflected)
+    .filter(isSettlementSampleCandidate)
     .map<SettlementDeduction>((sample) => {
       const costOwner = ownerFromSample(sample.costOwner)
+      const amount = getSampleTotalCost(sample)
       return {
         id: `deduction-${sample.id}`,
         settlementId,
         campaignId,
         type: 'sample',
         title: `${sample.productName} ${sample.optionName} 샘플비`,
-        amount: Math.max(Math.round(sample.settlementAmount || sample.sampleCost + sample.shippingCost), 0),
+        amount,
         costOwner,
         linkedData: `sample:${sample.id}`,
         evidenceStatus: sample.attachments.length ? 'confirmed' : 'pending',
         applyLocation: applyLocationFromOwner(costOwner),
-        reflected: costOwner !== 'brand',
-        memo: 'Sample 관리 자동 후보',
+        reflected: costOwner !== 'brand' && costOwner !== 'undecided',
+        memo: `Sample 실제값 자동 반영 · 수량 ${sample.quantity} · 단가 ${Math.round(sample.unitPrice ?? sample.sampleCost).toLocaleString('ko-KR')}원 · 배송비 ${sample.shippingCost.toLocaleString('ko-KR')}원`,
         createdAt,
         updatedAt: createdAt,
       }
@@ -317,6 +353,7 @@ export const settlementService = {
       }
       settlements.push(settlement)
       deductions.push(...itemDeductions)
+      markSamplesReflected(settlement.id, itemDeductions)
       versions.push({
         id: `settlement-version-${settlement.id}-1`,
         settlementId: settlement.id,
@@ -354,6 +391,7 @@ export const settlementService = {
       const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
       if (!salesImport) return settlement
       const deductions = this.getDeductionsBySettlementId(settlement.id)
+      markSamplesReflected(settlement.id, deductions)
       const current = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), deductions, settlement.taxType)
       if (!settlement.calculationSnapshot || settlement.status === 'revision_required') return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current) }
       const changed = current.grossSales !== settlement.calculationSnapshot.grossSales || current.grossCommission !== settlement.calculationSnapshot.grossCommission || current.sellerCommissionAmount !== settlement.calculationSnapshot.sellerCommissionAmount || current.deductionTotal !== settlement.calculationSnapshot.deductionTotal
@@ -401,6 +439,7 @@ export const settlementService = {
     const currentSettlements = storageService.getItem<Settlement[]>(STORAGE_KEYS.settlements, [])
     this.saveDeductions([...deductions, ...this.getDeductions().filter((item) => item.settlementId !== id)])
     this.saveSettlements([settlement, ...currentSettlements.filter((item) => item.id !== id)])
+    markSamplesReflected(settlement.id, deductions)
     this.createSettlementVersion(settlement, 'v1 초안 생성')
     this.addActivity(settlement, 'draft_created', undefined, settlement.status, '정산 초안 생성')
     createSettlementWork(settlement, '[정산] 정산서 작성', '정산서 작성', '허수정', 'u-002', '정산 담당자')
@@ -458,7 +497,12 @@ export const settlementService = {
   removeDeduction(settlementId: string, deductionId: string, reason = '차감 항목 삭제') {
     const settlement = this.getSettlementById(settlementId)
     if (!settlement) return undefined
+    const targetDeduction = this.getDeductions().find((item) => item.id === deductionId)
+    if (targetDeduction && ['approved', 'approval_pending', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) {
+      return this.bumpVersion(settlement, '승인 이후 차감 항목 수정 버전 생성')
+    }
     this.saveDeductions(this.getDeductions().filter((item) => item.id !== deductionId))
+    if (targetDeduction) rollbackSampleReflection(targetDeduction)
     const next = this.bumpVersion(settlement, reason)
     this.addActivity(next, 'deduction_removed', settlement.status, next.status, reason)
     return this.recalculateSettlement(settlementId, reason)

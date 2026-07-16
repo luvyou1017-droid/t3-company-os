@@ -198,7 +198,66 @@ Sales Data remains the source for gross sales, sales period, total commission ra
 
 ## Sample Connection
 
-Sample candidates are read by campaignId. Only paid samples with `settlementReflected = false` are proposed as deductions. The sample cost owner decides where the amount is reflected. Paid sample mock settlement amount is quantity times sample cost plus shipping.
+Proposal, Sample, and Settlement have separate roles:
+
+- Proposal: expected sample conditions only. It may initialize a Sample request with expected quantity, unit price, and expected cost owner.
+- Sample: actual operational values. It stores actual quantity, unit price, sample cost, shipping cost, paid/free status, cost owner, order status, delivery status, cancellation state, and settlement reflection state.
+- Settlement: confirmed values. It calculates deductions only from actual Sample records, not directly from Proposal values.
+
+Sample candidates are read by campaignId. Only actual Sample values can become settlement deductions.
+
+Required sample reflection conditions:
+
+- same `campaignId`
+- `paymentType = 유상`
+- status is not canceled
+- actual order or purchase has happened
+- cost owner is known, or the unresolved cost owner is surfaced as a blocking review item
+- `settlementReflected = false`
+
+Not reflected:
+
+- Proposal expected values without a real Sample record
+- canceled samples
+- free samples
+- samples whose cost owner is undecided
+- samples that have not actually been ordered or purchased
+- samples already reflected in another settlement
+
+Sample cost is calculated from one actual structure:
+
+```text
+sampleTotalCost = quantity * unitPrice + shippingCost
+```
+
+In the current type, `sampleCost` is treated as the actual unit price and `unitPrice` is stored as an explicit alias for clarity.
+
+Cost-owner handling:
+
+- `company`: subtract from distributable vendor commission.
+- `seller`: subtract from final seller payment amount.
+- `manager`: subtract from manager amount.
+- `brand`: record only, not reflected in calculations.
+- `undecided`: record as a blocking item and prevent review or approval.
+
+When a Sample is reflected in a Settlement, the Sample stores:
+
+- `settlementReflected = true`
+- `settlementId`
+- `settlementReflectedAt`
+- `settlementReflectedBy`
+
+Samples with `settlementReflected = true` are excluded from later settlement candidates to prevent duplicate deductions.
+
+If a sample deduction is removed before approval, the Sample reflection state can be rolled back. After approval-related states, direct deletion is avoided and a new settlement version is created.
+
+If Proposal expected values and actual Sample values differ, the UI should warn:
+
+```text
+제안서 예상값과 실제 샘플 비용이 다릅니다.
+```
+
+Comparison targets are expected quantity vs actual quantity, expected unit price vs actual unit price, expected owner vs actual owner, and expected total vs actual total.
 
 ## My Work Connection
 
