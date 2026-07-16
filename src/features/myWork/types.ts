@@ -45,6 +45,8 @@ export type WorkItem = {
   workType: WorkType
   status: WorkStatus
   campaignId: string
+  sourceType: 'manual' | 'cs' | 'sample' | 'settlement' | 'payment' | 'ai'
+  sourceId: string
   campaignName: string
   sellerName: string
   brandName: string
@@ -53,6 +55,7 @@ export type WorkItem = {
   assigneeRole: WorkRole
   dueDate: string
   dueTime: string
+  dueAt: string
   completedAt?: string
   createdReason: string
   relatedMenu: string

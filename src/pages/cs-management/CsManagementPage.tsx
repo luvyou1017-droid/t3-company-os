@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { csService } from '../../features/cs/services/csService'
-import { notificationService } from '../../features/cs/services/notificationService'
-import { workService } from '../../features/cs/services/workService'
 import type { CsCase } from '../../features/cs/types'
 import { CsDetailDrawer } from './components/CsDetailDrawer'
 import { type CsFilter, CsFilters } from './components/CsFilters'
@@ -38,10 +36,6 @@ export function CsManagementPage({ initialCaseId }: CsManagementPageProps) {
 
   const updateCase = (nextCase: CsCase) => {
     csService.updateCase(nextCase)
-    if (nextCase.status === '처리 완료') {
-      workService.completeByCsCase(nextCase)
-      notificationService.markRead(notificationService.list().find((item) => item.csCaseId === nextCase.id)?.id ?? '')
-    }
     setCases(csService.listCases())
     setSelectedCase(nextCase)
   }

@@ -8,8 +8,6 @@ import {
   isIntakeValid,
 } from '../../features/cs/csUtils'
 import { csService } from '../../features/cs/services/csService'
-import { notificationService } from '../../features/cs/services/notificationService'
-import { workService } from '../../features/cs/services/workService'
 import type { CsAttachment, CsCase, CsIntakeFormData, CsType } from '../../features/cs/types'
 import { CsAttachmentUploader } from './components/CsAttachmentUploader'
 import { CsIntakeSuccess } from './components/CsIntakeSuccess'
@@ -100,8 +98,6 @@ export function PublicCsIntakePage() {
     }
     const finalCase = { ...csCase, priority: calculateCsPriority(csCase) }
     csService.createCase(finalCase)
-    workService.createCsWorkItem(finalCase)
-    notificationService.createNewCsNotification(finalCase)
     setCreatedCase(finalCase)
     setSubmitting(false)
   }

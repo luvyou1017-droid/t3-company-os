@@ -1,4 +1,5 @@
 import type { DailyBriefing, WorkItem, WorkUser } from './types'
+import { findCampaignByName } from '../../shared/data/campaigns'
 
 export const workUsers: WorkUser[] = [
   { id: 'u-001', name: '허윤정', role: '대표' },
@@ -40,10 +41,11 @@ export const workItems: WorkItem[] = [
 ].map((row) => {
   const [id,title,description,workType,assigneeId,assigneeName,assigneeRole,dueDate,dueTime,campaignName,sellerName,brandName,createdReason,relatedMenu,checklistName,relatedLink,hasLinkError,hasPriceError,isDdayCampaign,isSettlementDelayed,isCsOver24h] = row
   const completed = id === 'w-025'
+  const campaign = findCampaignByName(String(campaignName))
   return {
     id, title, description, workType, status: completed ? 'completed' : 'todo',
-    campaignId: `CP-${id}`, campaignName, sellerName, brandName, assigneeId, assigneeName,
-    assigneeRole, dueDate, dueTime, completedAt: completed ? '2026-07-15 09:20' : undefined,
+    campaignId: campaign?.id ?? `GLOBAL-${id}`, sourceType: 'manual', sourceId: id, campaignName, sellerName, brandName, assigneeId, assigneeName,
+    assigneeRole, dueDate, dueTime, dueAt: `${dueDate} ${dueTime}`, completedAt: completed ? '2026-07-15 09:20' : undefined,
     createdReason, relatedMenu, checklistName, relatedLink, hasLinkError, hasPriceError,
     isDdayCampaign, isSettlementDelayed, isCsOver24h, activityLogs: log('업무가 생성되었습니다.'),
   } as WorkItem

@@ -1,24 +1,20 @@
-import { initialCsCases } from '../mockData'
 import type { CsCase } from '../types'
-import { storageService } from './storageService'
-
-const CS_KEY = 't3.cs.cases'
+import { csService as sharedCsService } from '../../../shared/services/csService'
 
 export const csService = {
   listCases() {
-    return storageService.get<CsCase[]>(CS_KEY, initialCsCases)
+    return sharedCsService.getCsCases()
   },
   saveCases(cases: CsCase[]) {
-    storageService.set(CS_KEY, cases)
+    sharedCsService.saveCsCases(cases)
   },
   createCase(csCase: CsCase) {
-    const cases = this.listCases()
-    this.saveCases([csCase, ...cases])
-    return csCase
+    return sharedCsService.createCsCase(csCase)
   },
   updateCase(nextCase: CsCase) {
-    const cases = this.listCases().map((item) => (item.id === nextCase.id ? nextCase : item))
-    this.saveCases(cases)
-    return nextCase
+    return sharedCsService.updateCsCase(nextCase)
+  },
+  getCasesByCampaignId(campaignId: string) {
+    return sharedCsService.getCsCasesByCampaignId(campaignId)
   },
 }

@@ -45,7 +45,9 @@ export type SampleRequest = {
   quantity: number
   requestedAt: string
   requestedBy: string
+  managerId: string
   managerName: string
+  orderManagerId: string
   orderManagerName: string
   orderMethod: '브랜드사 링크' | '발주 프로그램' | '카카오톡 요청' | '직접 구매' | '기타'
   paymentType: SamplePaymentType

@@ -40,6 +40,9 @@ export type CsActivityLog = {
 
 export type CsNotification = {
   id: string
+  campaignId: string
+  relatedType: 'cs' | 'sample' | 'work' | 'settlement' | 'payment' | 'campaign'
+  relatedId: string
   recipientId: string
   recipientName: string
   csCaseId: string
@@ -48,6 +51,7 @@ export type CsNotification = {
   message: string
   createdAt: string
   read: boolean
+  isRead: boolean
 }
 
 export type CsIntakeFormData = {

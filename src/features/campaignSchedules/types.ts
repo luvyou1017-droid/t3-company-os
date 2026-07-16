@@ -1,4 +1,6 @@
-export type LinkOwner = '자사' | '브랜드사' | '셀러'
+import type { LinkOwner } from '../../shared/types/campaign'
+
+export type { LinkOwner }
 
 export type CampaignSchedule = {
   id: string

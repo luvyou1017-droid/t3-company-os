@@ -1,3 +1,5 @@
+import { campaigns } from '../../shared/data/campaigns'
+
 export type MetricTone = 'default' | 'warning' | 'danger'
 
 export type DashboardMetric = {
@@ -56,60 +58,14 @@ export const dashboardMetrics: DashboardMetric[] = [
   },
 ]
 
-export const activeCampaigns: ActiveCampaign[] = [
-  {
-    id: 'CP-2026-0715-01',
-    campaignName: '여름 스킨케어 집중 공구',
-    brandName: 'Lumi Skin',
-    mdName: '김민서',
-    managerName: '박지훈',
-    salesPeriod: '07.12 - 07.18',
-    status: '판매중',
-    revenue: '42,800,000원',
-    csPending: 8,
-  },
-  {
-    id: 'CP-2026-0715-02',
-    campaignName: '프리미엄 단백질 쉐이크',
-    brandName: 'Fit Table',
-    mdName: '정다은',
-    managerName: '오세린',
-    salesPeriod: '07.14 - 07.21',
-    status: '판매중',
-    revenue: '28,450,000원',
-    csPending: 5,
-  },
-  {
-    id: 'CP-2026-0715-03',
-    campaignName: '키친웨어 한정 구성',
-    brandName: 'Maison Cook',
-    mdName: '김민서',
-    managerName: '윤태호',
-    salesPeriod: '07.15 - 07.20',
-    status: '판매중',
-    revenue: '16,920,000원',
-    csPending: 2,
-  },
-  {
-    id: 'CP-2026-0715-04',
-    campaignName: '베이비 케어 정기 공구',
-    brandName: 'Tiny Haus',
-    mdName: '한유리',
-    managerName: '박지훈',
-    salesPeriod: '07.16 - 07.23',
-    status: '검수완료',
-    revenue: '0원',
-    csPending: 0,
-  },
-  {
-    id: 'CP-2026-0715-05',
-    campaignName: '홈트 소도구 스타터 세트',
-    brandName: 'Move Lab',
-    mdName: '정다은',
-    managerName: '최유진',
-    salesPeriod: '07.17 - 07.24',
-    status: '일정확정',
-    revenue: '0원',
-    csPending: 0,
-  },
-]
+export const activeCampaigns: ActiveCampaign[] = campaigns.slice(0, 5).map((campaign, index) => ({
+  id: campaign.id,
+  campaignName: campaign.campaignName,
+  brandName: campaign.brandName,
+  mdName: campaign.mdName,
+  managerName: campaign.managerName,
+  salesPeriod: `${campaign.startDate.slice(5).replace('-', '.')} - ${campaign.endDate.slice(5).replace('-', '.')}`,
+  status: index < 3 ? '판매중' : index === 3 ? '검수완료' : '일정확정',
+  revenue: campaign.revenue ?? '0원',
+  csPending: campaign.pendingCsCount ?? 0,
+}))

@@ -1,19 +1,18 @@
 import type { CsCampaign, CsCase } from './types'
+import { campaigns } from '../../shared/data/campaigns'
 
-export const csCampaigns: CsCampaign[] = [
-  {
-    campaignId: 'SCH-001',
-    campaignCode: 'CAMPAIGN-2026-001',
-    campaignName: '한나 × 머즈캐리어 3차',
-    sellerName: '한나',
-    brandName: '머즈캐리어',
-    productName: '롤링 토트백',
-    period: '2026.07.13 ~ 2026.07.19',
-    supportCompany: 'T3 Company',
-    linkOwner: '자사',
-    managerName: '허윤정',
-  },
-]
+export const csCampaigns: CsCampaign[] = campaigns.map((campaign) => ({
+  campaignId: campaign.id,
+  campaignCode: campaign.campaignCode,
+  campaignName: campaign.campaignName,
+  sellerName: campaign.sellerName,
+  brandName: campaign.brandName,
+  productName: campaign.productName,
+  period: [campaign.startDate, campaign.endDate].filter(Boolean).join(' ~ '),
+  supportCompany: campaign.supportCompany ?? 'T3 Company',
+  linkOwner: campaign.linkOwner,
+  managerName: campaign.managerName,
+}))
 
 export const initialCsCases: CsCase[] = [
   {

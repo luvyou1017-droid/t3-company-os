@@ -7,6 +7,7 @@ import type {
   PriceBannerConfig,
 } from '../../features/campaignDetail/types'
 import { CampaignChecklistTab } from './components/CampaignChecklistTab'
+import { CampaignCsTab } from './components/CampaignCsTab'
 import { CampaignDetailHeader } from './components/CampaignDetailHeader'
 import { CampaignDetailTabs, type DetailTab } from './components/CampaignDetailTabs'
 import { CampaignLinkOrderTab } from './components/CampaignLinkOrderTab'
@@ -97,6 +98,10 @@ export function CampaignDetailPage({ scheduleId, onBack }: CampaignDetailPagePro
 
     if (activeTab === '샘플') {
       return <CampaignSampleTab campaignId={schedule.id} />
+    }
+
+    if (activeTab === 'CS') {
+      return <CampaignCsTab campaignId={schedule.id} />
     }
 
     return <CampaignPlaceholderTab title={activeTab} />

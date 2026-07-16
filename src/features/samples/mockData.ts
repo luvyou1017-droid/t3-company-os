@@ -1,5 +1,13 @@
 import type { SampleRequest } from './types'
 
+const userIdByName: Record<string, string> = {
+  허윤정: 'u-001',
+  허수정: 'u-002',
+  배민성: 'u-003',
+  유시철: 'u-004',
+  김병희: 'u-005',
+}
+
 const log = (action: string) => [
   { id: crypto.randomUUID(), at: '2026.07.15 09:00', actor: 'system', action, memo: 'mock 데이터 생성' },
 ]
@@ -23,7 +31,7 @@ export const initialSamples: SampleRequest[] = [
 ].map((row) => {
   const [id,campaignId,campaignName,sellerName,brandName,productName,optionName,quantity,requestedAt,requestedBy,managerName,orderManagerName,orderMethod,paymentType,costOwner,sampleCost,shippingCost,deliveryStatus,status,returnRequired,returnDueDate,settlementReflected] = row
   return {
-    id,campaignId,campaignName,sellerName,brandName,productName,optionName,quantity,requestedAt,requestedBy,managerName,orderManagerName,orderMethod,paymentType,costOwner,sampleCost,shippingCost,deliveryStatus,status,returnRequired,returnDueDate: returnDueDate || undefined, settlementReflected, settlementAmount: paymentType === '유상' ? Number(sampleCost) + Number(shippingCost) : 0, memo: '', attachments: [], activityLogs: log('샘플 요청 생성'),
+    id,campaignId,campaignName,sellerName,brandName,productName,optionName,quantity,requestedAt,requestedBy,managerId: userIdByName[String(managerName)] ?? `manager-${campaignId}`, managerName,orderManagerId: userIdByName[String(orderManagerName)] ?? `order-manager-${campaignId}`, orderManagerName,orderMethod,paymentType,costOwner,sampleCost,shippingCost,deliveryStatus,status,returnRequired,returnDueDate: returnDueDate || undefined, settlementReflected, settlementAmount: paymentType === '유상' ? Number(sampleCost) + Number(shippingCost) : 0, memo: '', attachments: [], activityLogs: log('샘플 요청 생성'),
     trackingNumber: status === '배송 중' ? 'MOCK-TRACK-001' : undefined,
     shippedAt: ['배송 중','수령 완료','회수 예정','회수 완료','정산 반영 대기','완료'].includes(String(status)) ? '2026-07-14' : undefined,
     receivedAt: ['수령 완료','회수 예정','회수 완료','정산 반영 대기','완료'].includes(String(status)) ? '2026-07-15' : undefined,

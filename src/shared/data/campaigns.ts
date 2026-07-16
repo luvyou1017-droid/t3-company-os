@@ -1,0 +1,154 @@
+import type { Campaign } from '../types/campaign'
+
+const now = '2026-07-15T09:00:00.000Z'
+
+const campaign = (
+  id: string,
+  campaignName: string,
+  sellerName: string,
+  brandName: string,
+  productName: string,
+  managerName: string,
+  mdName: string,
+  startDate: string,
+  endDate: string,
+  linkOwner: Campaign['linkOwner'],
+  businessType: Campaign['businessType'],
+  extra: Partial<Campaign> = {},
+): Campaign => ({
+  id,
+  campaignCode: `CAMPAIGN-2026-${id.replace('SCH-', '').padStart(3, '0')}`,
+  campaignName,
+  sellerId: `seller-${id}`,
+  sellerName,
+  brandId: `brand-${id}`,
+  brandName,
+  productId: `product-${id}`,
+  productName,
+  managerId: managerName === '허윤정' ? 'u-001' : managerName === '김병희' ? 'u-005' : `manager-${id}`,
+  managerName,
+  mdId: mdName === '유시철' ? 'u-004' : `md-${id}`,
+  mdName,
+  startDate,
+  endDate,
+  linkOwner,
+  businessType,
+  settlementDueDate: extra.settlementDueDate ?? '2026-08-16',
+  createdAt: now,
+  updatedAt: now,
+  supportCompany: 'T3 Company',
+  ...extra,
+})
+
+export const campaigns: Campaign[] = [
+  campaign('SCH-001', '한나 × 머즈캐리어 3차', '한나', '머즈캐리어', '롤링 토트백', '허윤정', '유시철', '2026-07-13', '2026-07-19', '브랜드사', '개인사업자', {
+    round: '3차',
+    options: ['블랙', '실버'],
+    contact: '셀러·브랜드 담당자 단체 채널',
+    todayTask: '10시 매출 전달 및 CS 확인',
+    landingPageCompleted: true,
+    pendingTaskCount: 4,
+    pendingCsCount: 3,
+    pendingSampleCount: 0,
+    status: 'active',
+  }),
+  campaign('SCH-002', '스탠다드푸드 뼈용이×전진단', '전진단', '스탠다드푸드', '뼈용이 건강식', '허윤정', '정다은', '2026-07-12', '2026-07-16', '자사', '법인사업자', {
+    pendingTaskCount: 3,
+    pendingCsCount: 5,
+    todayTask: '판매 추이 확인 및 CS 우선 처리',
+    landingPageCompleted: true,
+    status: 'active',
+  }),
+  campaign('SCH-003', '셀러A×브랜드B', '셀러A', '브랜드B', '데일리 이너뷰티 세트', '오세린', '김민서', '2026-07-10', '2026-07-14', '셀러', '개인사업자', {
+    pendingTaskCount: 6,
+    pendingCsCount: 8,
+    todayTask: '마감 데이터 수집 및 미처리 CS 정리',
+    landingPageCompleted: true,
+    status: 'closed',
+  }),
+  campaign('SCH-004', '주방용품 공동구매', '키친온', 'Maison Cook', '스테인리스 조리도구 세트', '박지훈', '한유리', '2026-07-04', '2026-07-09', '브랜드사', '법인사업자', {
+    pendingTaskCount: 5,
+    pendingCsCount: 2,
+    pendingSampleCount: 1,
+    todayTask: '판매 데이터와 취소 건 대조',
+    landingPageCompleted: true,
+    status: 'closed',
+  }),
+  campaign('SCH-005', '건강식품 공동구매', '헬시윤', 'Fit Table', '단백질 쉐이크', '허윤정', '정다은', '2026-07-02', '2026-07-08', '자사', '개인사업자', {
+    pendingTaskCount: 4,
+    pendingCsCount: 1,
+    todayTask: '정산서 생성 전 공급가 검토',
+    landingPageCompleted: true,
+    vendorSettlementCompleted: true,
+    status: 'closed',
+  }),
+  campaign('SCH-006', '여름 스킨케어 집중 공구', '뷰티하린', 'Lumi Skin', '수분 크림 세트', '최유진', '김민서', '2026-06-26', '2026-07-03', '브랜드사', '법인사업자', {
+    pendingTaskCount: 3,
+    todayTask: '셀러 지급 승인 요청',
+    landingPageCompleted: true,
+    vendorSettlementCompleted: true,
+    settlementDocumentCompleted: true,
+    revenue: '42,800,000원',
+    status: 'settled',
+  }),
+  campaign('SCH-007', '홈트 소도구 스타터 세트', '운동하는민지', 'Move Lab', '밴드·폼롤러 패키지', '허윤정', '한유리', '2026-06-20', '2026-06-26', '셀러', '개인사업자', {
+    pendingTaskCount: 2,
+    todayTask: '매니저 지급 승인 대기',
+    landingPageCompleted: true,
+    vendorSettlementCompleted: true,
+    settlementDocumentCompleted: true,
+    sellerPaymentCompleted: true,
+    status: 'settled',
+  }),
+  campaign('SCH-008', '베이비 케어 정기 공구', '마미노트', 'Tiny Haus', '저자극 바디워시', '윤태호', '정다은', '2026-06-18', '2026-06-23', '자사', '법인사업자', {
+    pendingTaskCount: 1,
+    todayTask: '셀러 지급 내역 확인',
+    landingPageCompleted: true,
+    vendorSettlementCompleted: true,
+    settlementDocumentCompleted: true,
+    managerPaymentCompleted: true,
+    status: 'settled',
+  }),
+  campaign('SCH-009', '프리미엄 침구 공동구매', '라이프지수', 'Soft Room', '냉감 침구 세트', '허윤정', '김민서', '2026-06-10', '2026-06-16', '브랜드사', '개인사업자', {
+    todayTask: '완료',
+    landingPageCompleted: true,
+    vendorSettlementCompleted: true,
+    settlementDocumentCompleted: true,
+    sellerPaymentCompleted: true,
+    managerPaymentCompleted: true,
+    status: 'settled',
+  }),
+  campaign('SCH-010', '반려동물 간식 공동구매', '댕댕리뷰', 'Pet Better', '동결건조 간식', '오세린', '한유리', '2026-07-15', '2026-07-21', '자사', '개인사업자', {
+    pendingTaskCount: 2,
+    pendingCsCount: 3,
+    todayTask: '오픈 링크 최종 확인',
+    landingPageCompleted: true,
+    status: 'active',
+  }),
+  campaign('SCH-011', '리빙 수납 박스 공동구매', '정리하는수연', 'Neat Home', '모듈 수납 박스', '박지훈', '정다은', '2026-07-22', '2026-07-28', '브랜드사', '법인사업자', {
+    pendingTaskCount: 7,
+    pendingSampleCount: 2,
+    todayTask: '랜딩 페이지 소재 수급',
+    landingPageCompleted: false,
+    linkReviewPending: true,
+    orderPending: true,
+    status: 'preparing',
+  }),
+  campaign('SCH-012', '가을 아우터 프리오더', '옷장유나', 'Mode Atelier', '트렌치 코트', '최유진', '김민서', '', '', '셀러', '개인사업자', {
+    pendingTaskCount: 8,
+    pendingSampleCount: 3,
+    todayTask: '일정 확정 전 샘플 회수',
+    landingPageCompleted: false,
+    linkReviewPending: true,
+    orderPending: true,
+    status: 'draft',
+  }),
+]
+
+export function getCampaignName(campaignId: string) {
+  return campaigns.find((item) => item.id === campaignId)?.campaignName ?? campaignId
+}
+
+export function findCampaignByName(campaignName: string) {
+  return campaigns.find((item) => item.campaignName === campaignName)
+}
