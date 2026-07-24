@@ -219,6 +219,8 @@ export const paymentRequestService = {
   requestApproval(id: string) { return transition(id, 'approval_pending') },
   approvePaymentRequest(id: string, approvedBy = '대표 김승인') { return transition(id, 'approved', { approvedBy, approvedAt: now() }) },
   markPaymentCompleted(id: string, completedBy = '허수정') {
+    const current = this.getPaymentRequestById(id)
+    if (!current || current.status !== 'approved') throw new Error('대표 승인 완료 후에만 지급 완료 처리할 수 있습니다.')
     const request = transition(id, 'payment_completed', { completedBy, completedAt: now() })
     if (request.recipientType === 'seller') settlementService.markSellerPaymentCompleted(request.settlementId)
     else settlementService.markManagerPaymentCompleted(request.settlementId)

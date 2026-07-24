@@ -12,7 +12,8 @@ import type { WithholdingTaxStatus } from '../../shared/types/withholdingTax'
 import { runWithholdingAssertions } from '../../shared/utils/withholdingTax'
 import { validateSettlement } from '../../shared/utils/settlement'
 
-type Tab = 'requests' | 'managers' | 'evidence' | 'withholding'
+type Tab = 'requests' | 'approval' | 'scheduled' | 'completed' | 'evidence' | 'withholding'
+type WorkflowTarget = { settlementId: string; recipientType: EvidenceOwnerType }
 const money = (value: number) => `${Math.round(value).toLocaleString('ko-KR')}원`
 const statusLabel: Record<PaymentRequestStatus, string> = {
   draft: '초안', evidence_pending: '증빙 대기', request_ready: '요청 생성 대기', approval_pending: '대표 승인 대기',
@@ -32,12 +33,14 @@ const taxStatusLabels: Record<WithholdingTaxStatus, string> = {
 
 export function PaymentRequestPage() {
   const [tab, setTab] = useState<Tab>('requests')
+  const [target, setTarget] = useState<WorkflowTarget | null>(null)
   const [revision, setRevision] = useState(0)
   const sync = () => setRevision((value) => value + 1)
   const requests = useMemo(() => paymentRequestService.getPaymentRequests(), [revision])
   const evidence = useMemo(() => paymentEvidenceService.getAllEvidence(), [revision])
   useMemo(() => withholdingTaxService.syncFromConfirmedSettlements(), [revision])
   const assertion = runWithholdingAssertions()
+  if (target) return <PaymentWorkflowDetail target={target} onBack={() => setTarget(null)} onSync={sync} />
 
   return <section className="payment-page">
     <header className="payment-hero">
@@ -45,15 +48,131 @@ export function PaymentRequestPage() {
     </header>
     <nav className="payment-tabs" aria-label="지급 관리 메뉴">
       <button className={tab === 'requests' ? 'is-active' : ''} onClick={() => setTab('requests')}>지급 요청</button>
-      <button className={tab === 'managers' ? 'is-active' : ''} onClick={() => setTab('managers')}>매니저별 지급 예정</button>
+      <button className={tab === 'approval' ? 'is-active' : ''} onClick={() => setTab('approval')}>대표 승인</button>
+      <button className={tab === 'scheduled' ? 'is-active' : ''} onClick={() => setTab('scheduled')}>지급 예정</button>
+      <button className={tab === 'completed' ? 'is-active' : ''} onClick={() => setTab('completed')}>지급 완료</button>
       <button className={tab === 'evidence' ? 'is-active' : ''} onClick={() => setTab('evidence')}>증빙 검수</button>
       <button className={tab === 'withholding' ? 'is-active' : ''} onClick={() => setTab('withholding')}>원천세 리스트</button>
     </nav>
-    {tab === 'requests' && <RequestTab requests={requests} evidence={evidence} onSync={sync} />}
-    {tab === 'managers' && <ManagerScheduledTab onSync={sync} />}
+    {tab === 'requests' && <><RequestTab requests={requests} evidence={evidence} onSelect={setTarget} /><details className="workspace-card preserved-batch"><summary>매니저 일괄 지급요청</summary><ManagerScheduledTab onSync={sync} /></details></>}
+    {tab === 'approval' && <StageRequestList requests={requests.filter((item) => item.status === 'approval_pending')} empty="대표 승인 대기 건이 없습니다." onSelect={setTarget} onSync={sync} approval />}
+    {tab === 'scheduled' && <StageRequestList requests={requests.filter((item) => item.status === 'approved')} empty="지급 예정 건이 없습니다." onSelect={setTarget} />}
+    {tab === 'completed' && <StageRequestList requests={requests.filter((item) => item.status === 'payment_completed' || item.status === 'remittance_confirmed')} empty="지급 완료 건이 없습니다." onSelect={setTarget} />}
     {tab === 'evidence' && <EvidenceTab evidence={evidence} onSync={sync} />}
     {tab === 'withholding' && <WithholdingTab assertion={assertion} onSync={sync} />}
   </section>
+}
+
+function StageRequestList({ requests, empty, onSelect, onSync, approval }: {
+  requests: ReturnType<typeof paymentRequestService.getPaymentRequests>
+  empty: string
+  onSelect: (target: WorkflowTarget) => void
+  onSync?: () => void
+  approval?: boolean
+}) {
+  if (!requests.length) return <section className="workspace-card workspace-empty"><strong>{empty}</strong><p>처리할 요청이 생기면 이 탭에 자동으로 표시됩니다.</p></section>
+  return <section className="workspace-card"><div className="section-heading"><h2>지급요청 목록</h2><strong>{requests.length}건</strong></div>
+    <div className="responsive-table payment-workflow-table"><table><thead><tr><th>공동구매명</th><th>지급 대상</th><th>셀러 또는 매니저</th><th>결제 방식</th><th>사업자 유형</th><th>증빙 유형</th><th>증빙 상태</th><th>최종 금액</th><th>지급 예정일</th><th>현재 단계</th><th>담당자</th>{approval && <th>처리</th>}</tr></thead>
+      <tbody>{requests.map((request) => <tr key={request.id} tabIndex={0} onClick={() => onSelect({ settlementId: request.settlementId, recipientType: request.recipientType })} onKeyDown={(event) => { if (event.key === 'Enter') onSelect({ settlementId: request.settlementId, recipientType: request.recipientType }) }}>
+        <td><strong>{campaignService.getCampaignById(request.campaignId)?.campaignName}</strong></td><td>{request.recipientType === 'seller' ? '셀러 지급' : '매니저 지급'}</td><td>{request.recipientName}</td><td>{request.salesChannelType}</td><td>{request.businessType}</td><td>{request.evidenceType}</td><td>{request.evidenceStatus === 'confirmed' ? '승인' : '대기'}</td><td className="money-cell">{money(request.direction === 'seller_to_company' ? request.sellerRemittanceToCompany : request.amount)}</td><td>{request.dueDate}</td><td><span className="status-badge settlement">{statusLabel[request.status]}</span></td><td>{request.requestedBy}</td>
+        {approval && <td><button className="secondary-button" onClick={(event) => { event.stopPropagation(); paymentRequestService.approvePaymentRequest(request.id); onSync?.() }}>대표 승인</button></td>}
+      </tr>)}</tbody></table></div>
+  </section>
+}
+
+function PaymentWorkflowDetail({ target, onBack, onSync }: { target: WorkflowTarget; onBack: () => void; onSync: () => void }) {
+  const settlement = settlementService.getSettlementById(target.settlementId)
+  if (!settlement) return <section className="workspace-card"><p>정산을 찾을 수 없습니다.</p><button className="secondary-button" onClick={onBack}>목록으로</button></section>
+  const campaign = campaignService.getCampaignById(settlement.campaignId)
+  if (!campaign) return null
+  const isSeller = target.recipientType === 'seller'
+  const recipientId = isSeller ? campaign.sellerId : campaign.managerId
+  const recipientName = isSeller ? campaign.sellerName : campaign.managerName
+  const sellerRule = sellerSettlementService.getSellerSettlementRule(campaign.id)
+  const businessType: SellerBusinessType = isSeller ? sellerRule?.businessType ?? 'general_business' : managerPaymentService.getBusinessType(campaign.managerName)
+  const recommended = paymentEvidenceService.getRecommendedEvidenceType(businessType) ?? 'other'
+  const evidence = paymentEvidenceService.getEvidenceBySettlementId(settlement.id, target.recipientType)
+    .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))[0]
+  const request = paymentRequestService.getPaymentRequests().find((item) =>
+    item.settlementId === settlement.id && item.recipientType === target.recipientType &&
+    item.recipientId === recipientId && item.sourceVersion === settlement.settlementVersion)
+  const taxItem = withholdingTaxService.getBySettlementOwner(settlement.id, target.recipientType, recipientId)
+    .find((item) => item.sourceVersion === settlement.settlementVersion)
+  const reasons = paymentRequestService.getPaymentRequestBlockReasons({
+    settlementId: settlement.id, ownerType: target.recipientType, ownerId: recipientId, businessType,
+    evidenceTypeConfirmed: isSeller ? Boolean(sellerRule?.evidenceConfirmed && sellerRule.confirmedEvidenceType) : true,
+    accountConfirmed: settlement.accountConfirmed, calculationCompleted: true, calculationErrors: validateSettlement(settlement).errors,
+    sourceVersion: settlement.settlementVersion,
+  }).filter((reason) => reason !== '이미 지급요청된 건입니다.')
+  const settlementConfirmed = ['approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)
+  const upload = (file: File) => {
+    paymentEvidenceService.uploadEvidenceMetadata({
+      campaignId: campaign.id, settlementId: settlement.id, ownerType: target.recipientType,
+      ownerId: recipientId, ownerName: recipientName, businessType, evidenceType: recommended,
+      fileName: file.name, fileType: file.type, fileSize: file.size,
+      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+      uploadedBy: '허수정', memo: '지급요청 상세 업로드',
+    })
+    onSync()
+  }
+  const createRequest = () => {
+    if (isSeller) paymentRequestService.createPaymentRequest(settlement.id, '허수정')
+    else paymentRequestService.createManagerPaymentRequest(settlement.id, '허수정', businessType)
+    onSync()
+  }
+  const completedStep = request?.status === 'payment_completed' || request?.status === 'remittance_confirmed'
+  const approvedStep = request?.status === 'approved' || completedStep
+  const requestedStep = Boolean(request)
+  const evidenceApproved = businessType === 'freelancer' ? Boolean(taxItem) : evidence?.reviewStatus === 'approved'
+  const steps = [
+    ['정산 확정', settlementConfirmed], ['증빙 업로드', businessType === 'freelancer' ? Boolean(taxItem) : Boolean(evidence)],
+    ['증빙 승인', evidenceApproved], ['지급 요청', requestedStep], ['대표 승인', approvedStep], ['지급 완료', completedStep],
+  ] as const
+  const stage = completedStep ? ['지급 완료', '모든 지급 절차가 완료되었습니다.']
+    : approvedStep ? ['대표 승인 완료', '지급 완료 처리를 진행해주세요.']
+      : request?.status === 'sent' ? ['입금 확인 대기', '셀러 입금 확인을 진행해주세요.']
+      : requestedStep ? ['대표 승인 대기', '대표 승인 대기 중입니다.']
+        : evidence?.reviewStatus === 'review_pending' ? ['증빙 검수 중', '허수정 검수 대기 중입니다.']
+          : evidence?.reviewStatus === 'rejected' ? ['증빙 반려', '반려 사유를 확인하고 다시 업로드해주세요.']
+            : evidenceApproved ? ['지급요청 준비 완료', '지급요청을 생성해주세요.']
+              : evidence ? ['증빙 업로드 완료', '증빙 검수를 요청해주세요.']
+                : ['증빙자료 필요', businessType === 'freelancer' ? '원천세 리스트 등록 상태를 확인해주세요.' : `${evidenceLabels[recommended]}을 업로드해주세요.`]
+  return <section className="payment-workflow-detail">
+    <header className="payment-stage-hero"><button className="text-button" onClick={onBack}>← 지급 요청 목록</button><div><p>현재 단계</p><h1>{stage[0]}</h1><strong>다음 행동: {stage[1]}</strong></div></header>
+    <ol className="payment-stepper">{steps.map(([label, done], index) => {
+      const active = !done && steps.slice(0, index).every(([, previousDone]) => previousDone)
+      return <li className={done ? 'is-done' : active ? 'is-current' : ''} key={label}><span>{done ? '✓' : index + 1}</span><strong>{label}</strong><small>{done ? '완료' : active ? '현재 단계' : '미완료'}</small></li>
+    })}</ol>
+    <section className="workspace-card"><h2>1. 지급 대상 요약</h2><div className="payment-detail-sections"><SummaryItem label="공동구매" value={campaign.campaignName} /><SummaryItem label="지급 대상" value={`${isSeller ? '셀러' : '매니저'} · ${recipientName}`} /><SummaryItem label="사업자 유형" value={businessType} /><SummaryItem label="지급 예정일" value={settlement.paymentDueDate} /></div></section>
+    <section className="workspace-card"><h2>2. 정산금 계산</h2><div className="payment-detail-sections"><SummaryItem label="부가세 포함 정산금" value={money(isSeller ? settlement.currentCalculation.sellerCommissionAmount : settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal)} /><SummaryItem label="차감" value={money(isSeller ? settlement.currentCalculation.sellerDeductionTotal : settlement.currentCalculation.managerDeductionTotal)} /><SummaryItem label="최종 지급액" value={money(request?.amount ?? (isSeller ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount))} /></div></section>
+    <section className="workspace-card"><h2>3. 증빙자료</h2><p>추천 자료: <strong>{businessType === 'freelancer' ? '원천세 리스트 자동 등록 · 필요 시 기타 증빙' : evidenceLabels[recommended]}</strong></p>
+      {evidence && <div className="evidence-detail-preview">{evidence.previewUrl && evidence.fileType.startsWith('image/') ? <img src={evidence.previewUrl} alt="증빙 미리보기" /> : <div className="file-placeholder">파일 미리보기</div>}<div><strong>{evidence.fileName}</strong><p>{(evidence.fileSize / 1024).toFixed(1)} KB · {evidence.uploadedBy} · {new Date(evidence.uploadedAt).toLocaleString('ko-KR')}</p><span className="status-badge waiting">{reviewLabels[evidence.reviewStatus]}</span>{evidence.rejectionReason && <p className="danger-text">반려 사유: {evidence.rejectionReason}</p>}</div></div>}
+      <WorkflowAction evidence={evidence} businessType={businessType} request={request} reasons={reasons} onUpload={upload} onRequestReview={() => { if (evidence) paymentEvidenceService.requestEvidenceReview(evidence.id); onSync() }} onCreateRequest={createRequest} onComplete={() => { if (request?.status === 'sent') paymentRequestService.markSellerRemittanceConfirmed(request.id); else if (request) paymentRequestService.markPaymentCompleted(request.id); onSync() }} />
+    </section>
+    <section className="workspace-card"><h2>4. 계좌 확인</h2><p>{settlement.accountConfirmed ? '✓ 지급 계좌 확인 완료' : '지급 계좌 확인이 필요합니다.'}</p></section>
+    <section className="workspace-card"><h2>5. 원천세</h2>{businessType === 'freelancer' && taxItem ? <div className="payment-detail-sections"><SummaryItem label="부가세 포함 정산금" value={money(taxItem.grossSettlementAmount)} /><SummaryItem label="부가세 제외 기준금액" value={money(taxItem.withholdingBaseAmount)} /><SummaryItem label="소득세 3%" value={money(taxItem.incomeTaxAmount)} /><SummaryItem label="지방소득세 0.3%" value={money(taxItem.localIncomeTaxAmount)} /><SummaryItem label="총 원천징수액" value={money(taxItem.totalWithholdingTaxAmount)} /><SummaryItem label="최종 지급액" value={money(taxItem.finalPaymentAmount)} /><SummaryItem label="원천세 리스트" value="등록 완료" /></div> : <p>{businessType === 'freelancer' ? '원천세 리스트 미등록' : '원천세 대상이 아닙니다.'}</p>}</section>
+    <section className="workspace-card"><h2>6. 지급요청 상태</h2><p>{request ? statusLabel[request.status] : '지급요청 생성 전'}</p>{reasons.length > 0 && !request && <ul className="block-reasons">{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}</section>
+    <section className="workspace-card"><h2>7. 승인·지급 이력</h2><div className="payment-history"><p>{request?.requestedAt ? `요청 · ${request.requestedBy} · ${new Date(request.requestedAt).toLocaleString('ko-KR')}` : '지급요청 이력 없음'}</p>{request?.approvedAt && <p>승인 · {request.approvedBy} · {new Date(request.approvedAt).toLocaleString('ko-KR')}</p>}{request?.completedAt && <p>지급 완료 · {request.completedBy} · {new Date(request.completedAt).toLocaleString('ko-KR')}</p>}</div></section>
+  </section>
+}
+
+function SummaryItem({ label, value }: { label: string; value: string }) {
+  return <div><span>{label}</span><strong>{value}</strong></div>
+}
+
+function WorkflowAction({ evidence, businessType, request, reasons, onUpload, onRequestReview, onCreateRequest, onComplete }: {
+  evidence?: PaymentEvidence; businessType: SellerBusinessType; request?: ReturnType<typeof paymentRequestService.getPaymentRequestById>
+  reasons: string[]; onUpload: (file: File) => void; onRequestReview: () => void; onCreateRequest: () => void; onComplete: () => void
+}) {
+  if (request?.status === 'payment_completed' || request?.status === 'remittance_confirmed') return <p className="success-panel">지급 완료 · {request.completedBy} · {request.completedAt ? new Date(request.completedAt).toLocaleString('ko-KR') : ''}</p>
+  if (request?.status === 'sent') return <button className="primary-button" onClick={onComplete}>입금 확인 완료 처리</button>
+  if (request?.status === 'approved') return <button className="primary-button" onClick={onComplete}>지급 완료 처리</button>
+  if (request?.status === 'approval_pending') return <p className="payment-notice">대표 승인 대기 중</p>
+  if (businessType === 'freelancer' && !request) return <><button className="primary-button" disabled={Boolean(reasons.length)} onClick={onCreateRequest}>지급요청 생성</button>{reasons.length > 0 && <small>{reasons.join(' · ')}</small>}</>
+  if (!evidence || evidence.reviewStatus === 'rejected') return <><label className="primary-button evidence-file-button">{evidence?.reviewStatus === 'rejected' ? '증빙 다시 업로드' : '증빙자료 업로드'}<input hidden type="file" accept="image/*,.pdf" onChange={(event) => { const file = event.target.files?.[0]; if (file) onUpload(file) }} /></label>{evidence?.rejectionReason && <p className="danger-text">반려 사유: {evidence.rejectionReason}</p>}</>
+  if (evidence.reviewStatus === 'uploaded') return <div className="button-row"><button className="primary-button" onClick={onRequestReview}>증빙 검수 요청</button><label className="secondary-button evidence-file-button">파일 교체<input hidden type="file" accept="image/*,.pdf" onChange={(event) => { const file = event.target.files?.[0]; if (file) onUpload(file) }} /></label></div>
+  if (evidence.reviewStatus === 'review_pending') return <p className="payment-notice">허수정 검수 대기 중</p>
+  return <><button className="primary-button" disabled={Boolean(reasons.length)} onClick={onCreateRequest}>지급요청 생성</button>{reasons.length > 0 && <small>{reasons.join(' · ')}</small>}</>
 }
 
 function ManagerScheduledTab({ onSync }: { onSync: () => void }) {
@@ -128,7 +247,7 @@ function ManagerScheduledTab({ onSync }: { onSync: () => void }) {
   </>
 }
 
-function RequestTab({ requests, evidence, onSync }: { requests: ReturnType<typeof paymentRequestService.getPaymentRequests>; evidence: PaymentEvidence[]; onSync: () => void }) {
+function RequestTab({ requests, evidence, onSelect }: { requests: ReturnType<typeof paymentRequestService.getPaymentRequests>; evidence: PaymentEvidence[]; onSelect: (target: WorkflowTarget) => void }) {
   const settlements = settlementService.getSettlements()
   return <>
     <div className="payment-kpi-grid">
@@ -169,66 +288,39 @@ function RequestTab({ requests, evidence, onSync }: { requests: ReturnType<typeo
               <div><dt>최종 지급액</dt><dd className="money-cell">{money(isSeller ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount)}</dd></div>
             </dl>
             {!reasons.length ? <p className="success-panel">지급요청 생성 가능</p> : <div className="block-reasons"><strong>지급요청 불가</strong><p>증빙자료 업로드 후 지급요청이 가능합니다.</p><ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>}
-            <button className="primary-button" disabled={Boolean(reasons.length)} onClick={() => {
-              if (isSeller) paymentRequestService.createPaymentRequest(settlement.id, '허수정')
-              else paymentRequestService.createManagerPaymentRequest(settlement.id, '허수정', businessType)
-              onSync()
-            }} type="button">
-              {isSeller ? '셀러 지급 요청 생성' : '매니저 지급 요청 생성'}
-            </button>
+            <button className="secondary-button" onClick={() => onSelect({ settlementId: settlement.id, recipientType: ownerType })} type="button">지급요청 상세</button>
           </article>
         })
       })}</div>
     </section>
-    <section className="workspace-card"><div className="section-heading"><h2>생성된 지급 요청</h2><strong>{requests.length}건</strong></div>
-      <div className="responsive-table"><table><thead><tr><th>공동구매</th><th>구분</th><th>대상자</th><th>최종 금액</th><th>증빙</th><th>상태</th><th>담당자</th></tr></thead>
-      <tbody>{requests.map((request) => <tr key={request.id}><td>{campaignService.getCampaignById(request.campaignId)?.campaignName}</td><td>{request.recipientType === 'manager' ? '매니저' : '셀러'}</td><td>{request.recipientName}</td><td className="money-cell">{money(request.direction === 'seller_to_company' ? request.sellerRemittanceToCompany : request.amount)}</td><td>{request.evidenceStatus === 'confirmed' ? '확인' : '대기'}</td><td><span className="status-badge settlement">{statusLabel[request.status]}</span></td><td>{request.requestedBy}</td></tr>)}</tbody></table></div>
-    </section>
+    <StageRequestList requests={requests} empty="생성된 지급요청이 없습니다." onSelect={onSelect} />
   </>
 }
 
 function EvidenceTab({ evidence, onSync }: { evidence: PaymentEvidence[]; onSync: () => void }) {
-  const [target, setTarget] = useState(() => settlementService.getSettlements()[0]?.id ?? '')
-  const [ownerType, setOwnerType] = useState<EvidenceOwnerType>('seller')
-  const settlement = settlementService.getSettlementById(target)
-  const campaign = settlement && campaignService.getCampaignById(settlement.campaignId)
-  const businessType = ownerType === 'seller'
-    ? sellerSettlementService.getSellerSettlementRule(settlement?.campaignId ?? '')?.businessType ?? 'general_business'
-    : managerPaymentService.getBusinessType(campaign?.managerName ?? '')
-  const recommended = paymentEvidenceService.getRecommendedEvidenceType(businessType) ?? 'other'
-  const upload = (file: File) => {
-    if (!settlement || !campaign) return
-    paymentEvidenceService.uploadEvidenceMetadata({
-      campaignId: campaign.id, settlementId: settlement.id, ownerType,
-      ownerId: ownerType === 'seller' ? campaign.sellerId : campaign.managerId,
-      ownerName: ownerType === 'seller' ? campaign.sellerName : campaign.managerName,
-      businessType, evidenceType: recommended, fileName: file.name, fileType: file.type,
-      fileSize: file.size, previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
-      uploadedBy: '허수정', memo: '브라우저 MVP 메타데이터',
-    }); onSync()
-  }
-  return <>
-    <section className="workspace-card evidence-upload">
-      <div><h2>증빙자료 업로드</h2><p>실제 파일은 서버에 저장하지 않으며 localStorage에는 메타데이터만 보관됩니다. 새로고침 후 이미지 미리보기는 유지되지 않을 수 있습니다.</p></div>
-      <div className="evidence-controls">
-        <select value={target} onChange={(event) => setTarget(event.target.value)}>{settlementService.getSettlements().map((item) => <option key={item.id} value={item.id}>{campaignService.getCampaignById(item.campaignId)?.campaignName}</option>)}</select>
-        <select value={ownerType} onChange={(event) => setOwnerType(event.target.value as EvidenceOwnerType)}><option value="seller">셀러</option><option value="manager">매니저</option></select>
-        <span>추천 증빙: <strong>{evidenceLabels[recommended]}</strong> (담당자가 최종 유형 확정)</span>
-        <label className="secondary-button">파일 선택<input hidden type="file" accept="image/*,.pdf" onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file) }} /></label>
-      </div>
-    </section>
-    <section className="workspace-card"><div className="section-heading"><div><h2>증빙 검수</h2><p>기본 검수 담당자: 허수정 · 반려 사유는 필수입니다.</p></div><strong>{evidence.length}건</strong></div>
-      <div className="evidence-review-grid">{evidence.map((item) => <article className="evidence-card" key={item.id}>
+  const [owner, setOwner] = useState('')
+  const [documentType, setDocumentType] = useState('')
+  const [review, setReview] = useState('')
+  const [uploadedDate, setUploadedDate] = useState('')
+  const [manager, setManager] = useState('')
+  const managers = managerPaymentService.getManagers()
+  const filtered = evidence.filter((item) => {
+    const campaign = campaignService.getCampaignById(item.campaignId)
+    return (!owner || item.ownerType === owner) && (!documentType || item.evidenceType === documentType) &&
+      (!review || item.reviewStatus === review) && (!uploadedDate || item.uploadedAt.startsWith(uploadedDate)) &&
+      (!manager || campaign?.managerId === manager)
+  })
+  return <section className="workspace-card"><div className="section-heading"><div><h2>증빙 검수 관리자 화면</h2><p>허수정 담당자가 업로드된 셀러·매니저 증빙만 검수합니다. 업로드와 지급 처리는 지급요청 상세에서 진행합니다.</p></div><strong>{filtered.length}건</strong></div>
+      <div className="evidence-admin-filters"><select value={owner} onChange={(e) => setOwner(e.target.value)}><option value="">셀러·매니저 전체</option><option value="seller">셀러</option><option value="manager">매니저</option></select><select value={documentType} onChange={(e) => setDocumentType(e.target.value)}><option value="">증빙 유형 전체</option>{Object.entries(evidenceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select value={review} onChange={(e) => setReview(e.target.value)}><option value="">검수 상태 전체</option>{Object.entries(reviewLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><input aria-label="업로드일" type="date" value={uploadedDate} onChange={(e) => setUploadedDate(e.target.value)} /><select value={manager} onChange={(e) => setManager(e.target.value)}><option value="">담당 매니저 전체</option>{managers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+      <div className="evidence-review-grid">{filtered.map((item) => <article className="evidence-card" key={item.id}>
         {item.previewUrl && item.fileType.startsWith('image/') ? <img src={item.previewUrl} alt={`${item.ownerName} 증빙 미리보기`} /> : <div className="file-placeholder">파일 미리보기</div>}
         <div><span className={`status-badge ${item.reviewStatus === 'approved' ? 'done' : item.reviewStatus === 'rejected' ? 'error' : 'waiting'}`}>{reviewLabels[item.reviewStatus]}</span><h3>{item.ownerName} · {item.ownerType === 'seller' ? '셀러' : '매니저'}</h3><p>{campaignService.getCampaignById(item.campaignId)?.campaignName}</p><p>{evidenceLabels[item.evidenceType]} · {item.fileName} · {(item.fileSize / 1024).toFixed(1)} KB</p><small>{item.uploadedBy} · {new Date(item.uploadedAt).toLocaleString('ko-KR')}</small>{item.rejectionReason && <p className="danger-text">반려: {item.rejectionReason}</p>}</div>
         <div className="button-row">
-          {item.reviewStatus === 'uploaded' && <button className="secondary-button" onClick={() => { paymentEvidenceService.requestEvidenceReview(item.id); onSync() }}>검수 요청</button>}
           {item.reviewStatus === 'review_pending' && <><button className="secondary-button" onClick={() => { paymentEvidenceService.approveEvidence(item.id); onSync() }}>승인</button><button className="danger-button" onClick={() => { const reason = window.prompt('반려 사유를 입력해주세요.'); if (reason) { paymentEvidenceService.rejectEvidence(item.id, reason); onSync() } }}>반려</button></>}
-          <button className="text-button" onClick={() => { paymentEvidenceService.removeEvidence(item.id); onSync() }}>삭제</button>
         </div>
       </article>)}</div>
+      {!filtered.length && <div className="workspace-empty"><strong>검수할 증빙자료가 없습니다.</strong><p>지급요청 상세에서 업로드 및 검수 요청된 자료가 표시됩니다.</p></div>}
     </section>
-  </>
 }
 
 function WithholdingTab({ assertion, onSync }: { assertion: ReturnType<typeof runWithholdingAssertions>; onSync: () => void }) {

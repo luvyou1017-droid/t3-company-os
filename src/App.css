@@ -3092,6 +3092,30 @@
 .manager-selection-summary span { display: block; color: #64748b; font-size: 11px; }
 .manager-selection-summary strong { display: block; margin-top: 5px; font-size: 15px; text-align: right; white-space: nowrap; }
 .campaign-payment-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.payment-workflow-detail { display: grid; gap: 18px; }
+.payment-stage-hero { display: grid; gap: 18px; padding: 28px; border: 1px solid #dbe3ef; border-radius: 16px; background: linear-gradient(145deg, #fff, #f5f7ff); }
+.payment-stage-hero h1 { margin: 4px 0 10px; font-size: 34px; }
+.payment-stage-hero p { margin: 0; color: #64748b; font-weight: 700; }
+.payment-stage-hero > div > strong { color: #1d4ed8; }
+.payment-stepper { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.payment-stepper li { display: grid; justify-items: center; gap: 5px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; color: #94a3b8; padding: 14px 8px; text-align: center; }
+.payment-stepper li > span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: #e2e8f0; }
+.payment-stepper li.is-done { border-color: #bbf7d0; background: #f0fdf4; color: #047857; }
+.payment-stepper li.is-current { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+.payment-stepper small { font-size: 11px; }
+.payment-detail-sections { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.payment-detail-sections > div { min-height: 78px; padding: 15px; border-radius: 12px; background: #f8fafc; }
+.payment-detail-sections span { display: block; color: #64748b; font-size: 12px; }
+.payment-detail-sections strong { display: block; margin-top: 9px; overflow-wrap: anywhere; }
+.evidence-detail-preview { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 18px; margin: 16px 0; padding: 16px; border: 1px solid #e7ebf1; border-radius: 12px; }
+.evidence-detail-preview img { width: 140px; height: 100px; border-radius: 10px; object-fit: cover; }
+.evidence-file-button { display: inline-flex; cursor: pointer; }
+.evidence-admin-filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+.evidence-admin-filters select, .evidence-admin-filters input { min-width: 0; border: 1px solid #cfd7e3; border-radius: 9px; background: #fff; padding: 10px; }
+.payment-history { display: grid; gap: 8px; }
+.payment-history p { margin: 0; padding: 12px; border-radius: 10px; background: #f8fafc; }
+.payment-workflow-table tbody tr { cursor: pointer; }
+.preserved-batch summary { cursor: pointer; font-size: 18px; font-weight: 800; }
 
 @media (max-width: 900px) {
   .payment-readiness-grid, .evidence-review-grid { grid-template-columns: 1fr; }
@@ -3101,6 +3125,9 @@
   .manager-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .manager-selection-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .manager-selection-summary button { grid-column: 1 / -1; }
+  .payment-stepper { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .payment-detail-sections, .evidence-admin-filters { grid-template-columns: 1fr; }
+  .evidence-detail-preview { grid-template-columns: 1fr; }
 }
 
 /* Seller settlement and payment requests */
