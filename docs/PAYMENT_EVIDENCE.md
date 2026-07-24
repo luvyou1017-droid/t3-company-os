@@ -28,3 +28,23 @@ MVP는 파일명, MIME type, 크기, 업로드 담당자·시간과 임시 objec
 ## Supabase Storage 전환
 
 `paymentEvidenceService`의 `PaymentEvidenceRepository` 구현을 Storage adapter로 교체한다. 이후 private bucket, signed URL, 권한, 감사 로그, 보존·파기 정책을 추가한다. UI와 `PaymentEvidence` 계약은 유지한다.
+
+## 업로드와 검수 위치
+
+증빙 업로드와 재업로드는 셀러 또는 매니저의 지급요청 상세에서 수행한다. 검수 요청된 자료는 `/payments?tab=evidence-review`의 허수정 담당자 전용 목록에 표시되며, 행을 선택하면 `/payments/evidence-review/:evidenceId`의 넓은 검수 상세를 연다.
+
+## 허수정 검수 흐름
+
+현재 mock 사용자 중 `u-002` 허수정 정산 담당자를 기본 검수자로 사용한다. 검수 요청 시 `review_pending`이 되고 허수정이 승인하면 `approved`, 반려하면 필수 사유와 함께 `rejected`가 된다. 승인 시 `reviewedBy`, `reviewedAt`, `reviewStatus`, `reviewMemo`를 저장하고 반려 시 `rejectionReason`도 저장한다.
+
+## Revision 관리
+
+반려 후 재업로드는 기존 파일을 삭제하거나 덮어쓰지 않는다. 새 `PaymentEvidence`에 증가한 `revision`과 `previousEvidenceId`를 저장하며 검수 상세에서 이전 revision의 상태와 처리 이력을 확인한다.
+
+## 알림과 My Work
+
+`증빙 검수 요청` 시 허수정에게 “새 증빙자료 검수 요청이 도착했습니다.” 알림을 만들고 `sourceType = payment_evidence`, `sourceId = evidenceId`인 Work Item을 생성한다. 동일 evidence ID의 Work Item은 중복 생성하지 않는다. 알림과 My Work의 관련 링크는 해당 증빙 검수 상세로 연결한다.
+
+## 뒤로가기와 진입 출처
+
+지급요청·증빙 검수 상세 진입 시 History state에 `from`과 `label`을 기록한다. 뒤로가기는 이 출처 경로, 브라우저 history, 지급 요청 기본 탭 순서로 fallback한다. 지급 화면의 탭과 스크롤 위치는 업무 데이터와 분리해 sessionStorage에 보관한다.

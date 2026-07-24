@@ -19,6 +19,7 @@ export const appUsers: AppUser[] = [
 
 export const DEFAULT_MD_USER_ID = 'u-004'
 export const DEFAULT_OPERATOR_USER_ID = 'u-002'
+export const DEFAULT_EVIDENCE_REVIEWER_USER_ID = DEFAULT_OPERATOR_USER_ID
 export const DEFAULT_APPROVER_USER_ID = 'u-001'
 
 export function getUserById(userId: string) {
@@ -28,3 +29,5 @@ export function getUserById(userId: string) {
 export function getUserByName(name: string) {
   return appUsers.find((user) => user.name === name)
 }
+
+export const DEFAULT_EVIDENCE_REVIEWER = getUserById(DEFAULT_EVIDENCE_REVIEWER_USER_ID)!

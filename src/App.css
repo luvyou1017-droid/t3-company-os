@@ -3116,6 +3116,9 @@
 .payment-history p { margin: 0; padding: 12px; border-radius: 10px; background: #f8fafc; }
 .payment-workflow-table tbody tr { cursor: pointer; }
 .preserved-batch summary { cursor: pointer; font-size: 18px; font-weight: 800; }
+.evidence-large-preview { display: block; width: min(100%, 920px); max-height: 620px; margin: 16px auto; border: 1px solid #e2e8f0; border-radius: 12px; object-fit: contain; background: #f8fafc; }
+.evidence-pdf-preview { width: 100%; min-height: 620px; border: 1px solid #e2e8f0; border-radius: 12px; }
+.evidence-review-actions { position: sticky; bottom: 12px; justify-content: flex-end; padding: 16px; border: 1px solid #dbe3ef; border-radius: 14px; background: rgba(255,255,255,.96); box-shadow: 0 12px 30px rgba(15,23,42,.12); }
 
 @media (max-width: 900px) {
   .payment-readiness-grid, .evidence-review-grid { grid-template-columns: 1fr; }

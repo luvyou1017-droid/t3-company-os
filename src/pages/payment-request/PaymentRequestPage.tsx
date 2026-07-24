@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { campaignService } from '../../shared/services/campaignService'
 import { paymentEvidenceService } from '../../shared/services/paymentEvidenceService'
 import { paymentRequestService } from '../../shared/services/paymentRequestService'
@@ -11,6 +11,8 @@ import type { PaymentRequestStatus, SellerBusinessType } from '../../shared/type
 import type { WithholdingTaxStatus } from '../../shared/types/withholdingTax'
 import { runWithholdingAssertions } from '../../shared/utils/withholdingTax'
 import { validateSettlement } from '../../shared/utils/settlement'
+import { openEvidenceReviewDetail, openPaymentDetail } from '../../shared/utils/paymentNavigation'
+import { DEFAULT_EVIDENCE_REVIEWER } from '../../shared/data/users'
 
 type Tab = 'requests' | 'approval' | 'scheduled' | 'completed' | 'evidence' | 'withholding'
 type WorkflowTarget = { settlementId: string; recipientType: EvidenceOwnerType }
@@ -31,16 +33,61 @@ const taxStatusLabels: Record<WithholdingTaxStatus, string> = {
   revision_required: '수정 필요', canceled: '취소',
 }
 
+function getPaymentRoute(): { tab: Tab; target: WorkflowTarget | null; evidenceId: string | null } {
+  const params = new URLSearchParams(window.location.search)
+  const tabParam = params.get('tab')
+  const saved = JSON.parse(sessionStorage.getItem('t3_payment_view_state') ?? '{}') as { tab?: Tab }
+  const tab: Tab = tabParam === 'evidence-review' ? 'evidence'
+    : ['requests', 'approval', 'scheduled', 'completed', 'withholding'].includes(tabParam ?? '') ? tabParam as Tab
+      : saved.tab ?? 'requests'
+  const evidenceMatch = window.location.pathname.match(/^\/payments\/evidence-review\/([^/]+)/)
+  const target = window.location.pathname === '/payments/detail' && params.get('settlementId')
+    ? { settlementId: params.get('settlementId')!, recipientType: params.get('recipientType') === 'manager' ? 'manager' as const : 'seller' as const }
+    : null
+  return { tab, target, evidenceId: evidenceMatch ? decodeURIComponent(evidenceMatch[1]) : null }
+}
+
+function getBackLabel() {
+  return (window.history.state as { label?: string } | null)?.label ? `${(window.history.state as { label: string }).label}으로` : '이전 화면'
+}
+
 export function PaymentRequestPage() {
-  const [tab, setTab] = useState<Tab>('requests')
-  const [target, setTarget] = useState<WorkflowTarget | null>(null)
+  const initialRoute = getPaymentRoute()
+  const [tab, setTabState] = useState<Tab>(initialRoute.tab)
+  const [target, setTarget] = useState<WorkflowTarget | null>(initialRoute.target)
+  const [evidenceTargetId, setEvidenceTargetId] = useState<string | null>(initialRoute.evidenceId)
   const [revision, setRevision] = useState(0)
   const sync = () => setRevision((value) => value + 1)
   const requests = useMemo(() => paymentRequestService.getPaymentRequests(), [revision])
   const evidence = useMemo(() => paymentEvidenceService.getAllEvidence(), [revision])
   useMemo(() => withholdingTaxService.syncFromConfirmedSettlements(), [revision])
   const assertion = runWithholdingAssertions()
-  if (target) return <PaymentWorkflowDetail target={target} onBack={() => setTarget(null)} onSync={sync} />
+  useEffect(() => {
+    const saved = JSON.parse(sessionStorage.getItem('t3_payment_view_state') ?? '{}') as { scrollY?: number }
+    if (typeof saved.scrollY === 'number') requestAnimationFrame(() => window.scrollTo(0, saved.scrollY ?? 0))
+    return () => {
+      sessionStorage.setItem('t3_payment_view_state', JSON.stringify({ tab, scrollY: window.scrollY }))
+    }
+  }, [tab])
+  const setTab = (next: Tab) => {
+    setTabState(next)
+    sessionStorage.setItem('t3_payment_view_state', JSON.stringify({ tab: next, scrollY: window.scrollY }))
+    const query = next === 'evidence' ? 'evidence-review' : next
+    window.history.replaceState(window.history.state, '', `/payments?tab=${query}`)
+  }
+  const back = () => {
+    const state = window.history.state as { from?: string } | null
+    if (state?.from) {
+      window.history.pushState({}, '', state.from)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    } else if (window.history.length > 1) window.history.back()
+    else {
+      window.history.pushState({}, '', '/payments?tab=requests')
+      setTarget(null); setEvidenceTargetId(null); setTabState('requests')
+    }
+  }
+  if (target) return <PaymentWorkflowDetail target={target} backLabel={getBackLabel()} onBack={back} onSync={sync} />
+  if (evidenceTargetId) return <EvidenceReviewDetail evidenceId={evidenceTargetId} backLabel={getBackLabel()} onBack={back} onOpenPayment={(next) => { openPaymentDetail(next.settlementId, next.recipientType, { from: `/payments/evidence-review/${evidenceTargetId}`, label: '증빙 검수 상세' }); setEvidenceTargetId(null); setTarget(next) }} onSync={sync} />
 
   return <section className="payment-page">
     <header className="payment-hero">
@@ -54,11 +101,11 @@ export function PaymentRequestPage() {
       <button className={tab === 'evidence' ? 'is-active' : ''} onClick={() => setTab('evidence')}>증빙 검수</button>
       <button className={tab === 'withholding' ? 'is-active' : ''} onClick={() => setTab('withholding')}>원천세 리스트</button>
     </nav>
-    {tab === 'requests' && <><RequestTab requests={requests} evidence={evidence} onSelect={setTarget} /><details className="workspace-card preserved-batch"><summary>매니저 일괄 지급요청</summary><ManagerScheduledTab onSync={sync} /></details></>}
-    {tab === 'approval' && <StageRequestList requests={requests.filter((item) => item.status === 'approval_pending')} empty="대표 승인 대기 건이 없습니다." onSelect={setTarget} onSync={sync} approval />}
-    {tab === 'scheduled' && <StageRequestList requests={requests.filter((item) => item.status === 'approved')} empty="지급 예정 건이 없습니다." onSelect={setTarget} />}
-    {tab === 'completed' && <StageRequestList requests={requests.filter((item) => item.status === 'payment_completed' || item.status === 'remittance_confirmed')} empty="지급 완료 건이 없습니다." onSelect={setTarget} />}
-    {tab === 'evidence' && <EvidenceTab evidence={evidence} onSync={sync} />}
+    {tab === 'requests' && <><RequestTab requests={requests} evidence={evidence} onSelect={(next) => { openPaymentDetail(next.settlementId, next.recipientType, { from: '/payments?tab=requests', label: '지급 요청 목록' }); setTarget(next) }} /><details className="workspace-card preserved-batch"><summary>매니저 일괄 지급요청</summary><ManagerScheduledTab onSync={sync} /></details></>}
+    {tab === 'approval' && <StageRequestList requests={requests.filter((item) => item.status === 'approval_pending')} empty="대표 승인 대기 건이 없습니다." onSelect={(next) => { openPaymentDetail(next.settlementId, next.recipientType, { from: '/payments?tab=approval', label: '대표 승인' }); setTarget(next) }} onSync={sync} approval />}
+    {tab === 'scheduled' && <StageRequestList requests={requests.filter((item) => item.status === 'approved')} empty="지급 예정 건이 없습니다." onSelect={(next) => { openPaymentDetail(next.settlementId, next.recipientType, { from: '/payments?tab=scheduled', label: '지급 예정' }); setTarget(next) }} />}
+    {tab === 'completed' && <StageRequestList requests={requests.filter((item) => item.status === 'payment_completed' || item.status === 'remittance_confirmed')} empty="지급 완료 건이 없습니다." onSelect={(next) => { openPaymentDetail(next.settlementId, next.recipientType, { from: '/payments?tab=completed', label: '지급 완료' }); setTarget(next) }} />}
+    {tab === 'evidence' && <EvidenceTab evidence={evidence} onSync={sync} onSelect={(id) => { openEvidenceReviewDetail(id); setEvidenceTargetId(id) }} />}
     {tab === 'withholding' && <WithholdingTab assertion={assertion} onSync={sync} />}
   </section>
 }
@@ -80,7 +127,7 @@ function StageRequestList({ requests, empty, onSelect, onSync, approval }: {
   </section>
 }
 
-function PaymentWorkflowDetail({ target, onBack, onSync }: { target: WorkflowTarget; onBack: () => void; onSync: () => void }) {
+function PaymentWorkflowDetail({ target, backLabel, onBack, onSync }: { target: WorkflowTarget; backLabel: string; onBack: () => void; onSync: () => void }) {
   const settlement = settlementService.getSettlementById(target.settlementId)
   if (!settlement) return <section className="workspace-card"><p>정산을 찾을 수 없습니다.</p><button className="secondary-button" onClick={onBack}>목록으로</button></section>
   const campaign = campaignService.getCampaignById(settlement.campaignId)
@@ -138,7 +185,7 @@ function PaymentWorkflowDetail({ target, onBack, onSync }: { target: WorkflowTar
               : evidence ? ['증빙 업로드 완료', '증빙 검수를 요청해주세요.']
                 : ['증빙자료 필요', businessType === 'freelancer' ? '원천세 리스트 등록 상태를 확인해주세요.' : `${evidenceLabels[recommended]}을 업로드해주세요.`]
   return <section className="payment-workflow-detail">
-    <header className="payment-stage-hero"><button className="text-button" onClick={onBack}>← 지급 요청 목록</button><div><p>현재 단계</p><h1>{stage[0]}</h1><strong>다음 행동: {stage[1]}</strong></div></header>
+    <header className="payment-stage-hero"><button className="text-button" onClick={onBack}>← {backLabel}</button><div><p>현재 단계</p><h1>{stage[0]}</h1><strong>다음 행동: {stage[1]}</strong></div></header>
     <ol className="payment-stepper">{steps.map(([label, done], index) => {
       const active = !done && steps.slice(0, index).every(([, previousDone]) => previousDone)
       return <li className={done ? 'is-done' : active ? 'is-current' : ''} key={label}><span>{done ? '✓' : index + 1}</span><strong>{label}</strong><small>{done ? '완료' : active ? '현재 단계' : '미완료'}</small></li>
@@ -297,12 +344,53 @@ function RequestTab({ requests, evidence, onSelect }: { requests: ReturnType<typ
   </>
 }
 
-function EvidenceTab({ evidence, onSync }: { evidence: PaymentEvidence[]; onSync: () => void }) {
-  const [owner, setOwner] = useState('')
-  const [documentType, setDocumentType] = useState('')
-  const [review, setReview] = useState('')
-  const [uploadedDate, setUploadedDate] = useState('')
-  const [manager, setManager] = useState('')
+function EvidenceReviewDetail({ evidenceId, backLabel, onBack, onOpenPayment, onSync }: {
+  evidenceId: string; backLabel: string; onBack: () => void; onOpenPayment: (target: WorkflowTarget) => void; onSync: () => void
+}) {
+  const evidence = paymentEvidenceService.getAllEvidence().find((item) => item.id === evidenceId)
+  if (!evidence) return <section className="workspace-card workspace-empty"><strong>증빙자료를 찾을 수 없습니다.</strong><button className="secondary-button" onClick={onBack}>← {backLabel}</button></section>
+  const campaign = campaignService.getCampaignById(evidence.campaignId)
+  const settlement = settlementService.getSettlementById(evidence.settlementId)
+  if (!campaign || !settlement) return null
+  const request = paymentRequestService.getPaymentRequests().find((item) =>
+    item.settlementId === evidence.settlementId && item.recipientType === evidence.ownerType && item.recipientId === evidence.ownerId)
+  const recommended = paymentEvidenceService.getRecommendedEvidenceType(evidence.businessType) ?? 'other'
+  const gross = evidence.ownerType === 'seller'
+    ? settlement.currentCalculation.sellerCommissionAmount
+    : settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal
+  const finalAmount = request?.amount ?? (evidence.ownerType === 'seller' ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount)
+  const history = paymentEvidenceService.getEvidenceBySettlementId(evidence.settlementId, evidence.ownerType)
+    .filter((item) => item.evidenceType === evidence.evidenceType).sort((a, b) => (a.revision ?? 1) - (b.revision ?? 1))
+  const reject = () => {
+    const reason = window.prompt('반려 사유를 입력해주세요.\n예: 금액 불일치, 상호 불일치, 사업자번호 불일치, 이미지 식별 불가, 증빙 유형 오류, 날짜 오류, 기타')
+    if (!reason?.trim()) return
+    paymentEvidenceService.rejectEvidence(evidence.id, reason, DEFAULT_EVIDENCE_REVIEWER.name)
+    onSync()
+  }
+  return <section className="payment-workflow-detail">
+    <header className="payment-stage-hero"><button className="text-button" onClick={onBack}>← {backLabel}</button><div><p>Evidence Review</p><h1>{campaign.campaignName} 증빙 검수</h1><strong>{DEFAULT_EVIDENCE_REVIEWER.name} · {DEFAULT_EVIDENCE_REVIEWER.role}</strong></div></header>
+    <section className="workspace-card"><h2>검수 대상</h2><div className="payment-detail-sections"><SummaryItem label="공동구매명" value={campaign.campaignName} /><SummaryItem label="지급 대상" value={evidence.ownerType === 'seller' ? '셀러' : '매니저'} /><SummaryItem label="대상자" value={evidence.ownerName} /><SummaryItem label="사업자 유형" value={evidence.businessType} /><SummaryItem label="추천 증빙" value={evidenceLabels[recommended]} /><SummaryItem label="최종 증빙" value={evidenceLabels[evidence.evidenceType]} /><SummaryItem label="계좌 확인" value={settlement.accountConfirmed ? '확인 완료' : '미확인'} /><SummaryItem label="검수 상태" value={reviewLabels[evidence.reviewStatus]} /></div></section>
+    <section className="workspace-card"><h2>증빙 미리보기</h2>{evidence.previewUrl && evidence.fileType.startsWith('image/') ? <img className="evidence-large-preview" src={evidence.previewUrl} alt="증빙 이미지 미리보기" /> : evidence.fileType.includes('pdf') && evidence.previewUrl ? <iframe className="evidence-pdf-preview" src={evidence.previewUrl} title="증빙 PDF 미리보기" /> : <div className="file-placeholder">현재 브라우저 세션에서 미리보기를 사용할 수 없습니다.</div>}<div className="payment-detail-sections"><SummaryItem label="파일명" value={evidence.fileName} /><SummaryItem label="파일 크기" value={`${(evidence.fileSize / 1024).toFixed(1)} KB`} /><SummaryItem label="업로드자" value={evidence.uploadedBy} /><SummaryItem label="업로드일" value={new Date(evidence.uploadedAt).toLocaleString('ko-KR')} /></div></section>
+    <section className="workspace-card"><h2>금액 확인</h2><div className="payment-detail-sections"><SummaryItem label="정산 기준 금액" value={money(gross)} /><SummaryItem label="증빙 발행 금액" value={money(gross)} /><SummaryItem label="최종 지급액" value={money(finalAmount)} /></div></section>
+    <section className="workspace-card"><h2>검수 이력</h2><div className="payment-history">{history.map((item) => <p key={item.id}>revision {item.revision ?? 1} · {reviewLabels[item.reviewStatus]} · {item.reviewedBy ?? '미검수'} {item.reviewedAt ? `· ${new Date(item.reviewedAt).toLocaleString('ko-KR')}` : ''} {item.rejectionReason ? `· ${item.rejectionReason}` : ''}</p>)}</div></section>
+    <div className="button-row evidence-review-actions">
+      {evidence.reviewStatus === 'review_pending' && <><button className="secondary-button" onClick={() => { paymentEvidenceService.approveEvidence(evidence.id, DEFAULT_EVIDENCE_REVIEWER.name, '증빙 내용 확인 완료'); onSync() }}>검수 승인</button><button className="danger-button" onClick={reject}>반려</button></>}
+      <button className="secondary-button" onClick={() => onOpenPayment({ settlementId: evidence.settlementId, recipientType: evidence.ownerType })}>지급요청 상세 보기</button>
+      <button className="text-button" onClick={onBack}>← {backLabel}</button>
+    </div>
+  </section>
+}
+
+function EvidenceTab({ evidence, onSync, onSelect }: { evidence: PaymentEvidence[]; onSync: () => void; onSelect: (id: string) => void }) {
+  const savedFilters = JSON.parse(sessionStorage.getItem('t3_evidence_review_filters') ?? '{}') as Record<string, string>
+  const [owner, setOwner] = useState(savedFilters.owner ?? '')
+  const [documentType, setDocumentType] = useState(savedFilters.documentType ?? '')
+  const [review, setReview] = useState(savedFilters.review ?? 'review_pending')
+  const [uploadedDate, setUploadedDate] = useState(savedFilters.uploadedDate ?? '')
+  const [manager, setManager] = useState(savedFilters.manager ?? '')
+  useEffect(() => {
+    sessionStorage.setItem('t3_evidence_review_filters', JSON.stringify({ owner, documentType, review, uploadedDate, manager }))
+  }, [owner, documentType, review, uploadedDate, manager])
   const managers = managerPaymentService.getManagers()
   const filtered = evidence.filter((item) => {
     const campaign = campaignService.getCampaignById(item.campaignId)
@@ -310,17 +398,30 @@ function EvidenceTab({ evidence, onSync }: { evidence: PaymentEvidence[]; onSync
       (!review || item.reviewStatus === review) && (!uploadedDate || item.uploadedAt.startsWith(uploadedDate)) &&
       (!manager || campaign?.managerId === manager)
   })
-  return <section className="workspace-card"><div className="section-heading"><div><h2>증빙 검수 관리자 화면</h2><p>허수정 담당자가 업로드된 셀러·매니저 증빙만 검수합니다. 업로드와 지급 처리는 지급요청 상세에서 진행합니다.</p></div><strong>{filtered.length}건</strong></div>
+  const today = new Date().toISOString().slice(0, 10)
+  const reviewKpis = [
+    ['전체 검수 대기', evidence.filter((item) => item.reviewStatus === 'review_pending').length],
+    ['셀러 증빙 대기', evidence.filter((item) => item.ownerType === 'seller' && item.reviewStatus === 'review_pending').length],
+    ['매니저 증빙 대기', evidence.filter((item) => item.ownerType === 'manager' && item.reviewStatus === 'review_pending').length],
+    ['오늘 업로드', evidence.filter((item) => item.uploadedAt.startsWith(today)).length],
+    ['반려', evidence.filter((item) => item.reviewStatus === 'rejected').length],
+    ['승인 완료', evidence.filter((item) => item.reviewStatus === 'approved').length],
+  ] as const
+  return <>
+    <div className="payment-kpi-grid evidence-review-kpis">{reviewKpis.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div>
+    <section className="workspace-card"><div className="section-heading"><div><h2>증빙 검수 관리자 화면</h2><p>허수정 담당자가 업로드된 셀러·매니저 증빙만 검수합니다. 업로드와 지급 처리는 지급요청 상세에서 진행합니다.</p></div><strong>{filtered.length}건</strong></div>
       <div className="evidence-admin-filters"><select value={owner} onChange={(e) => setOwner(e.target.value)}><option value="">셀러·매니저 전체</option><option value="seller">셀러</option><option value="manager">매니저</option></select><select value={documentType} onChange={(e) => setDocumentType(e.target.value)}><option value="">증빙 유형 전체</option>{Object.entries(evidenceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select value={review} onChange={(e) => setReview(e.target.value)}><option value="">검수 상태 전체</option>{Object.entries(reviewLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><input aria-label="업로드일" type="date" value={uploadedDate} onChange={(e) => setUploadedDate(e.target.value)} /><select value={manager} onChange={(e) => setManager(e.target.value)}><option value="">담당 매니저 전체</option>{managers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
       <div className="evidence-review-grid">{filtered.map((item) => <article className="evidence-card" key={item.id}>
         {item.previewUrl && item.fileType.startsWith('image/') ? <img src={item.previewUrl} alt={`${item.ownerName} 증빙 미리보기`} /> : <div className="file-placeholder">파일 미리보기</div>}
-        <div><span className={`status-badge ${item.reviewStatus === 'approved' ? 'done' : item.reviewStatus === 'rejected' ? 'error' : 'waiting'}`}>{reviewLabels[item.reviewStatus]}</span><h3>{item.ownerName} · {item.ownerType === 'seller' ? '셀러' : '매니저'}</h3><p>{campaignService.getCampaignById(item.campaignId)?.campaignName}</p><p>{evidenceLabels[item.evidenceType]} · {item.fileName} · {(item.fileSize / 1024).toFixed(1)} KB</p><small>{item.uploadedBy} · {new Date(item.uploadedAt).toLocaleString('ko-KR')}</small>{item.rejectionReason && <p className="danger-text">반려: {item.rejectionReason}</p>}</div>
+        <div><span className={`status-badge ${item.reviewStatus === 'approved' ? 'done' : item.reviewStatus === 'rejected' ? 'error' : 'waiting'}`}>{reviewLabels[item.reviewStatus]}</span><h3>{item.ownerName} · {item.ownerType === 'seller' ? '셀러' : '매니저'}</h3><p>{campaignService.getCampaignById(item.campaignId)?.campaignName} · 담당 매니저 {campaignService.getCampaignById(item.campaignId)?.managerName}</p><p>{item.businessType} · {evidenceLabels[item.evidenceType]} · {item.fileName}</p><small>{item.uploadedBy} · {new Date(item.uploadedAt).toLocaleString('ko-KR')} · 지급 예정일 {settlementService.getSettlementById(item.settlementId)?.paymentDueDate}</small>{item.rejectionReason && <p className="danger-text">반려: {item.rejectionReason}</p>}</div>
         <div className="button-row">
           {item.reviewStatus === 'review_pending' && <><button className="secondary-button" onClick={() => { paymentEvidenceService.approveEvidence(item.id); onSync() }}>승인</button><button className="danger-button" onClick={() => { const reason = window.prompt('반려 사유를 입력해주세요.'); if (reason) { paymentEvidenceService.rejectEvidence(item.id, reason); onSync() } }}>반려</button></>}
+          <button className="text-button" onClick={() => onSelect(item.id)}>상세 보기</button>
         </div>
       </article>)}</div>
       {!filtered.length && <div className="workspace-empty"><strong>검수할 증빙자료가 없습니다.</strong><p>지급요청 상세에서 업로드 및 검수 요청된 자료가 표시됩니다.</p></div>}
     </section>
+  </>
 }
 
 function WithholdingTab({ assertion, onSync }: { assertion: ReturnType<typeof runWithholdingAssertions>; onSync: () => void }) {

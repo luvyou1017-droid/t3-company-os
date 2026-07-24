@@ -47,7 +47,7 @@ export type WorkItem = {
   workType: WorkType
   status: WorkStatus
   campaignId: string
-  sourceType: 'manual' | 'checklist' | 'cs' | 'sample' | 'sales_data' | 'settlement' | 'payment' | 'ai'
+  sourceType: 'manual' | 'checklist' | 'cs' | 'sample' | 'sales_data' | 'settlement' | 'payment' | 'payment_evidence' | 'ai'
   sourceId: string
   campaignName: string
   sellerName: string

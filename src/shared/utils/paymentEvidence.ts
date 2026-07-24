@@ -20,8 +20,9 @@ export function validateEvidenceRecords(
     reasons: withholdingRegistered ? [] : ['원천세 리스트에 등록되지 않았습니다.'],
     requiredType: 'withholding_entry' as const,
   }
-  const record = evidence.find((item) =>
+  const record = evidence.filter((item) =>
     item.settlementId === settlementId && item.ownerType === ownerType && item.evidenceType === requiredType)
+    .sort((a, b) => (b.revision ?? 1) - (a.revision ?? 1))[0]
   const reasons: string[] = []
   if (!record) reasons.push(requiredType === 'tax_invoice' ? '세금계산서 캡처본이 없습니다.' : '현금영수증 캡처본이 없습니다.')
   else if (record.reviewStatus !== 'approved') reasons.push('증빙 검수가 완료되지 않았습니다.')

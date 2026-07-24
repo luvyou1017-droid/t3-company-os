@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { calculateWorkPriority } from '../../../features/myWork/workPriority'
 import type { WorkItem, WorkUser } from '../../../features/myWork/types'
 import { openCampaignDetail } from '../../../shared/utils/campaignNavigation'
+import { openEvidenceReviewDetail } from '../../../shared/utils/paymentNavigation'
 
 type WorkDetailDrawerProps = {
   item: WorkItem | null
@@ -66,6 +67,7 @@ export function WorkDetailDrawer({ item, users, onClose, onCompleteClick, onUpda
           <button className="secondary-button" onClick={() => changeAssignee(item.assigneeId)} type="button">담당자 변경</button>
           <button className="secondary-button" onClick={() => onUpdateItem({ ...item, status: 'on_hold', activityLogs: [...item.activityLogs, { id: crypto.randomUUID(), at: '2026-07-15 11:00', message: '업무를 보류 처리했습니다.' }] })} type="button">보류</button>
           <button className="secondary-button" onClick={() => openCampaignDetail(item.campaignId, 'work')} type="button">공동구매 상세 보기</button>
+          {item.sourceType === 'payment_evidence' && <button className="secondary-button" onClick={() => openEvidenceReviewDetail(item.sourceId)} type="button">증빙 검수 상세</button>}
           <button className="secondary-button" onClick={onClose} type="button">닫기</button>
         </div>
       </aside>

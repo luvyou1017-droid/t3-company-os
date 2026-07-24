@@ -16,13 +16,17 @@ import { csService } from './shared/services/csService'
 import { sampleService } from './shared/services/sampleService'
 import { salesDataService } from './shared/services/salesDataService'
 import { settlementService } from './shared/services/settlementService'
+import { paymentEvidenceService } from './shared/services/paymentEvidenceService'
+import { openEvidenceReviewDetail } from './shared/utils/paymentNavigation'
 
 export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리' | '지급 승인'
 
 function App() {
   const isPublicCsIntake = window.location.hash === '#public-cs-intake'
   const route = parseCampaignRoute()
-  const [activePage, setActivePage] = useState<AppPage>(route ? '공동구매 일정' : 'Dashboard')
+  const isPaymentRoute = window.location.pathname.startsWith('/payments')
+  const [activePage, setActivePage] = useState<AppPage>(route ? '공동구매 일정' : isPaymentRoute ? '지급 승인' : 'Dashboard')
+  const [paymentRouteKey, setPaymentRouteKey] = useState(0)
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(route?.campaignId ?? null)
   const [campaignTab, setCampaignTab] = useState<CampaignTab>(route?.tab ?? 'overview')
   const [selectedCsCaseId, setSelectedCsCaseId] = useState<string | null>(null)
@@ -31,21 +35,27 @@ function App() {
   const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null)
 
   const handleNavigate = (page: AppPage) => {
-    if (window.location.pathname.startsWith('/campaigns/')) window.history.pushState({}, '', '/')
+    if (window.location.pathname.startsWith('/campaigns/') || window.location.pathname.startsWith('/payments')) window.history.pushState({}, '', '/')
     setActivePage(page)
     setSelectedScheduleId(null)
     setSelectedCsCaseId(null)
     setSelectedSampleId(null)
     setSelectedSalesDataImportId(null)
     setSelectedSettlementId(null)
+    if (page === '지급 승인') window.history.pushState({ from: '/', label: '지급 요청 목록' }, '', '/payments?tab=requests')
   }
 
   useEffect(() => {
     const handlePopState = () => {
       const nextRoute = parseCampaignRoute()
-      setActivePage('공동구매 일정')
-      setSelectedScheduleId(nextRoute?.campaignId ?? null)
-      setCampaignTab(nextRoute?.tab ?? 'overview')
+      if (window.location.pathname.startsWith('/payments')) {
+        setActivePage('지급 승인')
+        setPaymentRouteKey((value) => value + 1)
+      } else {
+        setActivePage(nextRoute ? '공동구매 일정' : 'Dashboard')
+        setSelectedScheduleId(nextRoute?.campaignId ?? null)
+        setCampaignTab(nextRoute?.tab ?? 'overview')
+      }
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
@@ -59,6 +69,8 @@ function App() {
   }
 
   const openRelated = (targetId: string) => {
+    const evidence = paymentEvidenceService.getAllEvidence().find((item) => item.id === targetId)
+    if (evidence) return openEvidenceReviewDetail(evidence.id)
     const cs = csService.getCsCases().find((item) => item.id === targetId || item.caseNumber === targetId)
     if (cs) return openCampaign(cs.campaignId, 'cs')
     const sample = sampleService.getSamples().find((item) => item.id === targetId)
@@ -82,7 +94,7 @@ function App() {
       {activePage === '샘플 관리' && <SampleManagementPage initialSampleId={selectedSampleId} />}
       {activePage === '판매 데이터' && <SalesDataPage initialImportId={selectedSalesDataImportId} />}
       {activePage === '정산 관리' && <SettlementPage initialSettlementId={selectedSettlementId} />}
-      {activePage === '지급 승인' && <PaymentRequestPage />}
+      {activePage === '지급 승인' && <PaymentRequestPage key={paymentRouteKey} />}
       {activePage === '공동구매 일정' && !selectedScheduleId && (
         <CampaignSchedulePage onOpenDetail={(id) => openCampaign(id)} />
       )}

@@ -6,6 +6,10 @@ import type {
 import type { SellerBusinessType } from '../types/sellerSettlement'
 import { getRequiredEvidenceType, validateEvidenceRecords } from '../utils/paymentEvidence'
 import { STORAGE_KEYS, storageService } from './storageService'
+import { DEFAULT_EVIDENCE_REVIEWER } from '../data/users'
+import { campaignService } from './campaignService'
+import { notificationService } from './notificationService'
+import { workService } from './workService'
 
 const now = () => new Date().toISOString()
 
@@ -35,8 +39,11 @@ export const paymentEvidenceService = {
   uploadEvidenceMetadata(input: Omit<PaymentEvidence, 'id' | 'uploadedAt' | 'reviewStatus'>) {
     const current = this.getEvidenceBySettlementId(input.settlementId, input.ownerType)
       .filter((item) => item.evidenceType === input.evidenceType)
-    current.forEach((item) => localStorageRepository.save(localStorageRepository.list().filter((candidate) => candidate.id !== item.id)))
-    return persist({ ...input, id: `evidence-${crypto.randomUUID()}`, uploadedAt: now(), reviewStatus: 'uploaded' })
+    const previous = current.sort((a, b) => (b.revision ?? 1) - (a.revision ?? 1))[0]
+    return persist({
+      ...input, id: `evidence-${crypto.randomUUID()}`, uploadedAt: now(), reviewStatus: 'uploaded',
+      revision: (previous?.revision ?? 0) + 1, previousEvidenceId: previous?.id,
+    })
   },
   removeEvidence(id: string) {
     localStorageRepository.save(this.getAllEvidence().filter((item) => item.id !== id))
@@ -44,14 +51,58 @@ export const paymentEvidenceService = {
   requestEvidenceReview(id: string) {
     const item = this.getAllEvidence().find((candidate) => candidate.id === id)
     if (!item) throw new Error('증빙자료를 찾을 수 없습니다.')
-    return persist({ ...item, reviewStatus: 'review_pending', reviewedBy: undefined, reviewedAt: undefined, rejectionReason: undefined })
+    const next = persist({ ...item, reviewStatus: 'review_pending', reviewedBy: undefined, reviewedAt: undefined, rejectionReason: undefined })
+    const campaign = campaignService.getCampaignById(item.campaignId)
+    const workId = `payment-evidence-work-${item.id}`
+    if (!workService.getWorkItems().some((work) => work.sourceType === 'payment_evidence' && work.sourceId === item.id)) {
+      workService.createWorkItem({
+        id: workId,
+        title: `[${campaign?.campaignName ?? item.campaignId}] ${item.ownerName} 증빙 검수`,
+        description: '새 증빙자료 검수 요청이 도착했습니다.',
+        workType: '셀러 증빙 확인',
+        status: 'pending',
+        campaignId: item.campaignId,
+        sourceType: 'payment_evidence',
+        sourceId: item.id,
+        campaignName: campaign?.campaignName ?? item.campaignId,
+        sellerName: campaign?.sellerName ?? '-',
+        brandName: campaign?.brandName ?? '-',
+        assigneeId: DEFAULT_EVIDENCE_REVIEWER.id,
+        assigneeName: DEFAULT_EVIDENCE_REVIEWER.name,
+        assigneeRole: DEFAULT_EVIDENCE_REVIEWER.role,
+        dueDate: new Date().toISOString().slice(0, 10),
+        dueTime: '18:00',
+        dueAt: `${new Date().toISOString().slice(0, 10)} 18:00`,
+        createdReason: '증빙 검수 요청',
+        relatedMenu: '증빙 검수',
+        checklistName: 'payment_evidence',
+        relatedLink: `/payments/evidence-review/${item.id}`,
+        activityLogs: [{ id: crypto.randomUUID(), at: now(), message: '증빙 검수 업무가 자동 생성되었습니다.' }],
+      })
+    }
+    notificationService.createNotification({
+      id: `payment-evidence-notification-${item.id}`,
+      campaignId: item.campaignId,
+      relatedType: 'payment',
+      relatedId: item.id,
+      recipientId: DEFAULT_EVIDENCE_REVIEWER.id,
+      recipientName: DEFAULT_EVIDENCE_REVIEWER.name,
+      csCaseId: item.id,
+      caseNumber: item.id,
+      title: '새 증빙자료 검수 요청이 도착했습니다.',
+      message: `${campaign?.campaignName ?? item.campaignId} · ${item.ownerName}`,
+      createdAt: now(),
+      read: false,
+      isRead: false,
+    })
+    return next
   },
-  approveEvidence(id: string, reviewedBy = '허수정') {
+  approveEvidence(id: string, reviewedBy = DEFAULT_EVIDENCE_REVIEWER.name, reviewMemo = '검수 승인') {
     const item = this.getAllEvidence().find((candidate) => candidate.id === id)
     if (!item || item.reviewStatus !== 'review_pending') throw new Error('검수 대기 중인 증빙만 승인할 수 있습니다.')
-    return persist({ ...item, reviewStatus: 'approved', reviewedBy, reviewedAt: now(), rejectionReason: undefined })
+    return persist({ ...item, reviewStatus: 'approved', reviewedBy, reviewedAt: now(), reviewMemo, rejectionReason: undefined })
   },
-  rejectEvidence(id: string, rejectionReason: string, reviewedBy = '허수정') {
+  rejectEvidence(id: string, rejectionReason: string, reviewedBy = DEFAULT_EVIDENCE_REVIEWER.name) {
     if (!rejectionReason.trim()) throw new Error('반려 사유를 입력해주세요.')
     const item = this.getAllEvidence().find((candidate) => candidate.id === id)
     if (!item || item.reviewStatus !== 'review_pending') throw new Error('검수 대기 중인 증빙만 반려할 수 있습니다.')

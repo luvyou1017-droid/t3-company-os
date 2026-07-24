@@ -8,6 +8,7 @@ import { sellerSettlementService } from '../../../shared/services/sellerSettleme
 import { settlementService } from '../../../shared/services/settlementService'
 import { statusLabel } from '../../../shared/utils/settlement'
 import { formatCurrency } from '../../../shared/utils/salesData'
+import { openPaymentDetail } from '../../../shared/utils/paymentNavigation'
 
 type CampaignSettlementTabProps = {
   campaignId: string
@@ -108,7 +109,7 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
                 <div><dt>지급요청 상태</dt><dd>{request?.status ?? '요청 전'}</dd></div>
               </dl>
               <div className="button-row">
-                <button className="secondary-button" onClick={() => onOpenSettlement?.(settlement.id)} type="button">지급 상세</button>
+                <button className="secondary-button" onClick={() => openPaymentDetail(settlement.id, recipientType, { from: `/campaigns/${encodeURIComponent(campaign.id)}?tab=settlement`, label: '공동구매 상세' })} type="button">지급 상세</button>
                 <button className="secondary-button" disabled={Boolean(reasons.length)} onClick={() => {
                   if (isSeller) paymentRequestService.createPaymentRequest(settlement.id, '허수정')
                   else paymentRequestService.createManagerPaymentRequest(settlement.id, '허수정', businessType)

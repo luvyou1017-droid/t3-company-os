@@ -24,6 +24,9 @@ export interface PaymentEvidence {
   reviewedBy?: string
   reviewedAt?: string
   rejectionReason?: string
+  reviewMemo?: string
+  revision?: number
+  previousEvidenceId?: string
   memo?: string
 }
 

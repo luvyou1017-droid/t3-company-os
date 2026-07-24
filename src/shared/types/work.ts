@@ -1,6 +1,6 @@
 import type { WorkStatus } from '../../features/myWork/types'
 
-export type WorkSourceType = 'manual' | 'checklist' | 'cs' | 'sample' | 'sales_data' | 'settlement' | 'payment' | 'ai'
+export type WorkSourceType = 'manual' | 'checklist' | 'cs' | 'sample' | 'sales_data' | 'settlement' | 'payment' | 'payment_evidence' | 'ai'
 
 export type WorkEntity = {
   id: string
