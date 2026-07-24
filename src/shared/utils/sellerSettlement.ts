@@ -6,6 +6,7 @@ import type {
   SellerSettlementValidation,
   SellerSettlementItem,
 } from '../types/sellerSettlement'
+import { calculateWithholding } from './withholdingTax'
 
 function amount(value: number, label: string) {
   if (!Number.isFinite(value) || Number.isNaN(value) || value < 0) throw new Error(`${label}은 0 이상의 유한한 숫자여야 합니다.`)
@@ -37,7 +38,8 @@ export const calculateSellerRemittanceToCompany = (productSalesAmount: number, s
 export const calculateCompanyRemittanceToSupplier = (supplierCostAmount: number, shippingAmount: number) =>
   amount(supplierCostAmount, '공급대금') + amount(shippingAmount, '배송비')
 export const calculateVatExcludedAmount = (grossAmount: number) => Math.round(amount(grossAmount, '부가세 포함 금액') / 1.1)
-export const calculateWithholdingTax = (withholdingBaseAmount: number) => Math.round(amount(withholdingBaseAmount, '원천징수 기준 금액') * 0.033)
+export const calculateWithholdingTax = (withholdingBaseAmount: number) =>
+  calculateWithholding(amount(withholdingBaseAmount, '원천징수 기준 금액')).totalWithholdingTaxAmount
 
 export function calculateFinalSellerPayment(gross: number, businessType: SellerBusinessType, deductions: number) {
   const grossAmount = amount(gross, '셀러 수수료')
@@ -49,7 +51,7 @@ export function calculateFinalSellerPayment(gross: number, businessType: SellerB
   if (businessType === 'simplified_business') {
     return { taxDocumentAmount: vatExcludedAmount, vatExcludedAmount, withholdingBaseAmount: 0, withholdingTaxAmount: 0, finalSellerPaymentAmount: amount(vatExcludedAmount - deductionAmount, '최종 지급액') }
   }
-  const withholdingTaxAmount = calculateWithholdingTax(vatExcludedAmount)
+  const withholdingTaxAmount = calculateWithholding(grossAmount).totalWithholdingTaxAmount
   return { taxDocumentAmount: vatExcludedAmount, vatExcludedAmount, withholdingBaseAmount: vatExcludedAmount, withholdingTaxAmount, finalSellerPaymentAmount: amount(vatExcludedAmount - withholdingTaxAmount - deductionAmount, '최종 지급액') }
 }
 

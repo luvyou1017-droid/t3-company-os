@@ -89,6 +89,9 @@ export type PaymentRequest = {
   campaignId: string
   settlementId: string
   sellerId: string
+  ownerType?: 'seller' | 'manager'
+  ownerId?: string
+  ownerName?: string
   direction: PaymentRequestDirection
   salesChannelType: SalesChannelType
   businessType: SellerBusinessType
@@ -97,6 +100,8 @@ export type PaymentRequest = {
   vatExcludedAmount: number
   withholdingBaseAmount: number
   withholdingTaxAmount: number
+  incomeTaxAmount?: number
+  localIncomeTaxAmount?: number
   deductions: number
   finalPaymentAmount: number
   sellerRemittanceToCompany: number

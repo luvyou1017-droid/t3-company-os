@@ -3043,6 +3043,43 @@
   .responsive-table td { border: 0; padding: 7px; text-align: left !important; white-space: normal; }
 }
 
+/* Payment evidence and withholding */
+.payment-tabs { display: flex; gap: 6px; padding: 6px; border: 1px solid #e7ebf1; border-radius: 14px; background: #fff; }
+.payment-tabs button { border: 0; border-radius: 10px; background: transparent; color: #64748b; padding: 12px 18px; font-weight: 800; cursor: pointer; }
+.payment-tabs button.is-active { background: #172554; color: #fff; }
+.payment-readiness-grid, .evidence-review-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.readiness-card, .evidence-card { border: 1px solid #e7ebf1; border-radius: 14px; background: #fff; padding: 20px; }
+.readiness-card h3, .evidence-card h3 { margin: 12px 0 4px; }
+.readiness-card > div > p, .evidence-card p, .evidence-upload p { color: #64748b; }
+.readiness-card dl { display: grid; gap: 8px; }
+.readiness-card dl div { display: flex; justify-content: space-between; gap: 20px; padding-top: 8px; border-top: 1px solid #edf0f4; }
+.readiness-card dt { color: #64748b; }
+.readiness-card dd { margin: 0; font-weight: 700; text-align: right; }
+.block-reasons { margin: 16px 0; border-radius: 12px; background: #fff7ed; color: #9a3412; padding: 15px; }
+.block-reasons p { margin: 6px 0; font-weight: 700; }
+.block-reasons ul { margin: 8px 0 0; padding-left: 20px; }
+.success-panel { margin: 16px 0; border-radius: 12px; background: #ecfdf5; color: #047857; padding: 15px; font-weight: 800; }
+.evidence-controls, .tax-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.evidence-controls select, .tax-filters select, .tax-filters input, .tax-table select { border: 1px solid #cfd7e3; border-radius: 9px; background: #fff; padding: 10px; color: #14213d; }
+.evidence-card { display: grid; grid-template-columns: 120px 1fr auto; align-items: center; gap: 18px; }
+.evidence-card img, .file-placeholder { width: 120px; height: 90px; border-radius: 10px; background: #f1f5f9; object-fit: cover; }
+.file-placeholder { display: grid; place-items: center; color: #64748b; font-size: 12px; text-align: center; }
+.danger-button { border: 1px solid #fecaca; border-radius: 9px; background: #fff; color: #b91c1c; padding: 10px 14px; font-weight: 700; cursor: pointer; }
+.tax-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.tax-table table { min-width: 1900px; }
+.tax-table th.money-cell, .tax-table td.money-cell { text-align: right; }
+.calculation-log { display: grid; gap: 8px; border: 1px solid #bbf7d0; border-radius: 14px; background: #f0fdf4; padding: 20px; }
+.calculation-log h3 { margin: 0 0 8px; color: #047857; }
+.calculation-log code { white-space: normal; color: #334155; }
+.calculation-log.is-invalid { border-color: #fecaca; background: #fef2f2; }
+.calculation-log.is-invalid h3 { color: #b91c1c; }
+
+@media (max-width: 900px) {
+  .payment-readiness-grid, .evidence-review-grid { grid-template-columns: 1fr; }
+  .evidence-card { grid-template-columns: 1fr; }
+  .tax-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* Seller settlement and payment requests */
 .payment-page, .payment-detail { display: grid; gap: 24px; color: #14213d; }
 .payment-hero, .payment-direction { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 28px; border: 1px solid #e7ebf1; border-radius: 16px; background: #fff; box-shadow: 0 8px 24px rgba(15, 23, 42, .04); }

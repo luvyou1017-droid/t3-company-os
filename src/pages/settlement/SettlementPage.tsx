@@ -3,6 +3,9 @@ import { campaignService } from '../../shared/services/campaignService'
 import { salesDataService } from '../../shared/services/salesDataService'
 import { sampleService } from '../../shared/services/sampleService'
 import { settlementService } from '../../shared/services/settlementService'
+import { paymentEvidenceService } from '../../shared/services/paymentEvidenceService'
+import { sellerSettlementService } from '../../shared/services/sellerSettlementService'
+import { withholdingTaxService } from '../../shared/services/withholdingTaxService'
 import type { SampleRequest } from '../../features/samples/types'
 import type { SalesDataRow } from '../../shared/types/salesData'
 import type { Settlement, SettlementDeduction, SettlementStatus, SettlementVersion } from '../../shared/types/settlement'
@@ -201,6 +204,11 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
   const salesDataConfirmed = salesImport?.reviewStatus === '확정 완료'
   const reviewReady = canMoveToReview(settlement, salesDataConfirmed)
   const checklistDone = Object.values(settlement.reviewChecklist).every(Boolean)
+  const sellerRule = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)
+  const sellerEvidence = paymentEvidenceService.getEvidenceBySettlementId(settlement.id, 'seller')
+  const managerEvidence = paymentEvidenceService.getEvidenceBySettlementId(settlement.id, 'manager')
+  const sellerTaxRegistered = campaign ? withholdingTaxService.getBySettlementOwner(settlement.id, 'seller', campaign.sellerId).length > 0 : false
+  const managerTaxRegistered = campaign ? withholdingTaxService.getBySettlementOwner(settlement.id, 'manager', campaign.managerId).length > 0 : false
 
   const syncAction = (action: () => unknown) => {
     action()
@@ -376,6 +384,30 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
             <Summary label="계좌 확인" value={settlement.accountConfirmed ? '확인 완료' : '미확인'} />
             <Summary label="적용 세금" value={money(settlement.currentCalculation.taxAmount)} amount />
             {campaign?.linkOwner === '브랜드사' && <Summary label="브랜드사 세금계산서 발행 금액" value={money(settlement.currentCalculation.grossCommission)} amount />}
+          </div>
+          <div className="payment-readiness-grid">
+            <article className="readiness-card">
+              <h3>셀러 지급 증빙</h3>
+              <dl>
+                <div><dt>사업자 유형</dt><dd>{sellerRule?.businessType ?? '확인 필요'}</dd></div>
+                <div><dt>증빙 유형</dt><dd>{sellerRule?.confirmedEvidenceType ?? '최종 확인 필요'}</dd></div>
+                <div><dt>업로드 상태</dt><dd>{sellerEvidence.length ? '업로드 완료' : '미업로드'}</dd></div>
+                <div><dt>검수 상태</dt><dd>{sellerEvidence.some((item) => item.reviewStatus === 'approved') ? '승인' : '미승인'}</dd></div>
+                <div><dt>원천세 리스트</dt><dd>{sellerRule?.businessType === 'freelancer' ? sellerTaxRegistered ? '등록' : '미등록' : '해당 없음'}</dd></div>
+                <div><dt>최종 지급액</dt><dd>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</dd></div>
+              </dl>
+            </article>
+            <article className="readiness-card">
+              <h3>매니저 지급 증빙</h3>
+              <dl>
+                <div><dt>사업자 유형</dt><dd>{settlement.campaignId === 'SCH-005' ? 'freelancer' : 'simplified_business'}</dd></div>
+                <div><dt>증빙 유형</dt><dd>{settlement.campaignId === 'SCH-005' ? 'withholding_entry' : 'cash_receipt'}</dd></div>
+                <div><dt>업로드 상태</dt><dd>{managerEvidence.length ? '업로드 완료' : '미업로드'}</dd></div>
+                <div><dt>검수 상태</dt><dd>{managerEvidence.some((item) => item.reviewStatus === 'approved') ? '승인' : '미승인'}</dd></div>
+                <div><dt>원천세 리스트</dt><dd>{settlement.campaignId === 'SCH-005' ? managerTaxRegistered ? '등록' : '미등록' : '해당 없음'}</dd></div>
+                <div><dt>최종 지급액</dt><dd>{money(settlement.currentCalculation.managerAmount)}</dd></div>
+              </dl>
+            </article>
           </div>
         </section>}
 
