@@ -13,6 +13,10 @@ export const STORAGE_KEYS = {
   settlementDeductions: 't3_company_os_settlement_deductions',
   settlementActivityLogs: 't3_company_os_settlement_activity_logs',
   notificationSendLogs: 't3_company_os_notification_send_logs',
+  campaignActivities: 't3_company_os_campaign_activities',
+  campaignFiles: 't3_company_os_campaign_files',
+  communications: 't3_company_os_communications',
+  campaignListState: 't3_company_os_campaign_list_state',
 } as const
 
 const LEGACY_KEYS: Partial<Record<(typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS], string>> = {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { currentManagerName } from '../../features/campaignSchedules/mockData'
 import {
   getCampaignStatus,
@@ -6,6 +6,7 @@ import {
   isSettlementPending,
 } from '../../features/campaignSchedules/scheduleStatus'
 import { campaignService } from '../../shared/services/campaignService'
+import { STORAGE_KEYS, storageService } from '../../shared/services/storageService'
 import type { Campaign } from '../../shared/types/campaign'
 import type {
   CampaignFilters,
@@ -26,6 +27,12 @@ const initialFilters: CampaignFilters = {
   linkOwner: '',
   startDate: '',
   endDate: '',
+}
+
+type CampaignListState = {
+  activeTab: CampaignViewTab
+  filters: CampaignFilters
+  scrollY: number
 }
 
 function matchesViewTab(schedule: CampaignSchedule, activeTab: CampaignViewTab) {
@@ -100,14 +107,28 @@ type CampaignSchedulePageProps = {
 }
 
 export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps) {
-  const [activeTab, setActiveTab] = useState<CampaignViewTab>('전체')
-  const [filters, setFilters] = useState<CampaignFilters>(initialFilters)
+  const savedState = storageService.getItem<CampaignListState>(STORAGE_KEYS.campaignListState, { activeTab: '전체', filters: initialFilters, scrollY: 0 })
+  const [activeTab, setActiveTab] = useState<CampaignViewTab>(savedState.activeTab)
+  const [filters, setFilters] = useState<CampaignFilters>(savedState.filters)
   const [selectedSchedule, setSelectedSchedule] = useState<CampaignSchedule | null>(null)
   const [creating, setCreating] = useState(false)
   const [notice, setNotice] = useState('')
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => campaignService.getCampaigns())
 
   const campaignSchedules = useMemo(() => campaigns.map(toSchedule), [campaigns])
+
+  useEffect(() => {
+    requestAnimationFrame(() => window.scrollTo({ top: savedState.scrollY }))
+  }, [])
+
+  useEffect(() => {
+    const save = () => storageService.setItem(STORAGE_KEYS.campaignListState, { activeTab, filters, scrollY: window.scrollY })
+    window.addEventListener('scroll', save, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', save)
+      save()
+    }
+  }, [activeTab, filters])
 
   const filteredSchedules = useMemo(() => {
     const normalizedSearch = filters.search.trim().toLowerCase()

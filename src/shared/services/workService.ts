@@ -3,6 +3,21 @@ import type { WorkItem, WorkType } from '../../features/myWork/types'
 import type { CsCase } from '../../features/cs/types'
 import type { SampleRequest } from '../../features/samples/types'
 import { STORAGE_KEYS, storageService } from './storageService'
+import { getUserById } from '../data/users'
+
+export type CampaignWorkInput = {
+  campaignId: string
+  title: string
+  description?: string
+  assigneeId: string
+  assigneeName?: string
+  dueDate: string
+  priority?: 'urgent' | 'high' | 'medium' | 'low'
+  category: string
+  campaignName?: string
+  sellerName?: string
+  brandName?: string
+}
 
 export const workService = {
   getWorkItems() {
@@ -18,6 +33,34 @@ export const workService = {
     const next = [item, ...this.getWorkItems().filter((work) => work.id !== item.id)]
     this.saveWorkItems(next)
     return item
+  },
+  createCampaignWorkItem(input: CampaignWorkInput) {
+    const user = getUserById(input.assigneeId)
+    const item: WorkItem = {
+      id: `work-manual-${crypto.randomUUID()}`,
+      title: input.title,
+      description: input.description ?? '',
+      workType: '체크리스트',
+      status: 'todo',
+      campaignId: input.campaignId,
+      sourceType: 'manual',
+      sourceId: `manual-${crypto.randomUUID()}`,
+      campaignName: input.campaignName ?? input.campaignId,
+      sellerName: input.sellerName ?? '-',
+      brandName: input.brandName ?? '-',
+      assigneeId: input.assigneeId,
+      assigneeName: input.assigneeName ?? user?.name ?? '미배정',
+      assigneeRole: user?.role ?? '매니저',
+      dueDate: input.dueDate,
+      dueTime: '18:00',
+      dueAt: `${input.dueDate} 18:00`,
+      createdReason: `Campaign 상세에서 ${input.category} 업무 생성`,
+      relatedMenu: '공동구매 상세',
+      checklistName: input.category,
+      relatedLink: input.campaignId,
+      activityLogs: [{ id: crypto.randomUUID(), at: new Date().toISOString(), message: 'Campaign 상세에서 업무가 생성되었습니다.' }],
+    }
+    return this.createWorkItem(item)
   },
   completeWorkItem(id: string, completedAt = '2026-07-15 14:30') {
     const next = this.getWorkItems().map((item) => (item.id === id ? { ...item, status: 'completed' as const, completedAt } : item))

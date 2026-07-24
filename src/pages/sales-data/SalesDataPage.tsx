@@ -4,6 +4,7 @@ import { salesDataService } from '../../shared/services/salesDataService'
 import type { Campaign } from '../../shared/types/campaign'
 import type { SalesDataImport, SalesDataRow, SalesReviewStatus, SalesSettlementStatus } from '../../shared/types/salesData'
 import { buildSalesAnalysis, calculateSalesRow, calculateSalesTotals, formatCurrency, formatFileSize } from '../../shared/utils/salesData'
+import { openCampaignDetail } from '../../shared/utils/campaignNavigation'
 
 type SalesQuickFilter = '전체' | '오늘 수신' | '업로드 대기' | '검수 대기' | '오류 확인 필요' | '확정 완료' | '정산 대기'
 
@@ -281,7 +282,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           <button className="secondary-button" onClick={() => updateStatus({ ...salesImport, reviewStatus: '오류 확인 필요' })} type="button">오류 표시</button>
           <button className="primary-button" disabled={hasError} onClick={() => salesDataService.confirmSalesData(salesImport.id) && onSync()} type="button">판매 데이터 확정</button>
           <button className="secondary-button" onClick={() => salesDataService.markSettlementReady(salesImport.id) && onSync()} type="button">정산 생성 준비</button>
-          <button className="secondary-button" type="button">공동구매 상세 보기</button>
+          <button className="secondary-button" onClick={() => openCampaignDetail(salesImport.campaignId, 'sales')} type="button">공동구매 상세 보기</button>
         </div>
       </aside>
     </div>

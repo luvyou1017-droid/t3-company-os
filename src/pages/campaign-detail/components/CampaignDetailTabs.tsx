@@ -1,37 +1,34 @@
-export type DetailTab =
-  | '개요'
-  | '체크리스트'
-  | '링크·발주'
-  | '제안서'
-  | '가격 배너'
-  | '샘플'
-  | 'CS'
-  | '판매 데이터'
-  | '정산'
-  | '이력'
+import type { CampaignTab } from '../../../shared/types/campaignWorkspace'
 
-const tabs: DetailTab[] = ['개요', '체크리스트', '링크·발주', '제안서', '가격 배너', '샘플', 'CS', '판매 데이터', '정산', '이력']
+export const campaignTabs: Array<{ id: CampaignTab; label: string }> = [
+  { id: 'overview', label: '개요' },
+  { id: 'timeline', label: '타임라인' },
+  { id: 'work', label: '업무' },
+  { id: 'files', label: '제안서·파일' },
+  { id: 'communications', label: '소통' },
+  { id: 'samples', label: '샘플' },
+  { id: 'cs', label: 'CS' },
+  { id: 'sales', label: '판매 데이터' },
+  { id: 'settlement', label: '정산' },
+  { id: 'history', label: '이력' },
+]
 
-type CampaignDetailTabsProps = {
-  activeTab: DetailTab
-  onChange: (tab: DetailTab) => void
-}
+type Props = { activeTab: CampaignTab; onChange: (tab: CampaignTab) => void }
 
-export function CampaignDetailTabs({ activeTab, onChange }: CampaignDetailTabsProps) {
+export function CampaignDetailTabs({ activeTab, onChange }: Props) {
   return (
-    <div className="detail-tabs" role="tablist" aria-label="Campaign detail tabs">
-      {tabs.map((tab) => (
+    <nav aria-label="Campaign 상세 탭" className="workspace-tabs">
+      {campaignTabs.map((tab) => (
         <button
-          aria-selected={activeTab === tab}
-          className={activeTab === tab ? 'detail-tab is-active' : 'detail-tab'}
-          key={tab}
-          onClick={() => onChange(tab)}
-          role="tab"
+          aria-current={activeTab === tab.id ? 'page' : undefined}
+          className={activeTab === tab.id ? 'is-active' : ''}
+          key={tab.id}
+          onClick={() => onChange(tab.id)}
           type="button"
         >
-          {tab}
+          {tab.label}
         </button>
       ))}
-    </div>
+    </nav>
   )
 }

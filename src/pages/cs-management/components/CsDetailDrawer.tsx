@@ -6,6 +6,7 @@ import { CsAttachmentGallery } from './CsAttachmentGallery'
 import { CsPriorityBadge } from './CsPriorityBadge'
 import { createBrandMessage, createCustomerMessage } from './CsResponseComposer'
 import { CsStatusBadge } from './CsStatusBadge'
+import { openCampaignDetail } from '../../../shared/utils/campaignNavigation'
 
 type CsDetailDrawerProps = {
   csCase: CsCase | null
@@ -57,7 +58,7 @@ export function CsDetailDrawer({ csCase, onClose, onUpdate }: CsDetailDrawerProp
           <button className="secondary-button" onClick={() => onUpdate(addLog('유시철 MD에게 요청', undefined, undefined, 'MD 확인 요청 mock'))} type="button">유시철 MD에게 요청</button>
           <button className="secondary-button" onClick={() => updateStatus('보류')} type="button">보류</button>
           <button className="primary-button" onClick={complete} type="button">처리 완료</button>
-          <button className="secondary-button" type="button">공동구매 상세 보기</button>
+          <button className="secondary-button" onClick={() => openCampaignDetail(csCase.campaignId, 'cs')} type="button">공동구매 상세 보기</button>
         </div>
         <section className="activity-log">
           <h3>활동 이력</h3>

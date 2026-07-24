@@ -2,6 +2,7 @@ import type { SampleRequest, SampleStatus } from '../../../features/samples/type
 import { formatWon } from '../../../features/samples/sampleUtils'
 import { SampleCostOwnerBadge, SampleStatusBadge } from './SampleBadges'
 import { SampleSettlementPreview } from './SampleSettlementPreview'
+import { openCampaignDetail } from '../../../shared/utils/campaignNavigation'
 
 export function SampleDetailDrawer({ sample, onClose, onUpdate }: { sample: SampleRequest | null; onClose: () => void; onUpdate: (sample: SampleRequest) => void }) {
   if (!sample) return null
@@ -23,7 +24,7 @@ export function SampleDetailDrawer({ sample, onClose, onUpdate }: { sample: Samp
           <button className="secondary-button" onClick={() => updateStatus('회수 완료','회수 완료')} type="button">회수 완료</button>
           <button className="primary-button" onClick={() => updateStatus('완료','정산 반영 완료')} type="button">정산 반영 완료</button>
           <button className="secondary-button" onClick={() => onUpdate({ ...sample, orderManagerName: '허수정', activityLogs: [...sample.activityLogs, { id: crypto.randomUUID(), at: '2026.07.15 14:30', actor: '허수정', action: '담당자 변경', before: sample.orderManagerName, after: '허수정' }] })} type="button">담당자 변경</button>
-          <button className="secondary-button" type="button">공동구매 상세 보기</button>
+          <button className="secondary-button" onClick={() => openCampaignDetail(sample.campaignId, 'samples')} type="button">공동구매 상세 보기</button>
           <button className="secondary-button" onClick={() => updateStatus('취소','취소')} type="button">취소</button>
         </div>
         <section className="activity-log"><h3>활동 이력</h3>{sample.activityLogs.map((log) => <p key={log.id}>{log.at} · {log.actor} · {log.action} {log.before ? `${log.before} → ${log.after}` : ''}</p>)}</section>

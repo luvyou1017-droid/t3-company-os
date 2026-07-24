@@ -8,6 +8,7 @@ import type { SalesDataRow } from '../../shared/types/salesData'
 import type { Settlement, SettlementDeduction, SettlementStatus, SettlementVersion } from '../../shared/types/settlement'
 import { canMoveToReview, runSettlementAssertions, statusLabel, validateSettlement } from '../../shared/utils/settlement'
 import { formatCurrency } from '../../shared/utils/salesData'
+import { openCampaignDetail } from '../../shared/utils/campaignNavigation'
 
 type DocumentMode = '내부 검토용' | '셀러 전달용'
 type DetailTab = '요약' | '계산 과정' | '차감 내역' | '세무·증빙' | '검토·승인' | '정산서' | '이력'
@@ -447,6 +448,7 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
         </section>}
 
         <div className="preview-drawer__actions">
+          <button className="secondary-button" onClick={() => openCampaignDetail(settlement.campaignId, 'settlement')} type="button">공동구매 상세 보기</button>
           <SettlementStatusActions
             checklistDone={checklistDone}
             onHistory={() => setActiveDetailTab('이력')}
