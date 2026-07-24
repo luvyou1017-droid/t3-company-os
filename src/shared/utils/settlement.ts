@@ -9,6 +9,7 @@ import type {
   SettlementVersion,
   SettlementVersionComparison,
 } from '../types/settlement'
+import { truncateToTenWon } from './withholdingTax'
 
 export type RevenueTier = 'under_10m' | 'under_20m' | 'over_20m'
 
@@ -96,7 +97,10 @@ export function calculateFinalSellerPaymentAmount(sellerCommissionAmount: number
 }
 
 export function calculateWithholdingTax(paymentTargetAmount: number) {
-  return Math.round(safeAmount(paymentTargetAmount, '지급 대상 금액') * 0.033)
+  const base = safeAmount(paymentTargetAmount, '지급 대상 금액')
+  const incomeTax = truncateToTenWon(base * 0.03)
+  const localIncomeTax = truncateToTenWon(base * 0.003)
+  return incomeTax + localIncomeTax
 }
 
 export function calculateSettlement(

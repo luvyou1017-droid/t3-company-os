@@ -125,12 +125,16 @@ Deduction types are `sample`, `event`, `purchase`, `shipping`, `refund`, `promot
 - Simplified business operator or eligible individual business operator: `cash_receipt`.
 - Freelancer: `withholding_3_3`.
 
-Withholding tax uses:
+Withholding tax uses separate ten-won truncation:
 
 ```text
-taxAmount = Math.round(paymentTargetAmount * 0.033)
+incomeTax = truncateToTenWon(paymentTargetAmount * 0.03)
+localIncomeTax = truncateToTenWon(paymentTargetAmount * 0.003)
+taxAmount = incomeTax + localIncomeTax
 finalSellerPaymentAmount = sellerCommissionAmount - sellerDeduction - taxAmount
 ```
+
+Each tax removes decimals and truncates amounts below 10 KRW before the two values are added. Do not calculate 3.3% in one operation and do not truncate after combining the taxes.
 
 Tax invoice or cash receipt settlements cannot move to payment ready until evidence is confirmed.
 
