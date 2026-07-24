@@ -9,6 +9,7 @@ import { PublicCsIntakePage } from './pages/public-cs-intake/PublicCsIntakePage'
 import { SampleManagementPage } from './pages/sample-management/SampleManagementPage'
 import { SalesDataPage } from './pages/sales-data/SalesDataPage'
 import { SettlementPage } from './pages/settlement/SettlementPage'
+import { PaymentRequestPage } from './pages/payment-request/PaymentRequestPage'
 import './App.css'
 import type { CampaignTab } from './shared/types/campaignWorkspace'
 import { csService } from './shared/services/csService'
@@ -16,7 +17,7 @@ import { sampleService } from './shared/services/sampleService'
 import { salesDataService } from './shared/services/salesDataService'
 import { settlementService } from './shared/services/settlementService'
 
-export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리'
+export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리' | '지급 승인'
 
 function App() {
   const isPublicCsIntake = window.location.hash === '#public-cs-intake'
@@ -81,6 +82,7 @@ function App() {
       {activePage === '샘플 관리' && <SampleManagementPage initialSampleId={selectedSampleId} />}
       {activePage === '판매 데이터' && <SalesDataPage initialImportId={selectedSalesDataImportId} />}
       {activePage === '정산 관리' && <SettlementPage initialSettlementId={selectedSettlementId} />}
+      {activePage === '지급 승인' && <PaymentRequestPage />}
       {activePage === '공동구매 일정' && !selectedScheduleId && (
         <CampaignSchedulePage onOpenDetail={(id) => openCampaign(id)} />
       )}

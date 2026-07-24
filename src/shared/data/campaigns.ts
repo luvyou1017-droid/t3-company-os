@@ -67,6 +67,7 @@ export const campaigns: Campaign[] = [
     status: 'closed',
   }),
   campaign('SCH-004', '주방용품 공동구매', '키친온', 'Maison Cook', '스테인리스 조리도구 세트', '박지훈', '한유리', '2026-07-04', '2026-07-09', '브랜드사', '법인사업자', {
+    salesChannelType: 'supplier_link',
     pendingTaskCount: 5,
     pendingCsCount: 2,
     pendingSampleCount: 1,
@@ -75,6 +76,7 @@ export const campaigns: Campaign[] = [
     status: 'closed',
   }),
   campaign('SCH-005', '건강식품 공동구매', '헬시윤', 'Fit Table', '단백질 쉐이크', '허윤정', '정다은', '2026-07-02', '2026-07-08', '자사', '개인사업자', {
+    salesChannelType: 'seller_checkout',
     pendingTaskCount: 4,
     pendingCsCount: 1,
     todayTask: '정산서 생성 전 공급가 검토',
@@ -83,6 +85,7 @@ export const campaigns: Campaign[] = [
     status: 'closed',
   }),
   campaign('SCH-006', '여름 스킨케어 집중 공구', '뷰티하린', 'Lumi Skin', '수분 크림 세트', '최유진', '김민서', '2026-06-26', '2026-07-03', '브랜드사', '법인사업자', {
+    salesChannelType: 'wise_shop_link',
     pendingTaskCount: 3,
     todayTask: '셀러 지급 승인 요청',
     landingPageCompleted: true,

@@ -6,6 +6,8 @@ export type CampaignLinkOwnerInput = 'company' | 'brand' | 'seller'
 
 export type CampaignBusinessTypeInput = 'corporation' | 'sole_proprietor' | 'freelancer'
 
+export type CampaignSalesChannelType = 'supplier_link' | 'wise_shop_link' | 'seller_checkout'
+
 export type Campaign = {
   id: string
   campaignCode: string
@@ -26,6 +28,7 @@ export type Campaign = {
   businessType: BusinessType
   totalCommissionRate?: number
   sellerCommissionRate?: number
+  salesChannelType?: CampaignSalesChannelType
   landingPageType?: string
   settlementDueDate: string
   memo?: string

@@ -17,6 +17,9 @@ export const STORAGE_KEYS = {
   campaignFiles: 't3_company_os_campaign_files',
   communications: 't3_company_os_communications',
   campaignListState: 't3_company_os_campaign_list_state',
+  sellerSettlementRules: 't3_company_os_seller_settlement_rules',
+  sellerSettlementDocuments: 't3_company_os_seller_settlement_documents',
+  paymentRequests: 't3_company_os_payment_requests',
 } as const
 
 const LEGACY_KEYS: Partial<Record<(typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS], string>> = {
