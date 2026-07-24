@@ -54,11 +54,14 @@ export const paymentEvidenceService = {
     const next = persist({ ...item, reviewStatus: 'review_pending', reviewedBy: undefined, reviewedAt: undefined, rejectionReason: undefined })
     const campaign = campaignService.getCampaignById(item.campaignId)
     const workId = `payment-evidence-work-${item.id}`
+    const aiWarning = item.aiReviewStatus === 'mismatched' ? '금액 불일치 확인 필요'
+      : item.aiReviewStatus === 'failed' ? 'AI 분석 실패 · 직접 확인 필요'
+        : item.aiReviewStatus === 'needs_review' ? 'AI가 금액을 확실히 읽지 못함 · 직접 확인 필요' : ''
     if (!workService.getWorkItems().some((work) => work.sourceType === 'payment_evidence' && work.sourceId === item.id)) {
       workService.createWorkItem({
         id: workId,
         title: `[${campaign?.campaignName ?? item.campaignId}] ${item.ownerName} 증빙 검수`,
-        description: '새 증빙자료 검수 요청이 도착했습니다.',
+        description: `새 증빙자료 검수 요청이 도착했습니다.${aiWarning ? `\n${aiWarning}` : ''}`,
         workType: '셀러 증빙 확인',
         status: 'pending',
         campaignId: item.campaignId,
@@ -77,7 +80,8 @@ export const paymentEvidenceService = {
         relatedMenu: '증빙 검수',
         checklistName: 'payment_evidence',
         relatedLink: `/payments/evidence-review/${item.id}`,
-        activityLogs: [{ id: crypto.randomUUID(), at: now(), message: '증빙 검수 업무가 자동 생성되었습니다.' }],
+        priority: item.aiReviewStatus === 'mismatched' ? 'high' : undefined,
+        activityLogs: [{ id: crypto.randomUUID(), at: now(), message: `증빙 검수 업무가 자동 생성되었습니다.${aiWarning ? ` ${aiWarning}` : ''}` }],
       })
     }
     notificationService.createNotification({
@@ -97,16 +101,20 @@ export const paymentEvidenceService = {
     })
     return next
   },
-  approveEvidence(id: string, reviewedBy = DEFAULT_EVIDENCE_REVIEWER.name, reviewMemo = '검수 승인') {
+  approveEvidence(id: string, reviewedBy = DEFAULT_EVIDENCE_REVIEWER.name, reviewMemo = '검수 승인', overrideReason?: string) {
     const item = this.getAllEvidence().find((candidate) => candidate.id === id)
     if (!item || item.reviewStatus !== 'review_pending') throw new Error('검수 대기 중인 증빙만 승인할 수 있습니다.')
-    return persist({ ...item, reviewStatus: 'approved', reviewedBy, reviewedAt: now(), reviewMemo, rejectionReason: undefined })
+    if (item.aiReviewStatus === 'mismatched' && !overrideReason?.trim()) throw new Error('금액 불일치 예외 승인 사유를 입력해주세요.')
+    return persist({
+      ...item, reviewStatus: 'approved', humanReviewStatus: 'approved', reviewedBy, reviewedAt: now(),
+      reviewMemo, overrideReason: overrideReason?.trim(), rejectionReason: undefined,
+    })
   },
   rejectEvidence(id: string, rejectionReason: string, reviewedBy = DEFAULT_EVIDENCE_REVIEWER.name) {
     if (!rejectionReason.trim()) throw new Error('반려 사유를 입력해주세요.')
     const item = this.getAllEvidence().find((candidate) => candidate.id === id)
     if (!item || item.reviewStatus !== 'review_pending') throw new Error('검수 대기 중인 증빙만 반려할 수 있습니다.')
-    return persist({ ...item, reviewStatus: 'rejected', reviewedBy, reviewedAt: now(), rejectionReason: rejectionReason.trim() })
+    return persist({ ...item, reviewStatus: 'rejected', humanReviewStatus: 'rejected', reviewedBy, reviewedAt: now(), rejectionReason: rejectionReason.trim() })
   },
   linkToPaymentRequest(settlementId: string, ownerType: EvidenceOwnerType, paymentRequestId: string) {
     localStorageRepository.save(this.getAllEvidence().map((item) =>

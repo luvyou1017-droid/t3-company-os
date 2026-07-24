@@ -21,6 +21,7 @@ export const STORAGE_KEYS = {
   sellerSettlementDocuments: 't3_company_os_seller_settlement_documents',
   paymentRequests: 't3_company_os_payment_requests',
   paymentEvidence: 't3_company_os_payment_evidence',
+  evidenceAiReviews: 't3_company_os_evidence_ai_reviews',
   withholdingTaxItems: 't3_company_os_withholding_tax_items',
   paymentRequestBatches: 't3_company_os_payment_request_batches',
 } as const

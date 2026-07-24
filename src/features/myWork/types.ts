@@ -69,6 +69,7 @@ export type WorkItem = {
   isSettlementDelayed?: boolean
   isCsOver24h?: boolean
   activityLogs: WorkActivityLog[]
+  priority?: WorkPriority
 }
 
 export type WorkFilter = {

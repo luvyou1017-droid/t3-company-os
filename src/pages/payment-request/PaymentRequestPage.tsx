@@ -13,6 +13,9 @@ import { runWithholdingAssertions } from '../../shared/utils/withholdingTax'
 import { validateSettlement } from '../../shared/utils/settlement'
 import { openEvidenceReviewDetail, openPaymentDetail } from '../../shared/utils/paymentNavigation'
 import { DEFAULT_EVIDENCE_REVIEWER } from '../../shared/data/users'
+import { evidenceAiReviewService } from '../../shared/services/evidenceAiReviewService'
+import type { EvidenceExpectedContext } from '../../shared/types/evidenceAiReview'
+import { EvidencePreviewModal } from './components/EvidencePreviewModal'
 
 type Tab = 'requests' | 'approval' | 'scheduled' | 'completed' | 'evidence' | 'withholding'
 type WorkflowTarget = { settlementId: string; recipientType: EvidenceOwnerType }
@@ -128,6 +131,7 @@ function StageRequestList({ requests, empty, onSelect, onSync, approval }: {
 }
 
 function PaymentWorkflowDetail({ target, backLabel, onBack, onSync }: { target: WorkflowTarget; backLabel: string; onBack: () => void; onSync: () => void }) {
+  const [previewEvidence, setPreviewEvidence] = useState<PaymentEvidence | null>(null)
   const settlement = settlementService.getSettlementById(target.settlementId)
   if (!settlement) return <section className="workspace-card"><p>정산을 찾을 수 없습니다.</p><button className="secondary-button" onClick={onBack}>목록으로</button></section>
   const campaign = campaignService.getCampaignById(settlement.campaignId)
@@ -157,7 +161,7 @@ function PaymentWorkflowDetail({ target, backLabel, onBack, onSync }: { target: 
       campaignId: campaign.id, settlementId: settlement.id, ownerType: target.recipientType,
       ownerId: recipientId, ownerName: recipientName, businessType, evidenceType: recommended,
       fileName: file.name, fileType: file.type, fileSize: file.size,
-      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+      previewUrl: file.type.startsWith('image/') || file.type === 'application/pdf' ? URL.createObjectURL(file) : undefined,
       uploadedBy: '허수정', memo: '지급요청 상세 업로드',
     })
     onSync()
@@ -193,18 +197,80 @@ function PaymentWorkflowDetail({ target, backLabel, onBack, onSync }: { target: 
     <section className="workspace-card"><h2>1. 지급 대상 요약</h2><div className="payment-detail-sections"><SummaryItem label="공동구매" value={campaign.campaignName} /><SummaryItem label="지급 대상" value={`${isSeller ? '셀러' : '매니저'} · ${recipientName}`} /><SummaryItem label="사업자 유형" value={businessType} /><SummaryItem label="지급 예정일" value={settlement.paymentDueDate} /></div></section>
     <section className="workspace-card"><h2>2. 정산금 계산</h2><div className="payment-detail-sections"><SummaryItem label="부가세 포함 정산금" value={money(isSeller ? settlement.currentCalculation.sellerCommissionAmount : settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal)} /><SummaryItem label="차감" value={money(isSeller ? settlement.currentCalculation.sellerDeductionTotal : settlement.currentCalculation.managerDeductionTotal)} /><SummaryItem label="최종 지급액" value={money(request?.amount ?? (isSeller ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount))} /></div></section>
     <section className="workspace-card"><h2>3. 증빙자료</h2><p>추천 자료: <strong>{businessType === 'freelancer' ? '원천세 리스트 자동 등록 · 필요 시 기타 증빙' : evidenceLabels[recommended]}</strong></p>
-      {evidence && <div className="evidence-detail-preview">{evidence.previewUrl && evidence.fileType.startsWith('image/') ? <img src={evidence.previewUrl} alt="증빙 미리보기" /> : <div className="file-placeholder">파일 미리보기</div>}<div><strong>{evidence.fileName}</strong><p>{(evidence.fileSize / 1024).toFixed(1)} KB · {evidence.uploadedBy} · {new Date(evidence.uploadedAt).toLocaleString('ko-KR')}</p><span className="status-badge waiting">{reviewLabels[evidence.reviewStatus]}</span>{evidence.rejectionReason && <p className="danger-text">반려 사유: {evidence.rejectionReason}</p>}</div></div>}
+      {evidence && <><button className="evidence-preview-trigger" onClick={() => setPreviewEvidence(evidence)} type="button"><div className="evidence-detail-preview">{evidence.previewUrl && evidence.fileType.startsWith('image/') ? <img src={evidence.previewUrl} alt="증빙 미리보기" /> : <div className="file-placeholder">{evidence.fileType === 'application/pdf' ? 'PDF 크게 보기' : '파일 미리보기'}</div>}<div><strong>{evidence.fileName}</strong><p>{(evidence.fileSize / 1024).toFixed(1)} KB · {evidence.uploadedBy} · {new Date(evidence.uploadedAt).toLocaleString('ko-KR')}</p><span className="status-badge waiting">{reviewLabels[evidence.reviewStatus]}</span>{evidence.rejectionReason && <p className="danger-text">반려 사유: {evidence.rejectionReason}</p>}</div></div></button><EvidenceAiReviewCard evidence={evidence} context={buildAiContext(evidence, grossSettlementAmount(settlement, target.recipientType), sellerRule?.salesChannelType === 'seller_checkout')} onSync={onSync} /></>}
       <WorkflowAction evidence={evidence} businessType={businessType} request={request} reasons={reasons} onUpload={upload} onRequestReview={() => { if (evidence) paymentEvidenceService.requestEvidenceReview(evidence.id); onSync() }} onCreateRequest={createRequest} onComplete={() => { if (request?.status === 'sent') paymentRequestService.markSellerRemittanceConfirmed(request.id); else if (request) paymentRequestService.markPaymentCompleted(request.id); onSync() }} />
     </section>
     <section className="workspace-card"><h2>4. 계좌 확인</h2><p>{settlement.accountConfirmed ? '✓ 지급 계좌 확인 완료' : '지급 계좌 확인이 필요합니다.'}</p></section>
     <section className="workspace-card"><h2>5. 원천세</h2>{businessType === 'freelancer' && taxItem ? <div className="payment-detail-sections"><SummaryItem label="부가세 포함 정산금" value={money(taxItem.grossSettlementAmount)} /><SummaryItem label="부가세 제외 기준금액" value={money(taxItem.withholdingBaseAmount)} /><SummaryItem label="소득세 3%" value={money(taxItem.incomeTaxAmount)} /><SummaryItem label="지방소득세 0.3%" value={money(taxItem.localIncomeTaxAmount)} /><SummaryItem label="총 원천징수액" value={money(taxItem.totalWithholdingTaxAmount)} /><SummaryItem label="최종 지급액" value={money(taxItem.finalPaymentAmount)} /><SummaryItem label="원천세 리스트" value="등록 완료" /></div> : <p>{businessType === 'freelancer' ? '원천세 리스트 미등록' : '원천세 대상이 아닙니다.'}</p>}</section>
     <section className="workspace-card"><h2>6. 지급요청 상태</h2><p>{request ? statusLabel[request.status] : '지급요청 생성 전'}</p>{reasons.length > 0 && !request && <ul className="block-reasons">{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}</section>
     <section className="workspace-card"><h2>7. 승인·지급 이력</h2><div className="payment-history"><p>{request?.requestedAt ? `요청 · ${request.requestedBy} · ${new Date(request.requestedAt).toLocaleString('ko-KR')}` : '지급요청 이력 없음'}</p>{request?.approvedAt && <p>승인 · {request.approvedBy} · {new Date(request.approvedAt).toLocaleString('ko-KR')}</p>}{request?.completedAt && <p>지급 완료 · {request.completedBy} · {new Date(request.completedAt).toLocaleString('ko-KR')}</p>}</div></section>
+    <EvidencePreviewModal evidence={previewEvidence} onClose={() => setPreviewEvidence(null)} />
   </section>
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return <div><span>{label}</span><strong>{value}</strong></div>
+}
+
+function grossSettlementAmount(settlement: NonNullable<ReturnType<typeof settlementService.getSettlementById>>, ownerType: EvidenceOwnerType) {
+  return ownerType === 'seller'
+    ? settlement.currentCalculation.sellerCommissionAmount
+    : settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal
+}
+
+function buildAiContext(evidence: PaymentEvidence, grossAmount: number, isSellerPaymentWindow: boolean): EvidenceExpectedContext {
+  const expectedAmount = evidence.businessType === 'simplified_business' ? Math.round(grossAmount / 1.1) : Math.round(grossAmount)
+  return {
+    evidenceId: evidence.id,
+    campaignId: evidence.campaignId,
+    settlementId: evidence.settlementId,
+    ownerType: evidence.ownerType,
+    ownerId: evidence.ownerId,
+    businessType: evidence.businessType,
+    evidenceType: evidence.evidenceType,
+    expectedAmount,
+    isSellerPaymentWindow,
+  }
+}
+
+function EvidenceAiReviewCard({ evidence, context, onSync }: { evidence: PaymentEvidence; context: EvidenceExpectedContext; onSync: () => void }) {
+  const [analyzing, setAnalyzing] = useState(false)
+  const review = evidenceAiReviewService.getEvidenceAiReview(evidence.id)
+  const status = analyzing ? 'analyzing' : evidence.aiReviewStatus ?? review?.comparison.status ?? 'not_analyzed'
+  const analyze = async () => {
+    setAnalyzing(true)
+    try {
+      await evidenceAiReviewService.analyzeEvidenceMock(evidence, context)
+    } catch {
+      // 실패 상태와 Work Item 메모는 service가 저장한다.
+    } finally {
+      setAnalyzing(false)
+      onSync()
+    }
+  }
+  const statusMessage = status === 'matched' ? 'AI 1차 확인: 금액 일치'
+    : status === 'mismatched' ? 'AI 1차 확인: 금액 불일치'
+      : status === 'needs_review' ? 'AI가 금액을 확실히 읽지 못했습니다. 직접 확인해주세요.'
+        : evidenceAiReviewService.getEvidenceAiStatusLabel(status)
+  return <section className={`evidence-ai-card is-${status}`}>
+    <div className="section-heading"><div><p className="page-eyebrow">Mock AI Review</p><h3>{statusMessage}</h3></div><span className={`status-badge ${status === 'matched' ? 'done' : status === 'mismatched' || status === 'failed' ? 'error' : 'waiting'}`}>{evidenceAiReviewService.getEvidenceAiStatusLabel(status)}</span></div>
+    <p className="ai-mock-notice">현재 AI 판독 결과는 MVP Mock 데이터이며 실제 증빙 인식 결과가 아닙니다.</p>
+    <div className="payment-detail-sections">
+      <SummaryItem label="문서 유형" value={review?.extraction.documentType ?? '분석 전'} />
+      <SummaryItem label="공급자명" value={review?.extraction.supplierName ?? '-'} />
+      <SummaryItem label="발행일" value={review?.extraction.issueDate ?? '-'} />
+      <SummaryItem label="공급가액" value={review?.extraction.supplyAmount === undefined ? '-' : money(review.extraction.supplyAmount)} />
+      <SummaryItem label="부가세" value={review?.extraction.vatAmount === undefined ? '-' : money(review.extraction.vatAmount)} />
+      <SummaryItem label="추출된 발행금액" value={review?.comparison.extractedAmount === undefined ? '-' : money(review.comparison.extractedAmount)} />
+      <SummaryItem label="정산 기준금액" value={money(review?.comparison.expectedAmount ?? context.expectedAmount)} />
+      <SummaryItem label="차액" value={review?.comparison.differenceAmount === undefined ? '-' : money(review.comparison.differenceAmount)} />
+      <SummaryItem label="신뢰도" value={review ? `${Math.round(review.extraction.confidence * 100)}%` : '-'} />
+      <SummaryItem label="분석 시간" value={review ? new Date(review.analyzedAt).toLocaleString('ko-KR') : '-'} />
+    </div>
+    {review?.extraction.warnings.length ? <ul className="block-reasons">{review.extraction.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}
+    {review && <p>{review.comparison.reason}</p>}
+    <button className="secondary-button" disabled={analyzing} onClick={analyze} type="button">{review ? '다시 분석' : 'AI 1차 확인'}</button>
+  </section>
 }
 
 function WorkflowAction({ evidence, businessType, request, reasons, onUpload, onRequestReview, onCreateRequest, onComplete }: {
@@ -347,6 +413,10 @@ function RequestTab({ requests, evidence, onSelect }: { requests: ReturnType<typ
 function EvidenceReviewDetail({ evidenceId, backLabel, onBack, onOpenPayment, onSync }: {
   evidenceId: string; backLabel: string; onBack: () => void; onOpenPayment: (target: WorkflowTarget) => void; onSync: () => void
 }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [reviewMemo, setReviewMemo] = useState('')
+  const [overrideConfirmed, setOverrideConfirmed] = useState(false)
+  const [overrideReason, setOverrideReason] = useState('')
   const evidence = paymentEvidenceService.getAllEvidence().find((item) => item.id === evidenceId)
   if (!evidence) return <section className="workspace-card workspace-empty"><strong>증빙자료를 찾을 수 없습니다.</strong><button className="secondary-button" onClick={onBack}>← {backLabel}</button></section>
   const campaign = campaignService.getCampaignById(evidence.campaignId)
@@ -354,10 +424,11 @@ function EvidenceReviewDetail({ evidenceId, backLabel, onBack, onOpenPayment, on
   if (!campaign || !settlement) return null
   const request = paymentRequestService.getPaymentRequests().find((item) =>
     item.settlementId === evidence.settlementId && item.recipientType === evidence.ownerType && item.recipientId === evidence.ownerId)
+  const sellerRule = sellerSettlementService.getSellerSettlementRule(evidence.campaignId)
   const recommended = paymentEvidenceService.getRecommendedEvidenceType(evidence.businessType) ?? 'other'
-  const gross = evidence.ownerType === 'seller'
-    ? settlement.currentCalculation.sellerCommissionAmount
-    : settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal
+  const gross = grossSettlementAmount(settlement, evidence.ownerType)
+  const aiContext = buildAiContext(evidence, gross, evidence.ownerType === 'seller' && sellerRule?.salesChannelType === 'seller_checkout')
+  const aiReview = evidenceAiReviewService.getEvidenceAiReview(evidence.id)
   const finalAmount = request?.amount ?? (evidence.ownerType === 'seller' ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount)
   const history = paymentEvidenceService.getEvidenceBySettlementId(evidence.settlementId, evidence.ownerType)
     .filter((item) => item.evidenceType === evidence.evidenceType).sort((a, b) => (a.revision ?? 1) - (b.revision ?? 1))
@@ -367,21 +438,36 @@ function EvidenceReviewDetail({ evidenceId, backLabel, onBack, onOpenPayment, on
     paymentEvidenceService.rejectEvidence(evidence.id, reason, DEFAULT_EVIDENCE_REVIEWER.name)
     onSync()
   }
+  const approve = () => {
+    if (aiReview?.comparison.status === 'mismatched' && (!overrideConfirmed || !overrideReason.trim())) return
+    paymentEvidenceService.approveEvidence(evidence.id, DEFAULT_EVIDENCE_REVIEWER.name, reviewMemo.trim() || '증빙 내용 수동 확인 완료', overrideReason)
+    onSync()
+  }
   return <section className="payment-workflow-detail">
     <header className="payment-stage-hero"><button className="text-button" onClick={onBack}>← {backLabel}</button><div><p>Evidence Review</p><h1>{campaign.campaignName} 증빙 검수</h1><strong>{DEFAULT_EVIDENCE_REVIEWER.name} · {DEFAULT_EVIDENCE_REVIEWER.role}</strong></div></header>
     <section className="workspace-card"><h2>검수 대상</h2><div className="payment-detail-sections"><SummaryItem label="공동구매명" value={campaign.campaignName} /><SummaryItem label="지급 대상" value={evidence.ownerType === 'seller' ? '셀러' : '매니저'} /><SummaryItem label="대상자" value={evidence.ownerName} /><SummaryItem label="사업자 유형" value={evidence.businessType} /><SummaryItem label="추천 증빙" value={evidenceLabels[recommended]} /><SummaryItem label="최종 증빙" value={evidenceLabels[evidence.evidenceType]} /><SummaryItem label="계좌 확인" value={settlement.accountConfirmed ? '확인 완료' : '미확인'} /><SummaryItem label="검수 상태" value={reviewLabels[evidence.reviewStatus]} /></div></section>
-    <section className="workspace-card"><h2>증빙 미리보기</h2>{evidence.previewUrl && evidence.fileType.startsWith('image/') ? <img className="evidence-large-preview" src={evidence.previewUrl} alt="증빙 이미지 미리보기" /> : evidence.fileType.includes('pdf') && evidence.previewUrl ? <iframe className="evidence-pdf-preview" src={evidence.previewUrl} title="증빙 PDF 미리보기" /> : <div className="file-placeholder">현재 브라우저 세션에서 미리보기를 사용할 수 없습니다.</div>}<div className="payment-detail-sections"><SummaryItem label="파일명" value={evidence.fileName} /><SummaryItem label="파일 크기" value={`${(evidence.fileSize / 1024).toFixed(1)} KB`} /><SummaryItem label="업로드자" value={evidence.uploadedBy} /><SummaryItem label="업로드일" value={new Date(evidence.uploadedAt).toLocaleString('ko-KR')} /></div></section>
-    <section className="workspace-card"><h2>금액 확인</h2><div className="payment-detail-sections"><SummaryItem label="정산 기준 금액" value={money(gross)} /><SummaryItem label="증빙 발행 금액" value={money(gross)} /><SummaryItem label="최종 지급액" value={money(finalAmount)} /></div></section>
-    <section className="workspace-card"><h2>검수 이력</h2><div className="payment-history">{history.map((item) => <p key={item.id}>revision {item.revision ?? 1} · {reviewLabels[item.reviewStatus]} · {item.reviewedBy ?? '미검수'} {item.reviewedAt ? `· ${new Date(item.reviewedAt).toLocaleString('ko-KR')}` : ''} {item.rejectionReason ? `· ${item.rejectionReason}` : ''}</p>)}</div></section>
+    <section className="workspace-card"><h2>1. 정산 기준금액</h2><div className="payment-detail-sections"><SummaryItem label="정산 기준 금액" value={money(aiContext.expectedAmount)} /><SummaryItem label="증빙 발행 금액" value={aiReview?.comparison.extractedAmount === undefined ? 'AI 분석 또는 직접 확인 필요' : money(aiReview.comparison.extractedAmount)} /><SummaryItem label="최종 지급액" value={money(finalAmount)} /></div></section>
+    <section className="workspace-card"><h2>2. 증빙 확대 미리보기</h2><button className="evidence-preview-trigger evidence-wide-trigger" onClick={() => setPreviewOpen(true)} type="button">{evidence.previewUrl && evidence.fileType.startsWith('image/') ? <img className="evidence-large-preview" src={evidence.previewUrl} alt="증빙 이미지 크게 보기" /> : <div className="file-placeholder">{evidence.fileType === 'application/pdf' ? 'PDF 크게 보기' : '현재 세션에서 미리보기를 사용할 수 없습니다.'}</div>}</button><div className="payment-detail-sections"><SummaryItem label="파일명" value={evidence.fileName} /><SummaryItem label="파일 크기" value={`${(evidence.fileSize / 1024).toFixed(1)} KB`} /><SummaryItem label="업로드자" value={evidence.uploadedBy} /><SummaryItem label="업로드일" value={new Date(evidence.uploadedAt).toLocaleString('ko-KR')} /></div></section>
+    <section className="workspace-card"><h2>3. AI 1차 확인 결과</h2><EvidenceAiReviewCard evidence={evidence} context={aiContext} onSync={onSync} /></section>
+    <section className="workspace-card"><h2>4. 허수정 최종 검수</h2><p>AI 결과와 관계없이 허수정 담당자의 최종 승인 또는 반려가 필수입니다.</p>
+      {evidence.reviewStatus === 'review_pending' && <>
+        <label className="review-field">검수 메모<textarea value={reviewMemo} onChange={(event) => setReviewMemo(event.target.value)} placeholder="확인 내용과 판단 근거를 입력해주세요." /></label>
+        {aiReview?.comparison.status === 'mismatched' && <div className="exception-approval-panel"><label><input checked={overrideConfirmed} onChange={(event) => setOverrideConfirmed(event.target.checked)} type="checkbox" /> 금액 불일치를 확인했으며 예외 승인을 진행합니다.</label><label className="review-field">예외 승인 사유<input value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} placeholder="예외 승인 사유 필수" /></label></div>}
+        <div className="button-row"><button className="primary-button" disabled={aiReview?.comparison.status === 'mismatched' && (!overrideConfirmed || !overrideReason.trim())} onClick={approve}>검수 승인</button><button className="danger-button" onClick={reject}>반려</button></div>
+      </>}
+      {evidence.reviewStatus !== 'review_pending' && <p className="payment-notice">{reviewLabels[evidence.reviewStatus]} · {evidence.reviewedBy ?? '미검수'} {evidence.reviewMemo ? `· ${evidence.reviewMemo}` : ''}{evidence.overrideReason ? ` · 예외 승인: ${evidence.overrideReason}` : ''}</p>}
+    </section>
+    <section className="workspace-card"><h2>5. 검수 이력</h2><div className="payment-history">{history.map((item) => <p key={item.id}>revision {item.revision ?? 1} · {reviewLabels[item.reviewStatus]} · {item.reviewedBy ?? '미검수'} {item.reviewedAt ? `· ${new Date(item.reviewedAt).toLocaleString('ko-KR')}` : ''} {item.rejectionReason ? `· ${item.rejectionReason}` : ''} {item.overrideReason ? `· 예외 승인: ${item.overrideReason}` : ''}</p>)}</div></section>
     <div className="button-row evidence-review-actions">
-      {evidence.reviewStatus === 'review_pending' && <><button className="secondary-button" onClick={() => { paymentEvidenceService.approveEvidence(evidence.id, DEFAULT_EVIDENCE_REVIEWER.name, '증빙 내용 확인 완료'); onSync() }}>검수 승인</button><button className="danger-button" onClick={reject}>반려</button></>}
       <button className="secondary-button" onClick={() => onOpenPayment({ settlementId: evidence.settlementId, recipientType: evidence.ownerType })}>지급요청 상세 보기</button>
       <button className="text-button" onClick={onBack}>← {backLabel}</button>
     </div>
+    <EvidencePreviewModal evidence={previewOpen ? evidence : null} onClose={() => setPreviewOpen(false)} />
   </section>
 }
 
 function EvidenceTab({ evidence, onSync, onSelect }: { evidence: PaymentEvidence[]; onSync: () => void; onSelect: (id: string) => void }) {
+  const [previewEvidence, setPreviewEvidence] = useState<PaymentEvidence | null>(null)
   const savedFilters = JSON.parse(sessionStorage.getItem('t3_evidence_review_filters') ?? '{}') as Record<string, string>
   const [owner, setOwner] = useState(savedFilters.owner ?? '')
   const [documentType, setDocumentType] = useState(savedFilters.documentType ?? '')
@@ -412,15 +498,16 @@ function EvidenceTab({ evidence, onSync, onSelect }: { evidence: PaymentEvidence
     <section className="workspace-card"><div className="section-heading"><div><h2>증빙 검수 관리자 화면</h2><p>허수정 담당자가 업로드된 셀러·매니저 증빙만 검수합니다. 업로드와 지급 처리는 지급요청 상세에서 진행합니다.</p></div><strong>{filtered.length}건</strong></div>
       <div className="evidence-admin-filters"><select value={owner} onChange={(e) => setOwner(e.target.value)}><option value="">셀러·매니저 전체</option><option value="seller">셀러</option><option value="manager">매니저</option></select><select value={documentType} onChange={(e) => setDocumentType(e.target.value)}><option value="">증빙 유형 전체</option>{Object.entries(evidenceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select value={review} onChange={(e) => setReview(e.target.value)}><option value="">검수 상태 전체</option>{Object.entries(reviewLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><input aria-label="업로드일" type="date" value={uploadedDate} onChange={(e) => setUploadedDate(e.target.value)} /><select value={manager} onChange={(e) => setManager(e.target.value)}><option value="">담당 매니저 전체</option>{managers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
       <div className="evidence-review-grid">{filtered.map((item) => <article className="evidence-card" key={item.id}>
-        {item.previewUrl && item.fileType.startsWith('image/') ? <img src={item.previewUrl} alt={`${item.ownerName} 증빙 미리보기`} /> : <div className="file-placeholder">파일 미리보기</div>}
+        <button className="evidence-thumbnail-button" onClick={() => setPreviewEvidence(item)} type="button">{item.previewUrl && item.fileType.startsWith('image/') ? <img src={item.previewUrl} alt={`${item.ownerName} 증빙 크게 보기`} /> : <div className="file-placeholder">{item.fileType === 'application/pdf' ? 'PDF 크게 보기' : '파일 미리보기'}</div>}</button>
         <div><span className={`status-badge ${item.reviewStatus === 'approved' ? 'done' : item.reviewStatus === 'rejected' ? 'error' : 'waiting'}`}>{reviewLabels[item.reviewStatus]}</span><h3>{item.ownerName} · {item.ownerType === 'seller' ? '셀러' : '매니저'}</h3><p>{campaignService.getCampaignById(item.campaignId)?.campaignName} · 담당 매니저 {campaignService.getCampaignById(item.campaignId)?.managerName}</p><p>{item.businessType} · {evidenceLabels[item.evidenceType]} · {item.fileName}</p><small>{item.uploadedBy} · {new Date(item.uploadedAt).toLocaleString('ko-KR')} · 지급 예정일 {settlementService.getSettlementById(item.settlementId)?.paymentDueDate}</small>{item.rejectionReason && <p className="danger-text">반려: {item.rejectionReason}</p>}</div>
         <div className="button-row">
-          {item.reviewStatus === 'review_pending' && <><button className="secondary-button" onClick={() => { paymentEvidenceService.approveEvidence(item.id); onSync() }}>승인</button><button className="danger-button" onClick={() => { const reason = window.prompt('반려 사유를 입력해주세요.'); if (reason) { paymentEvidenceService.rejectEvidence(item.id, reason); onSync() } }}>반려</button></>}
+          {item.reviewStatus === 'review_pending' && <><button className="secondary-button" disabled={item.aiReviewStatus === 'mismatched'} title={item.aiReviewStatus === 'mismatched' ? '상세에서 예외 승인 사유를 입력해주세요.' : undefined} onClick={() => { paymentEvidenceService.approveEvidence(item.id); onSync() }}>승인</button><button className="danger-button" onClick={() => { const reason = window.prompt('반려 사유를 입력해주세요.'); if (reason?.trim()) { paymentEvidenceService.rejectEvidence(item.id, reason); onSync() } }}>반려</button></>}
           <button className="text-button" onClick={() => onSelect(item.id)}>상세 보기</button>
         </div>
       </article>)}</div>
       {!filtered.length && <div className="workspace-empty"><strong>검수할 증빙자료가 없습니다.</strong><p>지급요청 상세에서 업로드 및 검수 요청된 자료가 표시됩니다.</p></div>}
     </section>
+    <EvidencePreviewModal evidence={previewEvidence} onClose={() => setPreviewEvidence(null)} />
   </>
 }
 

@@ -27,6 +27,12 @@ export interface PaymentEvidence {
   reviewMemo?: string
   revision?: number
   previousEvidenceId?: string
+  aiReviewStatus?: import('./evidenceAiReview').EvidenceAiReviewStatus
+  aiExtractedAmount?: number
+  aiExpectedAmount?: number
+  aiDifferenceAmount?: number
+  humanReviewStatus?: EvidenceReviewStatus
+  overrideReason?: string
   memo?: string
 }
 
