@@ -18,6 +18,8 @@ export interface PaymentEvidence {
   fileType: string
   fileSize: number
   previewUrl?: string
+  storageBucket?: string
+  storagePath?: string
   uploadedBy: string
   uploadedAt: string
   reviewStatus: EvidenceReviewStatus

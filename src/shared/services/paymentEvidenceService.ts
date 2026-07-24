@@ -10,6 +10,7 @@ import { DEFAULT_EVIDENCE_REVIEWER } from '../data/users'
 import { campaignService } from './campaignService'
 import { notificationService } from './notificationService'
 import { workService } from './workService'
+import { createPaymentEvidenceRepository } from '../repositories/paymentEvidenceRepository'
 
 const now = () => new Date().toISOString()
 
@@ -36,12 +37,12 @@ export const paymentEvidenceService = {
   getEvidenceByPaymentRequestId(paymentRequestId: string) {
     return this.getAllEvidence().filter((item) => item.paymentRequestId === paymentRequestId)
   },
-  uploadEvidenceMetadata(input: Omit<PaymentEvidence, 'id' | 'uploadedAt' | 'reviewStatus'>) {
+  uploadEvidenceMetadata(input: Omit<PaymentEvidence, 'id' | 'uploadedAt' | 'reviewStatus'> & { id?: string }) {
     const current = this.getEvidenceBySettlementId(input.settlementId, input.ownerType)
       .filter((item) => item.evidenceType === input.evidenceType)
     const previous = current.sort((a, b) => (b.revision ?? 1) - (a.revision ?? 1))[0]
     return persist({
-      ...input, id: `evidence-${crypto.randomUUID()}`, uploadedAt: now(), reviewStatus: 'uploaded',
+      ...input, id: input.id ?? `evidence-${crypto.randomUUID()}`, uploadedAt: now(), reviewStatus: 'uploaded',
       revision: (previous?.revision ?? 0) + 1, previousEvidenceId: previous?.id,
     })
   },
@@ -127,4 +128,7 @@ export const paymentEvidenceService = {
     return this.validateRequiredEvidence(settlementId, ownerType, businessType, withholdingRegistered).reasons
   },
   getRecommendedEvidenceType: getRequiredEvidenceType,
+  saveEvidenceToProvider(item: PaymentEvidence) {
+    return createPaymentEvidenceRepository().upsert(item)
+  },
 }

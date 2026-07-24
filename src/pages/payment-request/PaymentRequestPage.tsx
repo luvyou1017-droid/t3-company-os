@@ -16,6 +16,7 @@ import { DEFAULT_EVIDENCE_REVIEWER } from '../../shared/data/users'
 import { evidenceAiReviewService } from '../../shared/services/evidenceAiReviewService'
 import type { EvidenceExpectedContext } from '../../shared/types/evidenceAiReview'
 import { EvidencePreviewModal } from './components/EvidencePreviewModal'
+import { paymentEvidenceStorageService } from '../../shared/services/paymentEvidenceStorageService'
 
 type Tab = 'requests' | 'approval' | 'scheduled' | 'completed' | 'evidence' | 'withholding'
 type WorkflowTarget = { settlementId: string; recipientType: EvidenceOwnerType }
@@ -156,15 +157,29 @@ function PaymentWorkflowDetail({ target, backLabel, onBack, onSync }: { target: 
     sourceVersion: settlement.settlementVersion,
   }).filter((reason) => reason !== '이미 지급요청된 건입니다.')
   const settlementConfirmed = ['approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)
-  const upload = (file: File) => {
-    paymentEvidenceService.uploadEvidenceMetadata({
-      campaignId: campaign.id, settlementId: settlement.id, ownerType: target.recipientType,
-      ownerId: recipientId, ownerName: recipientName, businessType, evidenceType: recommended,
-      fileName: file.name, fileType: file.type, fileSize: file.size,
-      previewUrl: file.type.startsWith('image/') || file.type === 'application/pdf' ? URL.createObjectURL(file) : undefined,
-      uploadedBy: '허수정', memo: '지급요청 상세 업로드',
-    })
-    onSync()
+  const upload = async (file: File) => {
+    const evidenceId = `evidence-${crypto.randomUUID()}`
+    try {
+      const stored = await paymentEvidenceStorageService.uploadEvidenceFile(file, {
+        campaignId: campaign.id, settlementId: settlement.id, ownerType: target.recipientType, ownerId: recipientId, evidenceId,
+      })
+      const metadata = paymentEvidenceService.uploadEvidenceMetadata({
+        id: evidenceId, campaignId: campaign.id, settlementId: settlement.id, ownerType: target.recipientType,
+        ownerId: recipientId, ownerName: recipientName, businessType, evidenceType: recommended,
+        fileName: file.name, fileType: file.type, fileSize: file.size, previewUrl: stored.previewUrl,
+        storageBucket: stored.bucket, storagePath: stored.path, uploadedBy: '허수정', memo: '지급요청 상세 업로드',
+      })
+      try {
+        await paymentEvidenceService.saveEvidenceToProvider(metadata)
+      } catch (error) {
+        paymentEvidenceService.removeEvidence(metadata.id)
+        if (stored.path) await paymentEvidenceStorageService.deleteEvidenceFile(stored.path)
+        throw error
+      }
+      onSync()
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '증빙파일 업로드에 실패했습니다. 다시 시도해주세요.')
+    }
   }
   const createRequest = () => {
     if (isSeller) paymentRequestService.createPaymentRequest(settlement.id, '허수정')
@@ -275,7 +290,7 @@ function EvidenceAiReviewCard({ evidence, context, onSync }: { evidence: Payment
 
 function WorkflowAction({ evidence, businessType, request, reasons, onUpload, onRequestReview, onCreateRequest, onComplete }: {
   evidence?: PaymentEvidence; businessType: SellerBusinessType; request?: ReturnType<typeof paymentRequestService.getPaymentRequestById>
-  reasons: string[]; onUpload: (file: File) => void; onRequestReview: () => void; onCreateRequest: () => void; onComplete: () => void
+  reasons: string[]; onUpload: (file: File) => void | Promise<void>; onRequestReview: () => void; onCreateRequest: () => void; onComplete: () => void
 }) {
   if (request?.status === 'payment_completed' || request?.status === 'remittance_confirmed') return <p className="success-panel">지급 완료 · {request.completedBy} · {request.completedAt ? new Date(request.completedAt).toLocaleString('ko-KR') : ''}</p>
   if (request?.status === 'sent') return <button className="primary-button" onClick={onComplete}>입금 확인 완료 처리</button>

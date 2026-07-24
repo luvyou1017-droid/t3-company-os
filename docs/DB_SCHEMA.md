@@ -6,6 +6,24 @@ This document defines the initial database schema direction for T3 Company OS.
 
 T3 Company OS is an operating system for group-buying companies. The database should support operational automation, not simply reproduce a Notion workspace on the web.
 
+## Supabase Phase 1 Mapping
+
+실제 연결 1단계의 실행 가능한 초안은 `docs/SUPABASE_SCHEMA.sql`과 `docs/SUPABASE_PHASE_1.md`에 있다. 이번 단계는 기존 스키마 방향을 삭제하지 않고 다음 현재 TypeScript/localStorage 도메인을 Supabase에 매핑한다.
+
+| TypeScript/Local domain | Supabase table |
+| --- | --- |
+| Mock users | `profiles` |
+| `Campaign` | `campaigns` |
+| `Settlement` | `settlements` |
+| 셀러 정산 규칙·문서 | `seller_settlements` |
+| `PaymentRequest` | `payment_requests` |
+| `PaymentRequestBatch` | `payment_request_batches` |
+| `PaymentEvidence` metadata | `payment_evidence` |
+| `WithholdingTaxItem` | `withholding_tax_items` |
+| 운영 변경 이력 | `activity_logs` |
+
+증빙 원본은 private `payment-evidence` Storage bucket에 저장하며 DB에는 bucket/path와 파일 메타데이터만 저장한다. Local legacy ID는 migration provider에서 결정적 UUID로 변환하고 전체 기존 객체는 `metadata`에 보존한다. Supabase 환경변수가 없으면 기존 localStorage가 계속 단일 데이터 소스로 동작한다.
+
 The schema is designed around `campaigns` as the core entity. CS, samples, sales data, settlement, payment, AI recommendations, and user work items should all connect back to a campaign whenever possible.
 
 ## Schema Principles

@@ -1,5 +1,6 @@
 import { activeCampaigns, dashboardMetrics } from '../../features/dashboard/mockData'
 import { MetricCard } from '../../shared/components/MetricCard'
+import { DataConnectionCard } from './DataConnectionCard'
 
 export function DashboardPage() {
   return (
@@ -63,6 +64,7 @@ export function DashboardPage() {
           </table>
         </div>
       </section>
+      {import.meta.env.DEV && <DataConnectionCard />}
     </section>
   )
 }
