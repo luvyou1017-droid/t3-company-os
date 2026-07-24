@@ -18,6 +18,7 @@ import type {
   CampaignSummary,
   LinkOwner,
 } from '../types/campaign'
+import type { PaymentRecipientType, PaymentRequestStatus } from '../types/sellerSettlement'
 import { STORAGE_KEYS, storageService } from './storageService'
 
 export type CampaignCreateInput = {
@@ -204,6 +205,15 @@ export const campaignService = {
   },
   getCampaignById(id: string) {
     return this.getCampaigns().find((campaign) => campaign.id === id)
+  },
+  updatePaymentRequestStatus(id: string, recipientType: PaymentRecipientType, status: PaymentRequestStatus, completedAt?: string) {
+    const statusKey = recipientType === 'seller' ? 'sellerPaymentRequestStatus' : 'managerPaymentRequestStatus'
+    const completedKey = recipientType === 'seller' ? 'sellerPaymentCompletedAt' : 'managerPaymentCompletedAt'
+    const next = this.getCampaigns().map((campaign) => campaign.id === id
+      ? { ...campaign, [statusKey]: status, ...(completedAt ? { [completedKey]: completedAt } : {}), updatedAt: new Date().toISOString() }
+      : campaign)
+    this.saveCampaigns(next)
+    return next.find((campaign) => campaign.id === id)
   },
   getCampaignByCode(campaignCode: string) {
     return this.getCampaigns().find((campaign) => campaign.campaignCode === campaignCode)

@@ -11,6 +11,8 @@
 
 정산서, 요청, Campaign은 각각 `settlementId`, `campaignId`, `sellerId`로 연결한다.
 
+셀러와 매니저 지급요청은 `recipientType`, `recipientId`, `recipientName`, `sourceVersion`으로 분리한다. 동일 Campaign에서도 두 요청의 증빙과 상태는 독립적이다. 매니저 일괄 요청은 `batchRequestId`로 묶으며 상세 규칙은 `MANAGER_PAYMENT_REQUEST.md`를 따른다.
+
 ## 승인과 완료 흐름
 
 회사 → 셀러는 증빙 확인 후 `approval_pending`으로 요청하고, 대표 승인 후 `approved`, 담당자의 지급 완료 수동 체크 후 `payment_completed`가 된다.

@@ -611,4 +611,13 @@ export const settlementService = {
     this.saveSettlements(this.getSettlements().map((item) => (item.id === settlementId ? next : item)))
     return next
   },
+  updatePaymentRequestStatus(settlementId: string, recipientType: 'seller' | 'manager', status: import('../types/sellerSettlement').PaymentRequestStatus, completedAt?: string) {
+    const settlement = this.getSettlementById(settlementId)
+    if (!settlement) return undefined
+    const statusKey = recipientType === 'seller' ? 'sellerPaymentRequestStatus' : 'managerPaymentRequestStatus'
+    const completedKey = recipientType === 'seller' ? 'sellerPaymentCompletedAt' : 'managerPaymentCompletedAt'
+    const next = { ...settlement, [statusKey]: status, ...(completedAt ? { [completedKey]: completedAt } : {}), updatedAt: now() }
+    this.saveSettlements(this.getSettlements().map((item) => item.id === settlementId ? next : item))
+    return next
+  },
 }

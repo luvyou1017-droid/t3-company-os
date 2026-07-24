@@ -1,6 +1,7 @@
 import type { EvidenceOwnerType } from '../types/paymentEvidence'
 import type { WithholdingTaxItem, WithholdingTaxStatus } from '../types/withholdingTax'
 import { calculateWithholding } from '../utils/withholdingTax'
+import { getManagerBusinessType } from '../utils/managerPayment'
 import { campaignService } from './campaignService'
 import { settlementService } from './settlementService'
 import { STORAGE_KEYS, storageService } from './storageService'
@@ -69,15 +70,14 @@ export const withholdingTaxService = {
       if (!['approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) return
       const campaign = campaignService.getCampaignById(settlement.campaignId)
       if (!campaign) return
-      // MVP mock: SCH-009 seller and SCH-005 manager represent freelancer flows.
       if (settlement.campaignId === 'SCH-009') service.upsert({
         settlementId: settlement.id, ownerType: 'seller', ownerId: campaign.sellerId, ownerName: campaign.sellerName,
         grossSettlementAmount: settlement.currentCalculation.sellerCommissionAmount,
         deductions: settlement.currentCalculation.sellerDeductionTotal, sourceVersion: settlement.settlementVersion,
       })
-      if (settlement.campaignId === 'SCH-005') service.upsert({
+      if (getManagerBusinessType(campaign.managerName) === 'freelancer') service.upsert({
         settlementId: settlement.id, ownerType: 'manager', ownerId: campaign.managerId, ownerName: campaign.managerName,
-        grossSettlementAmount: settlement.currentCalculation.managerAmount,
+        grossSettlementAmount: settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal,
         deductions: settlement.currentCalculation.managerDeductionTotal, sourceVersion: settlement.settlementVersion,
       })
     })

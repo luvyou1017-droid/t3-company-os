@@ -161,6 +161,10 @@ export type Settlement = {
   sellerPaymentCompleted: boolean
   managerPaymentCompleted: boolean
   companySettlementCompleted: boolean
+  sellerPaymentRequestStatus?: import('./sellerSettlement').PaymentRequestStatus
+  managerPaymentRequestStatus?: import('./sellerSettlement').PaymentRequestStatus
+  sellerPaymentCompletedAt?: string
+  managerPaymentCompletedAt?: string
   reviewChecklist: SettlementReviewChecklist
   calculationSnapshot?: SettlementCalculationSnapshot
   originalSnapshot?: SettlementCalculationSnapshot

@@ -50,6 +50,10 @@ export type Campaign = {
   settlementDocumentCompleted?: boolean
   sellerPaymentCompleted?: boolean
   managerPaymentCompleted?: boolean
+  sellerPaymentRequestStatus?: import('./sellerSettlement').PaymentRequestStatus
+  managerPaymentRequestStatus?: import('./sellerSettlement').PaymentRequestStatus
+  sellerPaymentCompletedAt?: string
+  managerPaymentCompletedAt?: string
   revenue?: string
 }
 

@@ -3,6 +3,7 @@ import { validateSellerSettlement } from '../utils/sellerSettlement'
 import type { EvidenceOwnerType } from '../types/paymentEvidence'
 import type { SellerBusinessType } from '../types/sellerSettlement'
 import { calculateWithholding } from '../utils/withholdingTax'
+import { duplicateBlockingPaymentStatuses, hasDuplicatePaymentRequest } from '../utils/paymentRequest'
 import { campaignService } from './campaignService'
 import { paymentEvidenceService } from './paymentEvidenceService'
 import { sellerSettlementService } from './sellerSettlementService'
@@ -22,6 +23,7 @@ export type PaymentRequestValidationInput = {
   calculationCompleted: boolean
   calculationErrors: string[]
   amountConfirmed?: boolean
+  sourceVersion?: number
 }
 
 function validate(input: PaymentRequestValidationInput) {
@@ -37,11 +39,18 @@ function validate(input: PaymentRequestValidationInput) {
   if (!input.accountConfirmed) reasons.push('지급 계좌가 확인되지 않았습니다.')
   if (!input.calculationCompleted || input.amountConfirmed === false) reasons.push('최종 지급액 계산이 완료되지 않았습니다.')
   if (input.calculationErrors.length) reasons.push('최종 지급액 계산 오류가 있습니다.')
+  const duplicate = hasDuplicatePaymentRequest(paymentRequestService.getPaymentRequests(), {
+    settlementId: input.settlementId, recipientType: input.ownerType, recipientId: input.ownerId,
+    sourceVersion: input.sourceVersion ?? settlement?.settlementVersion ?? 1,
+  })
+  if (duplicate) reasons.push('이미 지급요청된 건입니다.')
   return { valid: reasons.length === 0, reasons }
 }
 
 function save(request: PaymentRequest) {
   storageService.setItem(STORAGE_KEYS.paymentRequests, [request, ...paymentRequestService.getPaymentRequests().filter((item) => item.id !== request.id)])
+  campaignService.updatePaymentRequestStatus(request.campaignId, request.recipientType, request.status, request.completedAt)
+  settlementService.updatePaymentRequestStatus(request.settlementId, request.recipientType, request.status, request.completedAt)
   return request
 }
 
@@ -51,17 +60,43 @@ function transition(id: string, status: PaymentRequestStatus, patch: Partial<Pay
   return save({ ...request, ...patch, status })
 }
 
+function normalizeRequest(request: PaymentRequest): PaymentRequest {
+  const campaign = campaignService.getCampaignById(request.campaignId)
+  const settlement = settlementService.getSettlementById(request.settlementId)
+  const recipientType = request.recipientType ?? request.ownerType ?? 'seller'
+  const recipientId = request.recipientId ?? request.ownerId ?? request.sellerId
+  const recipientName = request.recipientName ?? request.ownerName ??
+    (recipientType === 'manager' ? campaign?.managerName : campaign?.sellerName) ?? recipientId
+  return {
+    ...request,
+    recipientType,
+    recipientId,
+    recipientName,
+    managerId: request.managerId ?? campaign?.managerId ?? '',
+    managerName: request.managerName ?? campaign?.managerName ?? '',
+    amount: request.amount ?? request.finalPaymentAmount,
+    sourceVersion: request.sourceVersion ?? settlement?.settlementVersion ?? 1,
+    ownerType: recipientType,
+    ownerId: recipientId,
+    ownerName: recipientName,
+  }
+}
+
 export const paymentRequestService = {
   getPaymentRequests() {
     const existing = storageService.getItem<PaymentRequest[]>(STORAGE_KEYS.paymentRequests, [])
-    if (existing.length) return existing
+    if (existing.length) return existing.map(normalizeRequest)
     const seeded: PaymentRequest[] = sellerSettlementService.getDocuments().map((document, index) => {
       const c = document.calculation
       const direction = document.salesChannelType === 'seller_checkout' ? 'seller_to_company' as const : 'company_to_seller' as const
       const statuses: PaymentRequestStatus[] = ['approval_pending', 'sent', 'evidence_pending']
       return {
         id: `payment-request-${document.settlementId}`, campaignId: document.campaignId, settlementId: document.settlementId,
-        sellerId: document.sellerId, direction, salesChannelType: document.salesChannelType,
+        sellerId: document.sellerId, recipientType: 'seller', recipientId: document.sellerId, recipientName: document.sellerName,
+        managerId: campaignService.getCampaignById(document.campaignId)?.managerId ?? '',
+        managerName: campaignService.getCampaignById(document.campaignId)?.managerName ?? '',
+        amount: c.finalSellerPaymentAmount, sourceVersion: settlementService.getSettlementById(document.settlementId)?.settlementVersion ?? 1,
+        direction, salesChannelType: document.salesChannelType,
         businessType: document.businessType, evidenceType: document.evidenceType,
         grossSettlementAmount: c.sellerGrossSettlementAmount, vatExcludedAmount: c.vatExcludedAmount,
         withholdingBaseAmount: c.withholdingBaseAmount, withholdingTaxAmount: c.withholdingTaxAmount,
@@ -75,6 +110,12 @@ export const paymentRequestService = {
     return seeded
   },
   getPaymentRequestById(id: string) { return this.getPaymentRequests().find((item) => item.id === id) },
+  getPaymentRequestForRecipient(settlementId: string, recipientType: EvidenceOwnerType, recipientId: string, sourceVersion: number) {
+    return this.getPaymentRequests().find((request) =>
+      request.settlementId === settlementId && request.recipientType === recipientType &&
+      request.recipientId === recipientId && request.sourceVersion === sourceVersion &&
+      duplicateBlockingPaymentStatuses.includes(request.status))
+  },
   validateSellerPaymentRequest(input: Omit<PaymentRequestValidationInput, 'ownerType'>) {
     return validate({ ...input, ownerType: 'seller' })
   },
@@ -95,6 +136,7 @@ export const paymentRequestService = {
       evidenceTypeConfirmed: rule.evidenceConfirmed && Boolean(rule.confirmedEvidenceType),
       accountConfirmed: settlementService.getSettlementById(settlementId)?.accountConfirmed ?? false,
       calculationCompleted: true, calculationErrors: validation.errors, amountConfirmed: true,
+      sourceVersion: settlementService.getSettlementById(settlementId)?.settlementVersion,
     })
     if (!requestValidation.valid) throw new Error(requestValidation.reasons.join('\n'))
     const c = document.calculation
@@ -102,6 +144,10 @@ export const paymentRequestService = {
     const request = save({
       id: `payment-request-${crypto.randomUUID()}`, campaignId: document.campaignId, settlementId,
       sellerId: document.sellerId, direction: document.salesChannelType === 'seller_checkout' ? 'seller_to_company' : 'company_to_seller',
+      recipientType: 'seller', recipientId: document.sellerId, recipientName: document.sellerName,
+      managerId: campaignService.getCampaignById(document.campaignId)?.managerId ?? '',
+      managerName: campaignService.getCampaignById(document.campaignId)?.managerName ?? '',
+      amount: c.finalSellerPaymentAmount, sourceVersion: settlementService.getSettlementById(settlementId)?.settlementVersion ?? 1,
       ownerType: 'seller', ownerId: document.sellerId, ownerName: document.sellerName,
       salesChannelType: document.salesChannelType, businessType: document.businessType, evidenceType: document.evidenceType,
       grossSettlementAmount: c.sellerGrossSettlementAmount, vatExcludedAmount: c.vatExcludedAmount,
@@ -116,10 +162,14 @@ export const paymentRequestService = {
     paymentEvidenceService.linkToPaymentRequest(settlementId, 'seller', request.id)
     const taxItem = withholdingTaxService.getBySettlementOwner(settlementId, 'seller', document.sellerId)
       .find((item) => item.sourceVersion === (settlementService.getSettlementById(settlementId)?.settlementVersion ?? 1))
-    if (taxItem) withholdingTaxService.linkPaymentRequest(taxItem.id, request.id)
+    if (taxItem) {
+      request.withholdingTaxItemId = taxItem.id
+      withholdingTaxService.linkPaymentRequest(taxItem.id, request.id)
+      save(request)
+    }
     return request
   },
-  createManagerPaymentRequest(settlementId: string, requestedBy = '허수정', businessType: SellerBusinessType = 'simplified_business') {
+  createManagerPaymentRequest(settlementId: string, requestedBy = '허수정', businessType: SellerBusinessType = 'simplified_business', batchRequestId?: string) {
     const settlement = settlementService.getSettlementById(settlementId)
     if (!settlement) throw new Error('정산을 찾을 수 없습니다.')
     const campaign = campaignService.getCampaignById(settlement.campaignId)
@@ -131,10 +181,11 @@ export const paymentRequestService = {
       settlementId, ownerType: 'manager', ownerId: managerId, businessType,
       evidenceTypeConfirmed: true, accountConfirmed: settlement.accountConfirmed,
       calculationCompleted: true, calculationErrors: [], amountConfirmed: settlement.currentCalculation.managerAmount >= 0,
+      sourceVersion: settlement.settlementVersion,
     })
     if (!validation.valid) throw new Error(validation.reasons.join('\n'))
-    const gross = settlement.currentCalculation.managerAmount
     const deductions = settlement.currentCalculation.managerDeductionTotal
+    const gross = settlement.currentCalculation.managerAmount + deductions
     const tax = calculateWithholding(gross, deductions)
     const vatExcluded = Math.round(gross / 1.1)
     const finalPaymentAmount = businessType === 'freelancer' ? tax.finalPaymentAmount
@@ -142,6 +193,8 @@ export const paymentRequestService = {
     const request = save({
       id: `payment-request-${crypto.randomUUID()}`, campaignId: settlement.campaignId, settlementId,
       sellerId: managerId, ownerType: 'manager', ownerId: managerId, ownerName: managerName,
+      recipientType: 'manager', recipientId: managerId, recipientName: managerName, managerId, managerName,
+      amount: finalPaymentAmount, sourceVersion: settlement.settlementVersion, batchRequestId,
       direction: 'company_to_seller', salesChannelType: rule.salesChannelType, businessType,
       evidenceType: businessType === 'freelancer' ? 'withholding_3_3' : businessType === 'simplified_business' ? 'cash_receipt' : 'tax_invoice',
       grossSettlementAmount: gross, vatExcludedAmount: vatExcluded,
@@ -156,13 +209,26 @@ export const paymentRequestService = {
     paymentEvidenceService.linkToPaymentRequest(settlementId, 'manager', request.id)
     const taxItem = withholdingTaxService.getBySettlementOwner(settlementId, 'manager', managerId)
       .find((item) => item.sourceVersion === settlement.settlementVersion)
-    if (taxItem) withholdingTaxService.linkPaymentRequest(taxItem.id, request.id)
+    if (taxItem) {
+      request.withholdingTaxItemId = taxItem.id
+      withholdingTaxService.linkPaymentRequest(taxItem.id, request.id)
+      save(request)
+    }
     return request
   },
   requestApproval(id: string) { return transition(id, 'approval_pending') },
   approvePaymentRequest(id: string, approvedBy = '대표 김승인') { return transition(id, 'approved', { approvedBy, approvedAt: now() }) },
-  markPaymentCompleted(id: string, completedBy = '허수정') { return transition(id, 'payment_completed', { completedBy, completedAt: now() }) },
-  markSellerRemittanceConfirmed(id: string, completedBy = '허수정') { return transition(id, 'remittance_confirmed', { completedBy, completedAt: now() }) },
+  markPaymentCompleted(id: string, completedBy = '허수정') {
+    const request = transition(id, 'payment_completed', { completedBy, completedAt: now() })
+    if (request.recipientType === 'seller') settlementService.markSellerPaymentCompleted(request.settlementId)
+    else settlementService.markManagerPaymentCompleted(request.settlementId)
+    return request
+  },
+  markSellerRemittanceConfirmed(id: string, completedBy = '허수정') {
+    const request = transition(id, 'remittance_confirmed', { completedBy, completedAt: now() })
+    settlementService.markSellerPaymentCompleted(request.settlementId)
+    return request
+  },
   rejectPaymentRequest(id: string, memo: string) { return transition(id, 'rejected', { memo }) },
   holdPaymentRequest(id: string, memo: string) { return transition(id, 'on_hold', { memo }) },
 }

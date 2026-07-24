@@ -4,6 +4,7 @@ import { salesDataService } from '../../shared/services/salesDataService'
 import { sampleService } from '../../shared/services/sampleService'
 import { settlementService } from '../../shared/services/settlementService'
 import { paymentEvidenceService } from '../../shared/services/paymentEvidenceService'
+import { managerPaymentService } from '../../shared/services/managerPaymentService'
 import { sellerSettlementService } from '../../shared/services/sellerSettlementService'
 import { withholdingTaxService } from '../../shared/services/withholdingTaxService'
 import type { SampleRequest } from '../../features/samples/types'
@@ -209,6 +210,7 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
   const managerEvidence = paymentEvidenceService.getEvidenceBySettlementId(settlement.id, 'manager')
   const sellerTaxRegistered = campaign ? withholdingTaxService.getBySettlementOwner(settlement.id, 'seller', campaign.sellerId).length > 0 : false
   const managerTaxRegistered = campaign ? withholdingTaxService.getBySettlementOwner(settlement.id, 'manager', campaign.managerId).length > 0 : false
+  const managerBusinessType = managerPaymentService.getBusinessType(campaign?.managerName ?? '')
 
   const syncAction = (action: () => unknown) => {
     action()
@@ -400,11 +402,11 @@ export function SettlementDrawer({ settlement, onClose, onSync }: { settlement: 
             <article className="readiness-card">
               <h3>매니저 지급 증빙</h3>
               <dl>
-                <div><dt>사업자 유형</dt><dd>{settlement.campaignId === 'SCH-005' ? 'freelancer' : 'simplified_business'}</dd></div>
-                <div><dt>증빙 유형</dt><dd>{settlement.campaignId === 'SCH-005' ? 'withholding_entry' : 'cash_receipt'}</dd></div>
+                <div><dt>사업자 유형</dt><dd>{managerBusinessType}</dd></div>
+                <div><dt>증빙 유형</dt><dd>{managerBusinessType === 'freelancer' ? 'withholding_entry' : managerBusinessType === 'simplified_business' ? 'cash_receipt' : 'tax_invoice'}</dd></div>
                 <div><dt>업로드 상태</dt><dd>{managerEvidence.length ? '업로드 완료' : '미업로드'}</dd></div>
                 <div><dt>검수 상태</dt><dd>{managerEvidence.some((item) => item.reviewStatus === 'approved') ? '승인' : '미승인'}</dd></div>
-                <div><dt>원천세 리스트</dt><dd>{settlement.campaignId === 'SCH-005' ? managerTaxRegistered ? '등록' : '미등록' : '해당 없음'}</dd></div>
+                <div><dt>원천세 리스트</dt><dd>{managerBusinessType === 'freelancer' ? managerTaxRegistered ? '등록' : '미등록' : '해당 없음'}</dd></div>
                 <div><dt>최종 지급액</dt><dd>{money(settlement.currentCalculation.managerAmount)}</dd></div>
               </dl>
             </article>

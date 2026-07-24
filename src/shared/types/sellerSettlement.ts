@@ -7,6 +7,7 @@ export type PaymentRequestDirection = 'company_to_seller' | 'seller_to_company'
 export type PaymentRequestStatus =
   | 'draft' | 'evidence_pending' | 'request_ready' | 'approval_pending' | 'approved'
   | 'sent' | 'payment_completed' | 'remittance_confirmed' | 'on_hold' | 'rejected'
+export type PaymentRecipientType = 'seller' | 'manager'
 
 export type SellerSettlementRule = {
   campaignId: string
@@ -89,7 +90,16 @@ export type PaymentRequest = {
   campaignId: string
   settlementId: string
   sellerId: string
-  ownerType?: 'seller' | 'manager'
+  recipientType: PaymentRecipientType
+  recipientId: string
+  recipientName: string
+  managerId: string
+  managerName: string
+  amount: number
+  withholdingTaxItemId?: string
+  batchRequestId?: string
+  sourceVersion: number
+  ownerType?: PaymentRecipientType
   ownerId?: string
   ownerName?: string
   direction: PaymentRequestDirection
@@ -116,6 +126,25 @@ export type PaymentRequest = {
   completedAt?: string
   status: PaymentRequestStatus
   memo: string
+}
+
+export interface PaymentRequestBatch {
+  id: string
+  managerId: string
+  managerName: string
+  recipientType: 'manager'
+  paymentRequestIds: string[]
+  campaignIds: string[]
+  itemCount: number
+  grossAmount: number
+  incomeTaxAmount: number
+  localIncomeTaxAmount: number
+  totalWithholdingTaxAmount: number
+  finalAmount: number
+  requestedBy: string
+  requestedAt: string
+  status: PaymentRequestStatus
+  memo?: string
 }
 
 export type SellerSettlementValidation = { valid: boolean; errors: string[] }

@@ -22,6 +22,7 @@ export const STORAGE_KEYS = {
   paymentRequests: 't3_company_os_payment_requests',
   paymentEvidence: 't3_company_os_payment_evidence',
   withholdingTaxItems: 't3_company_os_withholding_tax_items',
+  paymentRequestBatches: 't3_company_os_payment_request_batches',
 } as const
 
 const LEGACY_KEYS: Partial<Record<(typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS], string>> = {

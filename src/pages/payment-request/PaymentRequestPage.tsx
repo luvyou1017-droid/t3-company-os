@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { campaignService } from '../../shared/services/campaignService'
 import { paymentEvidenceService } from '../../shared/services/paymentEvidenceService'
 import { paymentRequestService } from '../../shared/services/paymentRequestService'
+import { managerPaymentService } from '../../shared/services/managerPaymentService'
 import { sellerSettlementService } from '../../shared/services/sellerSettlementService'
 import { settlementService } from '../../shared/services/settlementService'
 import { withholdingTaxService } from '../../shared/services/withholdingTaxService'
@@ -11,7 +12,7 @@ import type { WithholdingTaxStatus } from '../../shared/types/withholdingTax'
 import { runWithholdingAssertions } from '../../shared/utils/withholdingTax'
 import { validateSettlement } from '../../shared/utils/settlement'
 
-type Tab = 'requests' | 'evidence' | 'withholding'
+type Tab = 'requests' | 'managers' | 'evidence' | 'withholding'
 const money = (value: number) => `${Math.round(value).toLocaleString('ko-KR')}원`
 const statusLabel: Record<PaymentRequestStatus, string> = {
   draft: '초안', evidence_pending: '증빙 대기', request_ready: '요청 생성 대기', approval_pending: '대표 승인 대기',
@@ -44,13 +45,87 @@ export function PaymentRequestPage() {
     </header>
     <nav className="payment-tabs" aria-label="지급 관리 메뉴">
       <button className={tab === 'requests' ? 'is-active' : ''} onClick={() => setTab('requests')}>지급 요청</button>
+      <button className={tab === 'managers' ? 'is-active' : ''} onClick={() => setTab('managers')}>매니저별 지급 예정</button>
       <button className={tab === 'evidence' ? 'is-active' : ''} onClick={() => setTab('evidence')}>증빙 검수</button>
       <button className={tab === 'withholding' ? 'is-active' : ''} onClick={() => setTab('withholding')}>원천세 리스트</button>
     </nav>
     {tab === 'requests' && <RequestTab requests={requests} evidence={evidence} onSync={sync} />}
+    {tab === 'managers' && <ManagerScheduledTab onSync={sync} />}
     {tab === 'evidence' && <EvidenceTab evidence={evidence} onSync={sync} />}
     {tab === 'withholding' && <WithholdingTab assertion={assertion} onSync={sync} />}
   </section>
+}
+
+function ManagerScheduledTab({ onSync }: { onSync: () => void }) {
+  const managers = managerPaymentService.getManagers()
+  const [managerId, setManagerId] = useState(managers[0]?.id ?? '')
+  const [selected, setSelected] = useState<string[]>([])
+  const items = managerPaymentService.getScheduledItems(managerId)
+  const manager = managers.find((item) => item.id === managerId)
+  const selectable = items.filter((item) => !item.reasons.length)
+  const selectedItems = items.filter((item) => selected.includes(item.settlement.id))
+  const gross = selectedItems.reduce((sum, item) => sum + item.settlement.currentCalculation.managerAmount + item.settlement.currentCalculation.managerDeductionTotal, 0)
+  const incomeTax = selectedItems.reduce((sum, item) => sum + (item.tax?.incomeTaxAmount ?? 0), 0)
+  const localTax = selectedItems.reduce((sum, item) => sum + (item.tax?.localIncomeTaxAmount ?? 0), 0)
+  const finalAmount = selectedItems.reduce((sum, item) => sum + item.finalAmount, 0)
+  const requests = paymentRequestService.getPaymentRequests().filter((request) => request.managerId === managerId)
+  const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+  const createBatch = () => {
+    managerPaymentService.createBatch(managerId, selected, '허수정')
+    setSelected([])
+    onSync()
+  }
+  return <>
+    <section className="workspace-card manager-payment-header">
+      <div><p className="page-eyebrow">Manager Payment Schedule</p><h2>{manager?.name ?? '매니저'} 매니저 정산 예정 리스트</h2></div>
+      <select value={managerId} onChange={(event) => { setManagerId(event.target.value); setSelected([]) }}>
+        {managers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </select>
+    </section>
+    <div className="payment-kpi-grid manager-kpis">
+      {[
+        ['지급 가능 건수', selectable.length],
+        ['증빙 대기 건수', items.filter((item) => item.reasons.some((reason) => reason.includes('증빙'))).length],
+        ['요청 중 건수', requests.filter((item) => item.status === 'approval_pending' || item.status === 'approved').length],
+        ['지급 완료 건수', requests.filter((item) => item.status === 'payment_completed').length],
+        ['지급 가능 총액', money(selectable.reduce((sum, item) => sum + item.finalAmount, 0))],
+      ].map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}
+    </div>
+    <div className="manager-payment-columns">
+      <section className="workspace-card compact-payment-list">
+        <div className="section-heading"><div><h2>셀러 지급분</h2><p>담당 Campaign의 셀러 지급 상태를 확인합니다.</p></div></div>
+        {!items.length ? <div className="workspace-empty"><strong>이 매니저가 담당한 셀러 지급 예정 건이 없습니다.</strong></div> : items.map(({ settlement, campaign }) => {
+          const rule = sellerSettlementService.getSellerSettlementRule(campaign.id)
+          const evidence = paymentEvidenceService.getEvidenceBySettlementId(settlement.id, 'seller')
+          const request = paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'seller', campaign.sellerId, settlement.settlementVersion)
+          return <article className="payment-list-row" key={`seller-${settlement.id}`}>
+            <input aria-label={`${campaign.campaignName} 셀러 지급 선택`} disabled title="정산 담당자만 요청 가능" type="checkbox" />
+            <div><strong>{campaign.campaignName}</strong><small>{campaign.sellerName} · {campaign.startDate} ~ {campaign.endDate}</small><small>정산 담당자만 요청 가능</small></div>
+            <div className="payment-row-meta"><span>{rule?.businessType ?? '미확인'} · {rule?.confirmedEvidenceType ?? '미확인'}</span><span>증빙 {evidence.some((item) => item.reviewStatus === 'approved') ? '승인' : '대기'}</span><span>{request ? statusLabel[request.status] : '요청 전'}</span><strong>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</strong><small>{settlement.paymentDueDate}</small></div>
+          </article>
+        })}
+      </section>
+      <section className="workspace-card compact-payment-list">
+        <div className="section-heading"><div><h2>매니저 정산분</h2><p>Campaign별 최종 지급액 전액을 선택합니다. 부분 요청은 지원하지 않습니다.</p></div></div>
+        {!items.length ? <div className="workspace-empty"><strong>지급요청 가능한 매니저 정산 건이 없습니다.</strong></div> : items.map(({ settlement, campaign, finalAmount: itemFinal, reasons, tax }) =>
+          <article className={`payment-list-row ${reasons.length ? 'is-disabled' : ''}`} key={`manager-${settlement.id}`}>
+            <input aria-label={`${campaign.campaignName} 매니저 지급 선택`} checked={selected.includes(settlement.id)} disabled={Boolean(reasons.length)} onChange={() => toggle(settlement.id)} type="checkbox" />
+            <div><strong>{campaign.campaignName}</strong><small>{campaign.startDate} ~ {campaign.endDate}</small><small>총매출 {money(settlement.currentCalculation.grossSales)} · 배분율 {settlement.currentCalculation.managerShareRate}%</small></div>
+            <div className="payment-row-meta"><span>배분 대상 {money(settlement.currentCalculation.distributableVendorCommission)}</span><span>세무 차감 {money(tax?.totalWithholdingTaxAmount ?? 0)}</span><strong>{money(itemFinal)}</strong><span>{settlement.managerPaymentRequestStatus ? statusLabel[settlement.managerPaymentRequestStatus] : '요청 전'}</span><small>{settlement.paymentDueDate}</small></div>
+            {reasons.length > 0 && <ul className="row-block-reasons">{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}
+          </article>)}
+      </section>
+    </div>
+    <section className="manager-selection-summary">
+      <div><span>선택 건수</span><strong>{selected.length}건</strong></div>
+      <div><span>선택 전 총액</span><strong>{money(gross)}</strong></div>
+      <div><span>소득세 합계</span><strong>{money(incomeTax)}</strong></div>
+      <div><span>지방소득세 합계</span><strong>{money(localTax)}</strong></div>
+      <div><span>총 원천징수액</span><strong>{money(incomeTax + localTax)}</strong></div>
+      <div><span>최종 지급요청액</span><strong>{money(finalAmount)}</strong></div>
+      <button className="primary-button" disabled={!selected.length} onClick={createBatch} type="button">선택 건 지급요청</button>
+    </section>
+  </>
 }
 
 function RequestTab({ requests, evidence, onSync }: { requests: ReturnType<typeof paymentRequestService.getPaymentRequests>; evidence: PaymentEvidence[]; onSync: () => void }) {
@@ -71,7 +146,7 @@ function RequestTab({ requests, evidence, onSync }: { requests: ReturnType<typeo
         return (['seller', 'manager'] as EvidenceOwnerType[]).map((ownerType) => {
           const isSeller = ownerType === 'seller'
           const rule = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)
-          const businessType: SellerBusinessType = isSeller ? (rule?.businessType ?? 'general_business') : settlement.campaignId === 'SCH-005' ? 'freelancer' : 'simplified_business'
+          const businessType: SellerBusinessType = isSeller ? (rule?.businessType ?? 'general_business') : managerPaymentService.getBusinessType(campaign.managerName)
           const ownerId = isSeller ? campaign.sellerId : campaign.managerId
           const ownerName = isSeller ? campaign.sellerName : campaign.managerName
           const errors = validateSettlement(settlement).errors
@@ -107,7 +182,7 @@ function RequestTab({ requests, evidence, onSync }: { requests: ReturnType<typeo
     </section>
     <section className="workspace-card"><div className="section-heading"><h2>생성된 지급 요청</h2><strong>{requests.length}건</strong></div>
       <div className="responsive-table"><table><thead><tr><th>공동구매</th><th>구분</th><th>대상자</th><th>최종 금액</th><th>증빙</th><th>상태</th><th>담당자</th></tr></thead>
-      <tbody>{requests.map((request) => <tr key={request.id}><td>{campaignService.getCampaignById(request.campaignId)?.campaignName}</td><td>{request.ownerType === 'manager' ? '매니저' : '셀러'}</td><td>{request.ownerName ?? campaignService.getCampaignById(request.campaignId)?.sellerName}</td><td className="money-cell">{money(request.direction === 'seller_to_company' ? request.sellerRemittanceToCompany : request.finalPaymentAmount)}</td><td>{request.evidenceStatus === 'confirmed' ? '확인' : '대기'}</td><td><span className="status-badge settlement">{statusLabel[request.status]}</span></td><td>{request.requestedBy}</td></tr>)}</tbody></table></div>
+      <tbody>{requests.map((request) => <tr key={request.id}><td>{campaignService.getCampaignById(request.campaignId)?.campaignName}</td><td>{request.recipientType === 'manager' ? '매니저' : '셀러'}</td><td>{request.recipientName}</td><td className="money-cell">{money(request.direction === 'seller_to_company' ? request.sellerRemittanceToCompany : request.amount)}</td><td>{request.evidenceStatus === 'confirmed' ? '확인' : '대기'}</td><td><span className="status-badge settlement">{statusLabel[request.status]}</span></td><td>{request.requestedBy}</td></tr>)}</tbody></table></div>
     </section>
   </>
 }
@@ -119,7 +194,7 @@ function EvidenceTab({ evidence, onSync }: { evidence: PaymentEvidence[]; onSync
   const campaign = settlement && campaignService.getCampaignById(settlement.campaignId)
   const businessType = ownerType === 'seller'
     ? sellerSettlementService.getSellerSettlementRule(settlement?.campaignId ?? '')?.businessType ?? 'general_business'
-    : settlement?.campaignId === 'SCH-005' ? 'freelancer' : 'simplified_business'
+    : managerPaymentService.getBusinessType(campaign?.managerName ?? '')
   const recommended = paymentEvidenceService.getRecommendedEvidenceType(businessType) ?? 'other'
   const upload = (file: File) => {
     if (!settlement || !campaign) return
