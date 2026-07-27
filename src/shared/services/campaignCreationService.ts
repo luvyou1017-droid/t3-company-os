@@ -10,11 +10,57 @@ export function generateCampaignName({ sellerName, selectedProducts }: { sellerN
 }
 
 export function calculateSettlementDueDate(endDate: string) {
-  if (!endDate) return ''
-  const [year, month, day] = endDate.split('-').map(Number)
+  return addLocalCalendarDays(endDate, 21)
+}
+
+export function calculateWinnerAnnouncementDate(endDate: string) {
+  return addLocalCalendarDays(endDate, 7)
+}
+
+function addLocalCalendarDays(value: string, days: number) {
+  if (!value) return ''
+  const [year, month, day] = value.split('-').map(Number)
   const date = new Date(year, month - 1, day)
-  date.setDate(date.getDate() + 21)
+  date.setDate(date.getDate() + days)
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+export function formatDateWithWeekday(value?: string) {
+  if (!value) return '미입력'
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(year, month - 1, day)
+  if (Number.isNaN(date.getTime())) return value
+  const weekday = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()]
+  return `${value} (${weekday})`
+}
+
+export function getBusinessTypeLabel(value?: string) {
+  if (value === 'simplified_business') return '간이사업자'
+  if (value === 'freelancer') return '프리랜서'
+  if (value === 'general_business' || value === 'corporation' || value === 'individual_business' || value === 'sole_proprietor') return '법인/개인사업자'
+  return value || '미입력'
+}
+
+export function getSalesChannelTypeLabel(value?: string) {
+  if (value === 'supplier_link') return '공급사 링크'
+  if (value === 'wise_shop_link') return '와이즈샵 링크'
+  if (value === 'seller_checkout') return '셀러 결제창'
+  return value || '미입력'
+}
+
+export function getEventPayerLabel(value?: string) {
+  if (value === 'vendor') return '벤더 부담'
+  if (value === 'seller') return '셀러 부담'
+  if (value === 'company_support') return '업체 지원'
+  return value || '미입력'
+}
+
+export function getCampaignEventTypeLabel(value?: string) {
+  if (value === 'first_come') return '선착순'
+  if (value === 'purchase_complete') return '구매 완료'
+  if (value === 'try_it') return '써볼래요'
+  if (value === 'other') return '기타'
+  return value || '미입력'
 }
 
 export function captureProposalSnapshots(selections: CampaignProductSelection[]): CampaignProductProposalSnapshot[] {

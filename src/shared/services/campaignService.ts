@@ -44,6 +44,10 @@ export type CampaignCreateInput = {
   proposalSnapshots?: CampaignProductProposalSnapshot[]
   campaignEvents?: CampaignEvent[]
   settlementDueDateOverridden?: boolean
+  linkOpenTime?: string
+  linkCloseTime?: string
+  winnerAnnouncementDate?: string
+  winnerAnnouncementDateOverride?: boolean
   nameOverridden?: boolean
   notionImportMetadata?: Campaign['notionImportMetadata']
   aiDraftMetadata?: Campaign['aiDraftMetadata']
@@ -433,6 +437,10 @@ export const campaignService = {
       campaignEvents: input.campaignEvents,
       creationBusinessType: input.businessType === 'corporation' || input.businessType === 'sole_proprietor' ? 'general_business' : input.businessType,
       settlementDueDateOverridden: input.settlementDueDateOverridden,
+      linkOpenTime: input.linkOpenTime,
+      linkCloseTime: input.linkCloseTime,
+      winnerAnnouncementDate: input.winnerAnnouncementDate,
+      winnerAnnouncementDateOverride: input.winnerAnnouncementDateOverride,
       notionImportMetadata: input.notionImportMetadata,
       aiDraftMetadata: input.aiDraftMetadata,
     }

@@ -61,7 +61,9 @@ export interface CampaignEvent {
   confirmedQuantity?: number
   estimatedTotalAmount: number
   confirmedTotalAmount?: number
+  /** @deprecated 신규 등록은 Campaign 공통 기간을 사용합니다. */
   startDate?: string
+  /** @deprecated 신규 등록은 Campaign 공통 기간을 사용합니다. */
   endDate?: string
   memo?: string
 }

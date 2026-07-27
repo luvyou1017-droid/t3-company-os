@@ -11,6 +11,9 @@ const products: ProductMaster[] = [
 let recentBrandIds: string[] = []
 
 export const campaignProductCatalogService = {
+  listProducts() {
+    return products
+  },
   listBrands() {
     return Array.from(new Map(products.map((product) => [product.brandId, { id: product.brandId, name: product.brandName }])).values())
   },

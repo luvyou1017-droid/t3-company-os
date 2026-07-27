@@ -60,6 +60,10 @@ export type Campaign = {
   campaignEvents?: import('./campaignCreation').CampaignEvent[]
   creationBusinessType?: import('./campaignCreation').CampaignCreationBusinessType
   settlementDueDateOverridden?: boolean
+  linkOpenTime?: string
+  linkCloseTime?: string
+  winnerAnnouncementDate?: string
+  winnerAnnouncementDateOverride?: boolean
   notionImportMetadata?: { sourceId?: string; importedAt?: string; provider: 'mock-notion' }
   aiDraftMetadata?: { prompt?: string; confidence?: number; appliedAt?: string; provider: 'mock' }
 }

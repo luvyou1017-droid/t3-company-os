@@ -600,17 +600,27 @@
 /* Campaign creation V2 */
 .campaign-create-v2 { width: min(1180px, calc(100vw - 40px)); }
 .campaign-create-tools { display: flex; gap: 8px; padding: 0 28px 18px; }
-.campaign-create-steps { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 7px; padding: 14px 28px; border-block: 1px solid #e7ebf1; background: #f8fafc; }
-.campaign-create-steps button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 48px; border: 1px solid transparent; border-radius: 10px; color: #64748b; background: transparent; font-weight: 800; cursor: pointer; }
-.campaign-create-steps button span { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: #e2e8f0; font-size: 11px; }
-.campaign-create-steps button.is-active { border-color: #93c5fd; color: #1d4ed8; background: #eff6ff; }
-.campaign-create-steps button.is-complete { color: #047857; }
-.campaign-create-steps button.is-complete span { color: #fff; background: #10b981; }
+.campaign-create-header-status { align-items: center; display: flex; gap: 12px; }
+.campaign-form-status { border-radius: 999px; font-size: 12px; font-weight: 900; padding: 7px 11px; }
+.campaign-form-status--warning { background: #fff7ed; color: #c2410c; }
+.campaign-form-status--ready { background: #ecfdf5; color: #047857; }
+.campaign-create-anchors { background: #f8fafc; border-block: 1px solid #e7ebf1; display: flex; gap: 6px; overflow-x: auto; padding: 10px 28px; }
+.campaign-create-anchors button { background: transparent; border: 0; border-radius: 8px; color: #475569; cursor: pointer; font-weight: 800; padding: 8px 11px; white-space: nowrap; }
+.campaign-create-anchors button:hover { background: #eaf2ff; color: #1d4ed8; }
 .campaign-v2-notice, .campaign-policy-warning { margin: 16px 28px 0; padding: 13px 15px; border-radius: 10px; color: #9a3412; background: #fff7ed; }
 .campaign-create-v2 .campaign-create-form { min-height: 520px; }
+.campaign-create-scroll-form { gap: 28px; scroll-behavior: smooth; }
+.campaign-create-scroll-form .campaign-create-section { scroll-margin-top: 16px; }
+.section-description { color: #64748b; font-size: 13px; margin: -6px 0 2px; }
 .campaign-create-grid .span-2 { grid-column: span 2; }
 .campaign-create-grid .checkbox-label { display: flex; flex-direction: row; align-items: center; gap: 8px; }
 .campaign-create-grid .checkbox-label input { width: auto; }
+.date-weekday { color: #1d4ed8; font-size: 12px; font-weight: 800; }
+.campaign-generated-name { background: linear-gradient(135deg, #eff6ff, #f8fafc); border: 1px solid #bfdbfe; border-radius: 14px; display: grid; gap: 9px; padding: 18px; }
+.campaign-generated-name > span { color: #1d4ed8; font-size: 12px; font-weight: 900; }
+.campaign-generated-name > strong { font-size: 20px; }
+.campaign-generated-name .checkbox-label { align-items: center; display: flex; gap: 7px; }
+.campaign-generated-name input[type="text"], .campaign-generated-name > input { background: #fff; border: 1px solid #bfdbfe; border-radius: 8px; min-height: 42px; padding: 9px 11px; width: 100%; }
 .selected-product-list { display: grid; gap: 8px; margin: 16px 0; }
 .selected-product-list article { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 15px; border: 1px solid #e2e8f0; border-radius: 11px; background: #f8fafc; }
 .selected-product-list article > div:first-child { display: flex; align-items: center; gap: 10px; }
@@ -632,8 +642,19 @@
 .campaign-event-card { border: 1px solid #dbe3ef; border-radius: 14px; overflow: hidden; background: #fff; }
 .campaign-event-card > header { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 13px 16px; background: #f8fafc; }
 .campaign-event-card > .campaign-create-grid { padding: 16px; }
-.inline-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.winner-announcement-card { align-items: end; background: #f8fafc; border: 1px solid #dbe3ef; border-radius: 12px; display: grid; gap: 12px; grid-template-columns: minmax(220px, 360px) auto; padding: 14px; }
 .final-review-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-bottom: 16px; }
+.final-review-grid--ordered > div:first-child { grid-column: span 2; }
+.final-event-list { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.final-event-list article { background: #f8fafc; border: 1px solid #dbe3ef; border-radius: 12px; padding: 15px; }
+.final-event-list dl { display: grid; gap: 7px; margin: 12px 0 0; }
+.final-event-list dl div { display: flex; gap: 12px; justify-content: space-between; }
+.final-event-list dt { color: #64748b; font-size: 12px; }
+.final-event-list dd { font-size: 13px; font-weight: 800; margin: 0; text-align: right; }
+.campaign-create-sticky-actions { align-items: center; background: rgba(255,255,255,.96); box-shadow: 0 -10px 30px rgba(15,23,42,.06); position: sticky; bottom: 0; z-index: 4; }
+.campaign-create-sticky-actions > div { display: grid; margin-right: auto; }
+.campaign-create-sticky-actions > div strong { color: #0f172a; font-size: 13px; }
+.campaign-create-sticky-actions > div span { color: #64748b; font-size: 11px; }
 .nested-modal-backdrop { position: fixed; z-index: 1300; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(15,23,42,.58); }
 .helper-modal { display: grid; gap: 14px; width: min(620px, 100%); max-height: 90vh; overflow: auto; padding: 24px; border-radius: 18px; background: #fff; box-shadow: 0 24px 80px rgba(15,23,42,.3); }
 .helper-modal h3, .helper-modal p { margin: 0; }
@@ -641,10 +662,11 @@
 .helper-preview { padding: 14px; border-radius: 11px; background: #eff6ff; }
 
 @media (max-width: 900px) {
-  .campaign-create-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .proposal-preview-grid, .final-review-grid { grid-template-columns: 1fr; }
+  .proposal-preview-grid, .final-review-grid, .final-event-list { grid-template-columns: 1fr; }
   .event-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .campaign-create-grid .span-2 { grid-column: auto; }
+  .final-review-grid--ordered > div:first-child { grid-column: auto; }
+  .winner-announcement-card { grid-template-columns: 1fr; }
 }
 
 .campaign-create-modal__actions {
