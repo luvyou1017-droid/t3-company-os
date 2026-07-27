@@ -20,6 +20,8 @@ import type {
 } from '../types/campaign'
 import type { PaymentRecipientType, PaymentRequestStatus } from '../types/sellerSettlement'
 import { STORAGE_KEYS, storageService } from './storageService'
+import type { CampaignCreationBusinessType, CampaignEvent, CampaignProductProposalSnapshot, CampaignProductSelection } from '../types/campaignCreation'
+import { captureProposalSnapshots, generateCampaignName } from './campaignCreationService'
 
 export type CampaignCreateInput = {
   campaignName: string
@@ -31,12 +33,20 @@ export type CampaignCreateInput = {
   startDate: string
   endDate: string
   linkOwner: CampaignLinkOwnerInput
-  businessType: CampaignBusinessTypeInput
+  businessType: CampaignBusinessTypeInput | CampaignCreationBusinessType
   totalCommissionRate: number
   sellerCommissionRate: number
   settlementDueDate?: string
   landingPageType?: string
   memo?: string
+  salesChannelType?: Campaign['salesChannelType']
+  campaignProducts?: CampaignProductSelection[]
+  proposalSnapshots?: CampaignProductProposalSnapshot[]
+  campaignEvents?: CampaignEvent[]
+  settlementDueDateOverridden?: boolean
+  nameOverridden?: boolean
+  notionImportMetadata?: Campaign['notionImportMetadata']
+  aiDraftMetadata?: Campaign['aiDraftMetadata']
 }
 
 export type CampaignCreateValidationErrors = Partial<Record<keyof CampaignCreateInput, string>>
@@ -51,6 +61,18 @@ const businessTypeLabels: Record<CampaignBusinessTypeInput, BusinessType> = {
   corporation: '법인사업자',
   sole_proprietor: '개인사업자',
   freelancer: '개인사업자',
+}
+
+function toLegacyBusinessType(value: CampaignCreateInput['businessType']): BusinessType {
+  if (value === 'general_business') return '법인사업자'
+  if (value === 'simplified_business' || value === 'freelancer') return '개인사업자'
+  return businessTypeLabels[value]
+}
+
+function linkOwnerFromSalesChannel(value?: Campaign['salesChannelType']): LinkOwner {
+  if (value === 'seller_checkout') return '셀러'
+  if (value === 'supplier_link') return '브랜드사'
+  return '자사'
 }
 
 const today = '2026-07-16'
@@ -247,28 +269,34 @@ export const campaignService = {
     if (!input.endDate) errors.endDate = '종료일을 선택해주세요.'
     if (!input.linkOwner) errors.linkOwner = '링크 주체를 선택해주세요.'
     if (!input.businessType) errors.businessType = '사업자 유형을 선택해주세요.'
+    if (input.campaignProducts?.length) {
+      try { captureProposalSnapshots(input.campaignProducts) } catch (error) {
+        errors.productName = error instanceof Error ? error.message : '상품 수수료 정책을 확인해주세요.'
+      }
+    }
 
     if (input.startDate && input.endDate && input.endDate < input.startDate) {
       errors.endDate = '종료일은 시작일보다 빠를 수 없습니다.'
     }
 
-    if (input.totalCommissionRate <= 0) {
+    if (!input.campaignProducts?.length && input.totalCommissionRate <= 0) {
       errors.totalCommissionRate = '총수수료율은 0보다 커야 합니다.'
     }
 
-    if (input.sellerCommissionRate < 0) {
+    if (!input.campaignProducts?.length && input.sellerCommissionRate < 0) {
       errors.sellerCommissionRate = '셀러 수수료율은 음수일 수 없습니다.'
     }
 
-    if (input.totalCommissionRate > 100) {
+    if (!input.campaignProducts?.length && input.totalCommissionRate > 100) {
       errors.totalCommissionRate = '수수료율은 100을 초과할 수 없습니다.'
     }
 
-    if (input.sellerCommissionRate > 100) {
+    if (!input.campaignProducts?.length && input.sellerCommissionRate > 100) {
       errors.sellerCommissionRate = '수수료율은 100을 초과할 수 없습니다.'
     }
 
     if (
+      !input.campaignProducts?.length &&
       input.totalCommissionRate >= 0 &&
       input.sellerCommissionRate >= 0 &&
       input.totalCommissionRate < input.sellerCommissionRate
@@ -277,6 +305,7 @@ export const campaignService = {
     }
 
     if (
+      !input.campaignProducts?.length &&
       input.totalCommissionRate > 0 &&
       input.sellerCommissionRate >= 0 &&
       input.totalCommissionRate === input.sellerCommissionRate
@@ -364,12 +393,12 @@ export const campaignService = {
     const campaign: Campaign = {
       id: createId('SCH'),
       campaignCode,
-      campaignName: input.campaignName.trim(),
+      campaignName: input.campaignName.trim() || generateCampaignName({ sellerName: input.sellerName, selectedProducts: input.campaignProducts ?? [] }),
       sellerId: createId('seller'),
       sellerName: input.sellerName.trim(),
-      brandId: createId('brand'),
+      brandId: input.campaignProducts?.[0]?.brandId ?? createId('brand'),
       brandName: input.brandName.trim(),
-      productId: createId('product'),
+      productId: input.campaignProducts?.[0]?.productId ?? createId('product'),
       productName: input.productName.trim(),
       managerId: input.managerId,
       managerName: manager?.name ?? '',
@@ -377,12 +406,13 @@ export const campaignService = {
       mdName: md?.name ?? '',
       startDate: input.startDate,
       endDate: input.endDate,
-      linkOwner: linkOwnerLabels[input.linkOwner],
-      businessType: businessTypeLabels[input.businessType],
+      linkOwner: input.salesChannelType ? linkOwnerFromSalesChannel(input.salesChannelType) : linkOwnerLabels[input.linkOwner],
+      businessType: toLegacyBusinessType(input.businessType),
       totalCommissionRate: input.totalCommissionRate,
       sellerCommissionRate: input.sellerCommissionRate,
       settlementDueDate: input.settlementDueDate ?? '',
       landingPageType: input.landingPageType,
+      salesChannelType: input.salesChannelType,
       memo: input.memo,
       createdAt,
       updatedAt: createdAt,
@@ -398,6 +428,13 @@ export const campaignService = {
       sellerPaymentCompleted: false,
       managerPaymentCompleted: false,
       todayTask: '자동 체크리스트 확인',
+      campaignProducts: input.campaignProducts,
+      proposalSnapshots: input.proposalSnapshots ?? (input.campaignProducts?.length ? captureProposalSnapshots(input.campaignProducts) : undefined),
+      campaignEvents: input.campaignEvents,
+      creationBusinessType: input.businessType === 'corporation' || input.businessType === 'sole_proprietor' ? 'general_business' : input.businessType,
+      settlementDueDateOverridden: input.settlementDueDateOverridden,
+      notionImportMetadata: input.notionImportMetadata,
+      aiDraftMetadata: input.aiDraftMetadata,
     }
 
     if (this.isDuplicateCampaignCode(campaign.campaignCode)) {

@@ -323,3 +323,37 @@ AI supports work but does not replace human judgment. Store AI output as recomme
 4. Add feature-specific tables in this order: CS, Sample, Sales Data, Settlement, Payment, AI Assistant.
 5. Add audit logs and access control policies.
 6. Connect UI services to the database after each workflow is validated.
+
+## Campaign Creation V2 확장
+
+기존 `campaigns.product_id/product_name`, 수수료 필드와 링크 호환 컬럼은 유지한다. 신규 생성 데이터는 다음 관계와 snapshot을 metadata 또는 향후 전용 테이블로 확장한다.
+
+### campaignProducts
+
+Campaign 하나에 여러 상품을 표시 순서와 함께 연결한다. 첫 번째 상품은 기존 대표 `product_id/product_name`에도 저장한다.
+
+- campaignId
+- brandId / brandName
+- productId / productName
+- quantity
+- displayOrder
+
+### proposal snapshot
+
+Campaign 저장 시 상품 master의 정상가, 공구가, 배송비, 공급가, 총·셀러·추가 지원·최종·회사 수수료율, 기타 조건, sourceVersion과 capturedAt을 저장한다. master 변경으로 기존 제안 조건을 자동 변경하지 않는다.
+
+### campaignEvents
+
+이벤트는 Campaign에 여러 건 연결한다. payer, eventType, 대상/제공 상품, 단가, 예정·확정 수량, 예상·확정 총액, 기간, 메모와 단가 override 상태를 저장한다.
+
+### settlementDueDate override
+
+기본 정산 예정일은 종료일+21일이다. 사용자가 수정하면 `settlementDueDateOverridden=true`를 저장해 종료일 변경 시 자동 덮어쓰지 않는다.
+
+### Notion import metadata
+
+Mock 단계에서는 provider, sourceId, importedAt만 저장한다. 실제 token은 저장하지 않으며 서버 또는 Edge Function adapter를 사용한다.
+
+### AI draft metadata
+
+적용된 Mock 초안의 provider, prompt, confidence와 appliedAt을 기록한다. AI 결과는 자동 저장하지 않고 사용자 검토와 상품 master 매칭 후 적용한다.

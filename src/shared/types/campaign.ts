@@ -55,6 +55,13 @@ export type Campaign = {
   sellerPaymentCompletedAt?: string
   managerPaymentCompletedAt?: string
   revenue?: string
+  campaignProducts?: import('./campaignCreation').CampaignProductSelection[]
+  proposalSnapshots?: import('./campaignCreation').CampaignProductProposalSnapshot[]
+  campaignEvents?: import('./campaignCreation').CampaignEvent[]
+  creationBusinessType?: import('./campaignCreation').CampaignCreationBusinessType
+  settlementDueDateOverridden?: boolean
+  notionImportMetadata?: { sourceId?: string; importedAt?: string; provider: 'mock-notion' }
+  aiDraftMetadata?: { prompt?: string; confidence?: number; appliedAt?: string; provider: 'mock' }
 }
 
 export type CampaignSummary = {
