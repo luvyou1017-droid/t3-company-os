@@ -12,6 +12,7 @@ const navigationItems = [
   '셀러 관리',
   '상품·제안서',
   '설정',
+  ...(import.meta.env.DEV ? ['운영 시나리오 테스트'] : []),
 ]
 
 type SidebarProps = {
@@ -20,7 +21,7 @@ type SidebarProps = {
 }
 
 function isNavigablePage(item: string): item is AppPage {
-  return item === 'Dashboard' || item === 'My Work' || item === '공동구매 일정' || item === 'CS 관리' || item === '샘플 관리' || item === '판매 데이터' || item === '정산 관리' || item === '지급 승인'
+  return item === 'Dashboard' || item === 'My Work' || item === '공동구매 일정' || item === 'CS 관리' || item === '샘플 관리' || item === '판매 데이터' || item === '정산 관리' || item === '지급 승인' || (import.meta.env.DEV && item === '운영 시나리오 테스트')
 }
 
 export function Sidebar({ activePage, onNavigate }: SidebarProps) {

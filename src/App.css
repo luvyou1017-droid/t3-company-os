@@ -3199,6 +3199,61 @@
   .payment-stepper, .payment-checklist { grid-template-columns: 1fr; }
 }
 
+/* Development-only operational scenario runner */
+.operational-scenarios-page { display: grid; gap: 20px; color: #14213d; }
+.scenario-hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.scenario-hero h1 { margin: 5px 0 8px; font-size: 34px; }
+.scenario-hero p { margin: 0; color: #64748b; }
+.scenario-error { margin: 0; padding: 14px 16px; border: 1px solid #fecaca; border-radius: 12px; color: #b91c1c; background: #fef2f2; }
+.scenario-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.scenario-kpis article { min-height: 104px; padding: 18px; border: 1px solid #e7ebf1; border-radius: 16px; background: #fff; }
+.scenario-kpis span { display: block; color: #64748b; font-size: 13px; }
+.scenario-kpis strong { display: block; margin-top: 14px; font-size: 28px; }
+.scenario-list { display: grid; gap: 18px; }
+.scenario-card { display: grid; gap: 18px; border-left: 5px solid #cbd5e1; }
+.scenario-card.is-passed { border-left-color: #10b981; }
+.scenario-card.is-failed { border-left-color: #ef4444; }
+.scenario-card.is-running { border-left-color: #3b82f6; }
+.scenario-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.scenario-card h2 { margin: 4px 0 7px; }
+.scenario-card header p:last-child { margin: 0; color: #64748b; }
+.scenario-expected { padding: 14px 16px; border-radius: 12px; color: #475569; background: #f8fafc; }
+.scenario-expected span { display: block; margin-bottom: 6px; color: #64748b; font-size: 12px; font-weight: 800; }
+.scenario-user-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 14px; border: 1px solid #bfdbfe; border-radius: 13px; background: #eff6ff; }
+.scenario-user-strip div { min-width: 0; }
+.scenario-user-strip span { display: block; color: #64748b; font-size: 12px; }
+.scenario-user-strip strong { display: block; margin-top: 5px; overflow-wrap: anywhere; }
+.scenario-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 9px; margin: 0; padding: 0; list-style: none; }
+.scenario-steps li { display: flex; gap: 9px; min-width: 0; padding: 12px; border: 1px solid #e2e8f0; border-radius: 11px; color: #64748b; background: #f8fafc; }
+.scenario-steps li > span { display: grid; flex: 0 0 24px; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #64748b; background: #e2e8f0; font-size: 12px; font-weight: 800; }
+.scenario-steps li.is-current { border-color: #93c5fd; color: #1d4ed8; background: #eff6ff; }
+.scenario-steps li.is-complete { border-color: #bbf7d0; color: #047857; background: #f0fdf4; }
+.scenario-steps li.is-complete > span { color: #fff; background: #10b981; }
+.scenario-steps strong, .scenario-steps small { display: block; }
+.scenario-steps small { margin-top: 4px; color: #64748b; font-size: 11px; line-height: 1.35; }
+.scenario-actions { padding-top: 2px; }
+.scenario-results { padding-top: 16px; border-top: 1px solid #e7ebf1; }
+.scenario-results h3 { margin: 0 0 4px; }
+.scenario-results .workspace-empty { margin: 0; padding: 22px; border-radius: 12px; background: #f8fafc; }
+.scenario-assertions { display: grid; gap: 8px; }
+.scenario-assertions > div { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; padding: 12px 14px; border-radius: 10px; color: #047857; background: #f0fdf4; }
+.scenario-assertions > div.is-failed { color: #b91c1c; background: #fef2f2; }
+.scenario-assertions strong, .scenario-assertions small { display: block; }
+.scenario-assertions small { margin-top: 3px; color: #64748b; }
+.scenario-assertions em { color: #64748b; font-size: 11px; font-style: normal; }
+.scenario-calculation-log { display: grid; gap: 7px; margin-bottom: 14px; padding: 14px; border-radius: 12px; background: #172554; }
+.scenario-calculation-log code { color: #dbeafe; white-space: normal; }
+
+@media (max-width: 1000px) {
+  .scenario-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .scenario-hero, .scenario-card > header { align-items: stretch; flex-direction: column; }
+  .scenario-kpis, .scenario-user-strip { grid-template-columns: 1fr; }
+  .scenario-actions > * { width: 100%; justify-content: center; }
+}
+
 /* Seller settlement and payment requests */
 .payment-page, .payment-detail { display: grid; gap: 24px; color: #14213d; }
 .payment-hero, .payment-direction { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 28px; border: 1px solid #e7ebf1; border-radius: 16px; background: #fff; box-shadow: 0 8px 24px rgba(15, 23, 42, .04); }
