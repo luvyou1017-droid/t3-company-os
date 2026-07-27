@@ -18,7 +18,7 @@ export class SupabasePaymentEvidenceRepository extends SupabaseRepository<Paymen
       original_file_name: item.fileName, mime_type: item.fileType, file_size: item.fileSize,
       review_status: item.reviewStatus, revision: item.revision ?? 1, uploaded_by: item.uploadedBy,
       uploaded_at: item.uploadedAt, reviewed_by: item.reviewedBy, reviewed_at: item.reviewedAt,
-      rejection_reason: item.rejectionReason, review_memo: item.reviewMemo, metadata: item,
+      rejection_reason: item.rejectionReason, review_memo: item.reviewMemo, metadata: this.metadata(item),
     }
   }
 }

@@ -36,6 +36,18 @@ export const paymentEvidenceStorageService = {
   buildStoragePath(context: UploadContext, fileName: string) {
     return `campaigns/${context.campaignId}/settlements/${context.settlementId}/${context.ownerType}/${context.ownerId}/${context.evidenceId}/${safeFileName(fileName)}`
   },
+  buildPilotStoragePath(testRunId: string, campaignId: string, settlementId: string, evidenceId: string, fileName: string) {
+    return `test-runs/${testRunId}/campaigns/${campaignId}/settlements/${settlementId}/${evidenceId}/${safeFileName(fileName)}`
+  },
+  async uploadPilotEvidenceFile(file: File, context: { testRunId: string; campaignId: string; settlementId: string; evidenceId: string }) {
+    const validation = this.validateEvidenceFile(file)
+    if (!validation.valid) throw new Error(validation.error)
+    if (!supabase) throw new Error('Supabase 환경변수가 없어 실제 Storage 업로드를 실행할 수 없습니다.')
+    const path = this.buildPilotStoragePath(context.testRunId, context.campaignId, context.settlementId, context.evidenceId, file.name)
+    const { error } = await supabase.storage.from(PAYMENT_EVIDENCE_BUCKET).upload(path, file, { contentType: file.type, upsert: true })
+    if (error) throw storageError(error)
+    return { bucket: PAYMENT_EVIDENCE_BUCKET, path, previewUrl: await this.getEvidenceSignedUrl(path), mode: 'supabase' as const }
+  },
   async uploadEvidenceFile(file: File, context: UploadContext) {
     const validation = this.validateEvidenceFile(file)
     if (!validation.valid) throw new Error(validation.error)

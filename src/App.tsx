@@ -19,8 +19,9 @@ import { settlementService } from './shared/services/settlementService'
 import { paymentEvidenceService } from './shared/services/paymentEvidenceService'
 import { openEvidenceReviewDetail } from './shared/utils/paymentNavigation'
 import { OperationalScenariosPage } from './pages/dev-tools/OperationalScenariosPage'
+import { SupabasePilotPage } from './pages/dev-tools/SupabasePilotPage'
 
-export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리' | '지급 승인' | '운영 시나리오 테스트'
+export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리' | '지급 승인' | '운영 시나리오 테스트' | 'Supabase 파일럿 테스트'
 
 function App() {
   const isPublicCsIntake = window.location.hash === '#public-cs-intake'
@@ -97,6 +98,7 @@ function App() {
       {activePage === '정산 관리' && <SettlementPage initialSettlementId={selectedSettlementId} />}
       {activePage === '지급 승인' && <PaymentRequestPage key={paymentRouteKey} />}
       {import.meta.env.DEV && activePage === '운영 시나리오 테스트' && <OperationalScenariosPage />}
+      {import.meta.env.DEV && activePage === 'Supabase 파일럿 테스트' && <SupabasePilotPage />}
       {activePage === '공동구매 일정' && !selectedScheduleId && (
         <CampaignSchedulePage onOpenDetail={(id) => openCampaign(id)} />
       )}

@@ -20,7 +20,7 @@ export class SupabaseSettlementRepository extends SupabaseRepository<Settlement>
       distributable_amount: c.distributableVendorCommission, manager_payment_amount: c.managerAmount,
       company_amount: c.companyAmount, source_version: item.settlementVersion,
       calculation_snapshot: item.calculationSnapshot ?? c, approved_by: null, approved_at: null,
-      version: item.settlementVersion, updated_at: item.updatedAt, metadata: item,
+      version: item.settlementVersion, updated_at: item.updatedAt, metadata: this.metadata(item),
     }
   }
 }

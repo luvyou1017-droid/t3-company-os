@@ -3254,6 +3254,42 @@
   .scenario-actions > * { width: 100%; justify-content: center; }
 }
 
+/* Supabase pilot and connection diagnostics */
+.connection-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+.connection-status-grid > div { min-height: 76px; padding: 13px; border: 1px solid #fecaca; border-radius: 11px; color: #991b1b; background: #fef2f2; }
+.connection-status-grid > div.is-success { border-color: #bbf7d0; color: #047857; background: #f0fdf4; }
+.connection-status-grid > div.is-neutral { border-color: #e2e8f0; color: #475569; background: #f8fafc; }
+.connection-status-grid span, .connection-status-grid strong { display: block; }
+.connection-status-grid span { margin-bottom: 7px; color: #64748b; font-size: 11px; }
+.connection-status-grid strong { overflow-wrap: anywhere; font-size: 13px; line-height: 1.4; }
+.data-connection-card details { margin: 16px 0; padding: 14px; border: 1px solid #e2e8f0; border-radius: 12px; }
+.data-connection-card summary { cursor: pointer; font-weight: 800; }
+.data-connection-card details > div { margin-top: 14px; }
+.connection-safe-notice { margin: 14px 0 0; color: #475569; font-size: 13px; }
+.supabase-pilot-page { display: grid; gap: 18px; color: #14213d; }
+.pilot-safety-card { display: grid; grid-template-columns: auto 1fr; gap: 8px 20px; border-left: 5px solid #3b82f6; }
+.pilot-safety-card span { color: #64748b; text-align: right; overflow-wrap: anywhere; }
+.pilot-safety-card p { grid-column: 1 / -1; margin: 4px 0 0; color: #475569; }
+.supabase-pilot-page .scenario-kpis { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.pilot-step-buttons { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; margin-top: 16px; }
+.pilot-step-buttons button { min-height: 58px; white-space: normal; }
+.pilot-preview { display: block; width: min(100%, 760px); height: 440px; margin-top: 16px; border: 1px solid #dbe3ef; border-radius: 12px; object-fit: contain; background: #f8fafc; }
+.supabase-pilot-page table { min-width: 1180px; }
+.supabase-pilot-page td { max-width: 260px; overflow-wrap: anywhere; }
+
+@media (max-width: 1100px) {
+  .connection-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .supabase-pilot-page .scenario-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .pilot-step-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .connection-status-grid, .supabase-pilot-page .scenario-kpis, .pilot-step-buttons { grid-template-columns: 1fr; }
+  .pilot-safety-card { grid-template-columns: 1fr; }
+  .pilot-safety-card span { text-align: left; }
+  .pilot-preview { height: 70vh; }
+}
+
 /* Seller settlement and payment requests */
 .payment-page, .payment-detail { display: grid; gap: 24px; color: #14213d; }
 .payment-hero, .payment-direction { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 28px; border: 1px solid #e7ebf1; border-radius: 16px; background: #fff; box-shadow: 0 8px 24px rgba(15, 23, 42, .04); }

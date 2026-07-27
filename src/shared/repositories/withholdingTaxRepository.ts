@@ -18,7 +18,7 @@ export class SupabaseWithholdingTaxRepository extends SupabaseRepository<Withhol
       income_tax_rate: item.incomeTaxRate, income_tax_amount: item.incomeTaxAmount, local_income_tax_rate: item.localIncomeTaxRate,
       local_income_tax_amount: item.localIncomeTaxAmount, total_withholding_tax_amount: item.totalWithholdingTaxAmount,
       final_payment_amount: item.finalPaymentAmount, source_version: item.sourceVersion, status: item.status,
-      created_by: item.createdBy, updated_by: item.updatedBy, created_at: item.createdAt, updated_at: item.updatedAt, metadata: item,
+      created_by: item.createdBy, updated_by: item.updatedBy, created_at: item.createdAt, updated_at: item.updatedAt, metadata: this.metadata(item),
     }
   }
 }

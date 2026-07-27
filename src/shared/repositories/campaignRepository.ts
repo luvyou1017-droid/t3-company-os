@@ -20,7 +20,7 @@ export class SupabaseCampaignRepository extends SupabaseRepository<Campaign> {
       sales_channel_type: item.salesChannelType, link_owner: item.linkOwner, business_type: item.businessType,
       total_commission_rate: item.totalCommissionRate, seller_commission_rate: item.sellerCommissionRate,
       settlement_due_date: item.settlementDueDate, status: item.status, memo: item.memo, updated_at: item.updatedAt,
-      metadata: item,
+      metadata: this.metadata(item),
     }
   }
 }

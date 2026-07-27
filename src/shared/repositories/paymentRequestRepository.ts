@@ -19,7 +19,7 @@ export class SupabasePaymentRequestRepository extends SupabaseRepository<Payment
       evidence_status: item.evidenceStatus, account_confirmed: item.accountConfirmed, status: item.status,
       batch_request_id: item.batchRequestId ? toDatabaseUuid(item.batchRequestId) : null, source_version: item.sourceVersion, requested_by: item.requestedBy,
       requested_at: item.requestedAt, approved_by: item.approvedBy, approved_at: item.approvedAt,
-      completed_by: item.completedBy, completed_at: item.completedAt, memo: item.memo, metadata: item,
+      completed_by: item.completedBy, completed_at: item.completedAt, memo: item.memo, metadata: this.metadata(item),
     }
   }
 }

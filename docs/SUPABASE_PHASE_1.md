@@ -61,3 +61,18 @@ SQL에는 authenticated 조회, manager 담당 Campaign, settlement_cs 정산·�
 - private Storage signed URL 만료·삭제·감사 정책 확인
 - migration 미리보기, 백업, 샘플 migration, 금액 대사 후 전체 migration
 - anon key만 클라이언트에 사용하고 service role key는 서버/Edge Function에만 보관
+
+## Supabase 파일럿 테스트 절차
+
+전체 마이그레이션 전에 개발 모드의 `Supabase 파일럿 테스트` 화면에서 별도 `testRunId`로 소량 연결을 확인한다.
+
+1. 연결·로그인 세션·필수 테이블·private `payment-evidence` bucket 접근 확인
+2. `[TEST]` Campaign, Settlement, Payment Request, Evidence metadata 순서로 생성
+3. 사용자가 선택한 실제 파일을 `test-runs/{testRunId}/...` 경로에 업로드
+4. 만료되는 signed URL로 이미지 또는 PDF 미리보기
+5. 기존 원천세 계산 함수로 Withholding Tax Item 생성
+6. Activity Log 생성 후 Repository 재조회와 FK 관계 확인
+7. 동일 키 재실행 시 Payment Request와 Withholding Tax 중복 방지 확인
+8. metadata 세 조건이 일치하는 현재 파일럿 데이터만 자식부터 정리
+
+SQL은 자동 실행하지 않으며, 누락된 테이블은 SQL Editor에서 `docs/SUPABASE_SCHEMA.sql`을 사람이 검토한 뒤 적용한다. 상세 절차와 RLS 대응은 `docs/SUPABASE_PILOT.md`를 따른다.
