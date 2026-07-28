@@ -21,6 +21,7 @@ T3 Company OS is an operating system for group-buying companies. The database sh
 | `PaymentEvidence` metadata | `payment_evidence` |
 | `WithholdingTaxItem` | `withholding_tax_items` |
 | 운영 변경 이력 | `activity_logs` |
+| `ProductMaster` | `product_masters` |
 
 증빙 원본은 private `payment-evidence` Storage bucket에 저장하며 DB에는 bucket/path와 파일 메타데이터만 저장한다. Local legacy ID는 migration provider에서 결정적 UUID로 변환하고 전체 기존 객체는 `metadata`에 보존한다. Supabase 환경변수가 없으면 기존 localStorage가 계속 단일 데이터 소스로 동작한다.
 
@@ -71,6 +72,22 @@ Operational tables should also include:
 - `campaign_id`: campaign id when the record belongs to a campaign
 
 ## Tables
+
+### product_masters
+
+Campaign이 참조하는 상품 기본 조건이다. Campaign 저장 시 현재 상품값은 별도 snapshot으로 보존하며 이후 마스터 수정이 기존 Campaign 계산에 소급 적용되지 않는다.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | Primary key |
+| `product_code` | text | Unique internal product code |
+| `brand_id` | uuid/text | Brand master reference |
+| `active` | boolean | Active status; deactivate instead of destructive deletion |
+| `metadata` | jsonb | Product price, commission, link, PG, shipping and operation policy |
+| `created_at` | timestamptz | Created timestamp |
+| `updated_at` | timestamptz | Updated timestamp |
+
+`metadata`에는 `regularPrice`, `salePrice`, `supplyPrice`, `shippingFee`, `freeShippingThreshold`, `totalCommissionRate`, `sellerCommissionRate`, `companyCommissionRate`, `defaultSalesChannelType`, 링크별 사용 가능 여부, 브랜드 PG 지원 여부·1~5% 지원율, 배송 정책, 샘플·운영 참고 정보, `version`을 저장한다. 브랜드 PG 지원율과 Campaign의 실제 셀러 추가 PG 지급률은 별도 값이다.
 
 ### users
 
