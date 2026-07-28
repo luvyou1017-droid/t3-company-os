@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { productService, validateProductPolicy } from '../../../features/productMaster/services/productService'
 import type { ProductMasterInput, ProductPgSupportRate } from '../../../features/productMaster/types'
+import type { ProductMasterPermission } from '../../../features/productMaster/permissions'
 
 type Errors = Record<string, string>
 const channelLabels = { supplier_link: '공급사 링크', wise_shop_link: '와이즈샵 링크', seller_checkout: '셀러 결제창' }
@@ -20,7 +21,7 @@ const initial: ProductMasterInput = {
 const money = (value: number) => `${Number(value || 0).toLocaleString('ko-KR')}원`
 const number = (value: string) => value === '' ? 0 : Number(value)
 
-export function ProductFormPage({ productId, onBack }: { productId?: string; onBack: () => void }) {
+export function ProductFormPage({ productId, onBack, permission }: { productId?: string; onBack: () => void; permission: ProductMasterPermission }) {
   const [form, setForm] = useState<ProductMasterInput>(initial)
   const [errors, setErrors] = useState<Errors>({})
   const [loading, setLoading] = useState(Boolean(productId))
@@ -64,6 +65,7 @@ export function ProductFormPage({ productId, onBack }: { productId?: string; onB
     return next
   }
   const save = async () => {
+    if (productId ? !permission.canEdit : !permission.canCreate) return
     const next = validate()
     setErrors(next)
     if (Object.keys(next).length) {
@@ -78,8 +80,10 @@ export function ProductFormPage({ productId, onBack }: { productId?: string; onB
   if (loading) return <div className="master-empty">상품 정보를 불러오는 중입니다.</div>
   const fieldClass = (key: string) => errors[key] ? 'product-field is-error' : 'product-field'
   const sectionTitle = (title: string, key: string) => <h2>{title}{sectionCount(key) > 0 && <span className="section-error-count">누락 {sectionCount(key)}</span>}</h2>
+  const readOnly = productId ? !permission.canEdit : !permission.canCreate
   return <section className="product-form-page">
-    <div className="master-page__heading"><div><p className="page-eyebrow">Product Master</p><h1>{productId ? '상품 상세·수정' : '신규 상품 등록'}</h1><p>Campaign에서 사용할 상품 기본 조건을 한 페이지에서 관리합니다.</p></div><div className="button-row"><button className="secondary-button" onClick={onBack}>목록</button><button className="primary-button" onClick={() => void save()}>저장</button></div></div>
+    <div className="master-page__heading"><div><p className="page-eyebrow">Product Master</p><h1>{productId ? (readOnly ? '상품 상세 보기' : '상품 상세·수정') : '신규 상품 등록'}</h1><p>Campaign에서 사용할 상품 기본 조건을 한 페이지에서 관리합니다.</p></div><div className="button-row"><button className="secondary-button" onClick={onBack}>목록</button>{!readOnly && <button className="primary-button" onClick={() => void save()}>저장</button>}</div></div>
+    <fieldset className="product-form-fieldset" disabled={readOnly}>
     <section className="product-form-section" id="product-basic">{sectionTitle('1. 기본 정보', 'basic')}<div className="product-form-grid">
       <label className={fieldClass('productCode')} data-field="productCode"><span>상품 코드</span><input value={form.productCode} placeholder="미입력 시 자동 생성" onChange={(e) => patch('productCode', e.target.value)} /></label>
       <div className={fieldClass('brandName')} data-field="brandName"><span>브랜드 *</span><input value={brandQuery} placeholder="브랜드 검색" onChange={(e) => { setBrandQuery(e.target.value); patch('brandId', ''); patch('brandName', e.target.value) }} />{brandQuery && !form.brandId && <div className="brand-options">{filteredBrands.map((brand) => <button key={brand.id} onClick={() => { patch('brandId', brand.id); patch('brandName', brand.name); setBrandQuery(brand.name) }}>{brand.name}</button>)}{filteredBrands.length === 0 && <p>브랜드가 없습니다. 브랜드 등록이 필요합니다.</p>}</div>}{errors.brandName && <small>{errors.brandName}</small>}</div>
@@ -126,7 +130,9 @@ export function ProductFormPage({ productId, onBack }: { productId?: string; onB
         ['브랜드 PG 지원', form.brandPgSupportAvailable ? `있음 · ${form.brandPgSupportRate ?? '미선택'}%` : '없음'],
         ['배송 정책', `${form.courierName || '택배사 미정'} · 합배송 ${form.bundleShippingAvailable ? '가능' : '불가'}`], ['샘플 지원', form.sampleSupportType || '미정'],
       ].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
-    </div><div className="form-footer"><button className="secondary-button" onClick={onBack}>취소</button><button className="primary-button" onClick={() => void save()}>상품 저장</button></div></section>
+    </div></section>
+    </fieldset>
+    <div className="form-footer"><button className="secondary-button" onClick={onBack}>{readOnly ? '목록' : '취소'}</button>{!readOnly && <button className="primary-button" onClick={() => void save()}>상품 저장</button>}</div>
   </section>
 }
 

@@ -23,10 +23,12 @@ import { SupabasePilotPage } from './pages/dev-tools/SupabasePilotPage'
 import { PreparingMasterPage } from './pages/master/PreparingMasterPage'
 import { ProductFormPage } from './pages/master/products/ProductFormPage'
 import { ProductListPage } from './pages/master/products/ProductListPage'
+import { getCurrentProductMasterPermission } from './features/productMaster/permissions'
 
 export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리' | '지급 승인' | '셀러 마스터' | '브랜드 마스터' | '상품 마스터' | '벤더 마스터' | '가져오기/내보내기' | '운영 시나리오 테스트' | 'Supabase 파일럿 테스트'
 
 function App() {
+  const productMasterPermission = getCurrentProductMasterPermission()
   const isPublicCsIntake = window.location.hash === '#public-cs-intake'
   const route = parseCampaignRoute()
   const isPaymentRoute = window.location.pathname.startsWith('/payments')
@@ -109,12 +111,12 @@ function App() {
       {activePage === '판매 데이터' && <SalesDataPage initialImportId={selectedSalesDataImportId} />}
       {activePage === '정산 관리' && <SettlementPage initialSettlementId={selectedSettlementId} />}
       {activePage === '지급 승인' && <PaymentRequestPage key={paymentRouteKey} />}
-      {activePage === '상품 마스터' && !productId && <ProductListPage onOpen={(id) => {
+      {activePage === '상품 마스터' && !productId && <ProductListPage permission={productMasterPermission} onOpen={(id) => {
         const path = id ? `/master/products/${encodeURIComponent(id)}` : '/master/products/new'
         window.history.pushState({}, '', path)
         setProductId(id ?? 'new')
       }} />}
-      {activePage === '상품 마스터' && productId && <ProductFormPage productId={productId === 'new' ? undefined : productId} onBack={() => {
+      {activePage === '상품 마스터' && productId && <ProductFormPage permission={productMasterPermission} productId={productId === 'new' ? undefined : productId} onBack={() => {
         window.history.pushState({}, '', '/master/products')
         setProductId(undefined)
       }} />}

@@ -37,7 +37,7 @@
 
 ## Campaign 연결
 
-`productService.searchProductsByBrand`로 브랜드별 상품을 조회할 수 있다. 상품 선택 시 `createCampaignProductSnapshot`은 가격, 배송비, 수수료, 링크 가능 여부, 브랜드 PG 기본 조건, 배송 정책, 샘플 지원 여부를 반환한다.
+`productService.searchProductsByBrand`로 브랜드별 상품을 조회할 수 있다. 새 공구 일정 화면은 열릴 때 상품 마스터를 조회하고 `campaignProductCatalogService.registerProductMasters()`로 활성 상품을 기존 호환 카탈로그에 병합한다. Provider 조회에 실패하면 기존 카탈로그를 유지한다. 상품 선택 시 `createCampaignProductSnapshot`은 가격, 배송비, 수수료, 링크 가능 여부, 브랜드 PG 기본 조건, 배송 정책, 샘플 지원 여부를 반환한다.
 
 ## Snapshot 원칙
 
@@ -50,7 +50,7 @@ Campaign 저장 시 상품 마스터의 현재값과 `productMasterId`, `product
 ## 권한
 
 - admin: 조회, 등록, 수정, 비활성화
-- md: 조회, 등록, 수정, 비활성화
+- md: 조회, 등록, 수정
 - settlement: 조회
 - manager: 조회
 

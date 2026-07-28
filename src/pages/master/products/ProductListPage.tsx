@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { productService } from '../../../features/productMaster/services/productService'
 import type { ProductMaster } from '../../../features/productMaster/types'
+import type { ProductMasterPermission } from '../../../features/productMaster/permissions'
 
 const money = (value: number) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 }).format(value)
 const channelLabels = { supplier_link: '공급사 링크', wise_shop_link: '와이즈샵 링크', seller_checkout: '셀러 결제창' }
 
-export function ProductListPage({ onOpen }: { onOpen: (id?: string) => void }) {
+export function ProductListPage({ onOpen, permission }: { onOpen: (id?: string) => void; permission: ProductMasterPermission }) {
   const [products, setProducts] = useState<ProductMaster[]>([])
   const [query, setQuery] = useState('')
   const [brand, setBrand] = useState('')
@@ -29,7 +30,7 @@ export function ProductListPage({ onOpen }: { onOpen: (id?: string) => void }) {
     await load()
   }
   return <section className="master-page">
-    <div className="master-page__heading"><div><p className="page-eyebrow">Master Management</p><h1>상품 관리</h1><p>Campaign에 연결할 가격·수수료·판매 링크·배송 기본 조건을 관리합니다.</p></div><button className="primary-button" onClick={() => onOpen()}>신규 상품 등록</button></div>
+    <div className="master-page__heading"><div><p className="page-eyebrow">Master Management</p><h1>상품 관리</h1><p>Campaign에 연결할 가격·수수료·판매 링크·배송 기본 조건을 관리합니다.</p></div>{permission.canCreate && <button className="primary-button" onClick={() => onOpen()}>신규 상품 등록</button>}</div>
     <div className="product-filters">
       <input aria-label="상품 검색" placeholder="상품 코드, 브랜드, 상품명 검색" value={query} onChange={(event) => setQuery(event.target.value)} />
       <select aria-label="브랜드 필터" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">전체 브랜드</option>{brands.map((name) => <option key={name}>{name}</option>)}</select>
@@ -45,7 +46,7 @@ export function ProductListPage({ onOpen }: { onOpen: (id?: string) => void }) {
       <td>{money(product.regularPrice)}</td><td>{money(product.salePrice)}</td><td>{product.totalCommissionRate}%</td><td>{product.sellerCommissionRate}%</td>
       <td>{channelLabels[product.defaultSalesChannelType]}</td><td>{product.wiseShopAvailable ? '가능' : '불가'}</td><td>{product.sellerCheckoutAvailable ? '가능' : '불가'}</td>
       <td>{product.brandPgSupportAvailable ? `지원 ${product.brandPgSupportRate}%` : '없음'}</td><td><span className={product.active ? 'status-badge' : 'status-badge is-inactive'}>{product.active ? '활성' : '비활성'}</span></td>
-      <td>{new Date(product.updatedAt).toLocaleDateString('ko-KR')}</td><td><div className="table-actions"><button onClick={() => onOpen(product.id)}>상세·수정</button>{product.active && <button className="danger-text" onClick={() => void deactivate(product)}>비활성화</button>}</div></td>
+      <td>{new Date(product.updatedAt).toLocaleDateString('ko-KR')}</td><td><div className="table-actions"><button onClick={() => onOpen(product.id)}>{permission.canEdit ? '상세·수정' : '상세 보기'}</button>{permission.canDeactivate && product.active && <button className="danger-text" onClick={() => void deactivate(product)}>비활성화</button>}</div></td>
     </tr>)}</tbody></table></div></div>
   </section>
 }

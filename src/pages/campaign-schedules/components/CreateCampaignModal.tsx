@@ -19,6 +19,7 @@ import {
   CAMPAIGN_FIELD_ORDER, scrollToFirstInvalidCampaignField, type CampaignFormErrorKey,
 } from '../../../shared/utils/campaignFormValidation'
 import { getCommonAvailableSalesChannels, resolveProductSalesChannelDefaults } from '../../../shared/utils/campaignDefaults'
+import { productService } from '../../../features/productMaster/services/productService'
 
 type Props = { onClose: () => void; onCreated: (campaign: Campaign) => void }
 type Draft = CampaignCreationFormData
@@ -75,6 +76,7 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
   const [helper, setHelper] = useState<'notion' | 'ai' | null>(null)
   const [helperInput, setHelperInput] = useState('')
   const [helperPreview, setHelperPreview] = useState<AiCampaignDraft | null>(null)
+  const [, setProductCatalogRevision] = useState(0)
 
   const brands = campaignProductCatalogService.searchBrands(brandQuery)
   const sellers = sellerMasterService.searchSellers(sellerQuery)
@@ -92,6 +94,17 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
   const campaignName = form.nameOverridden ? form.campaignName : automaticName
   const missing = [...getDraftMissingFields(form), ...(policyMissing ? ['상품 수수료 정책'] : []), ...Object.values(eventErrors).flat()]
   const status = missing.length ? (form.sellerName || form.products.length ? '필수값 누락' : '입력 중') : '저장 가능'
+
+  useEffect(() => {
+    void productService.listProducts()
+      .then((products) => {
+        campaignProductCatalogService.registerProductMasters(products)
+        setProductCatalogRevision((revision) => revision + 1)
+      })
+      .catch(() => {
+        // Provider 조회 실패 시 기존 Campaign 카탈로그를 유지한다.
+      })
+  }, [])
 
   const validate = (): CampaignFormErrors => {
     const next: CampaignFormErrors = {}

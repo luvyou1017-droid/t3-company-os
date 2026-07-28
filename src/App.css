@@ -342,6 +342,17 @@
   max-width: 1120px;
 }
 
+.product-form-fieldset {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.product-form-fieldset:disabled .secondary-button {
+  pointer-events: auto;
+}
+
 .product-form-section {
   background: var(--surface);
   border: 1px solid var(--border);
