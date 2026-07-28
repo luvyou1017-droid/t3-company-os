@@ -3485,8 +3485,31 @@
 .sidebar__subgroup > span { padding: 6px 18px 2px; color: #94a3b8; font-size: 11px; font-weight: 800; }
 .product-filters--expanded { grid-template-columns: minmax(240px, 2fr) repeat(4, minmax(130px, 1fr)); }
 .product-master-table--catalog { min-width: 1500px; }
+.product-list-header { align-items: end; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.product-sort { display: grid; gap: 5px; color: #64748b; font-size: 12px; font-weight: 800; }
+.product-sort select { min-width: 180px; padding: 9px 11px; border: 1px solid #cfd7e3; border-radius: 9px; background: #fff; }
 .product-thumb { display: grid; place-items: center; width: 62px; height: 62px; overflow: hidden; border-radius: 12px; color: #94a3b8; background: #f1f5f9; font-size: 10px; }
 .product-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.product-brand-group th { padding: 13px 16px; border-top: 8px solid #fff; border-bottom: 1px solid #dbe3ef; text-align: left; background: #f1f5f9; }
+.product-brand-group:first-child th { border-top: 0; }
+.product-brand-group th > div { display: flex; align-items: center; gap: 10px; }
+.product-brand-group strong { font-size: 15px; }
+.product-brand-group small { color: #64748b; font-weight: 600; }
+.product-brand-group em { margin-left: auto; color: #64748b; font-size: 11px; font-style: normal; font-weight: 700; }
+.brand-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: #3730a3; background: #e0e7ff; font-weight: 900; }
+.product-group-row { border-left: 4px solid #e0e7ff; }
+.product-group-row > td:nth-child(2) { width: 46px; color: #94a3b8; text-align: center; }
+.product-mobile-list { display: none; }
+.product-mobile-group { overflow: hidden; border: 1px solid #e2e8f0; border-radius: 15px; background: #fff; }
+.product-mobile-group > header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 17px; border-bottom: 1px solid #dbe3ef; background: #f1f5f9; }
+.product-mobile-group h3, .product-mobile-group p { margin: 0; }
+.product-mobile-group p, .product-mobile-group header > span { margin-top: 4px; color: #64748b; font-size: 11px; }
+.product-mobile-group article { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 15px; border-bottom: 1px solid #edf0f4; }
+.product-mobile-group article:last-child { border-bottom: 0; }
+.product-mobile-card__main { display: grid; gap: 5px; min-width: 0; }
+.product-mobile-card__main .text-button { width: max-content; max-width: 100%; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.product-mobile-card__main span, .product-mobile-card__main small { color: #64748b; font-size: 11px; }
 .badge-checks { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px; border: 1px solid #d8dee8; border-radius: 10px; }
 .badge-checks label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .sku-heading, .sku-card__title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
@@ -3567,12 +3590,20 @@
   .catalog-hero, .catalog-detail__hero { grid-template-columns: 1fr; }
   .sku-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+@media (max-width: 800px) {
+  .product-desktop-list { display: none; }
+  .product-mobile-list { display: grid; gap: 16px; padding: 14px; }
+  .product-list-header { align-items: stretch; flex-direction: column; }
+  .product-sort select { width: 100%; }
+}
 @media (max-width: 650px) {
   .catalog-grid, .catalog-filters, .catalog-contact, .catalog-detail__prices { grid-template-columns: 1fr; }
   .seller-portal > main { width: min(100% - 24px, 1280px); padding-top: 20px; }
   .catalog-hero, .catalog-detail__hero { padding: 22px; }
   .sku-grid, .sku-policy-source, .sku-price-compare > div { grid-template-columns: 1fr; }
   .catalog-result-head, .sku-heading { align-items: stretch; flex-direction: column; }
+  .product-mobile-group article { grid-template-columns: auto minmax(0, 1fr); }
+  .product-mobile-group article > .status-badge { grid-column: 2; width: max-content; }
 }
 
 /* Payment evidence and withholding */
