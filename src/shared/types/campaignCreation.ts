@@ -4,7 +4,15 @@ export type CampaignCreationBusinessType = 'general_business' | 'simplified_busi
 export type EventPayer = 'vendor' | 'seller' | 'company_support'
 export type CampaignEventType = 'first_come' | 'purchase_complete' | 'try_it' | 'other'
 
-export interface ProductMaster {
+export interface ProductSalesLinkPolicy {
+  defaultSalesChannelType: CampaignSalesChannelType
+  wiseShopAvailable: boolean
+  sellerCheckoutAvailable: boolean
+  brandPgSupportAvailable: boolean
+  brandPgSupportRate?: 1 | 2 | 3 | 4 | 5
+}
+
+export interface ProductMaster extends Partial<ProductSalesLinkPolicy> {
   id: string
   brandId: string
   brandName: string
@@ -39,6 +47,13 @@ export interface CampaignProductProposalSnapshot {
   totalCommissionRate: number
   sellerCommissionRate: number
   extraPgSupportRate: number
+  sellerExtraPgRate: number
+  defaultSalesChannelType?: CampaignSalesChannelType
+  wiseShopAvailable: boolean
+  sellerCheckoutAvailable: boolean
+  brandPgSupportAvailable: boolean
+  brandPgSupportRate?: number
+  selectedSalesChannelType?: CampaignSalesChannelType
   effectiveSellerCommissionRate: number
   companyCommissionRate: number
   notes: string
@@ -66,6 +81,7 @@ export interface CampaignEvent {
   /** @deprecated 신규 등록은 Campaign 공통 기간을 사용합니다. */
   endDate?: string
   memo?: string
+  rewardProductMode?: 'master' | 'same_as_target' | 'direct' | 'none'
 }
 
 export interface AiCampaignDraft {

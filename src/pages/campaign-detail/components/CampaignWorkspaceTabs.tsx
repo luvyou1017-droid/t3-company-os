@@ -8,6 +8,7 @@ import { salesDataService } from '../../../shared/services/salesDataService'
 import { sampleService } from '../../../shared/services/sampleService'
 import { settlementService } from '../../../shared/services/settlementService'
 import { workService } from '../../../shared/services/workService'
+import { getSalesChannelTypeLabel } from '../../../shared/services/campaignCreationService'
 import type { Campaign } from '../../../shared/types/campaign'
 import type { CampaignFileType, CampaignTab, CommunicationChannel } from '../../../shared/types/campaignWorkspace'
 
@@ -18,6 +19,11 @@ const maskPhone = (value: string) => value.replace(/(\d{3})-?(\d{3,4})-?(\d{4})/
 
 function EmptyState({ action, children, onAction }: { action: string; children: string; onAction?: () => void }) {
   return <div className="workspace-empty"><strong>{children}</strong><p>다음 행동을 선택해 Campaign 운영을 계속하세요.</p><button className="secondary-button" onClick={onAction} type="button">{action}</button></div>
+}
+
+export function CampaignSettlementReference({ campaign }: { campaign: Campaign }) {
+  if (!campaign.proposalSnapshots?.length) return null
+  return <section className="workspace-card"><h3>정산 참고 조건</h3><p className="section-description">Campaign 생성 시 저장한 조건이며 상품 마스터 변경과 무관하게 유지됩니다.</p><div className="proposal-preview-grid settlement-reference-grid">{campaign.proposalSnapshots.map((snapshot) => <article key={snapshot.productId}><h4>{campaign.campaignProducts?.find((product) => product.productId === snapshot.productId)?.productName ?? campaign.productName}</h4><dl><div><dt>판매 링크</dt><dd>{getSalesChannelTypeLabel(snapshot.selectedSalesChannelType ?? campaign.salesChannelType)}</dd></div><div><dt>총 판매 수수료</dt><dd>{snapshot.totalCommissionRate}%</dd></div><div><dt>셀러 기본 수수료</dt><dd>{snapshot.sellerCommissionRate}%</dd></div><div><dt>브랜드 PG 지원</dt><dd>{snapshot.brandPgSupportAvailable ? `있음 · ${snapshot.brandPgSupportRate}%` : '없음'}</dd></div><div><dt>셀러 추가 PG 지급률</dt><dd>{snapshot.sellerExtraPgRate ?? snapshot.extraPgSupportRate}%</dd></div><div><dt>최종 셀러 수수료</dt><dd>{snapshot.effectiveSellerCommissionRate}%</dd></div><div><dt>회사 수수료</dt><dd>{snapshot.companyCommissionRate}%</dd></div><div><dt>배송비</dt><dd>{money(snapshot.shippingAmount)}</dd></div></dl><p>배송비에는 수수료를 적용하지 않습니다.</p></article>)}</div></section>
 }
 
 export function OverviewTab({ campaign, onTab }: { campaign: Campaign; onTab: (tab: CampaignTab) => void }) {
@@ -40,6 +46,7 @@ export function OverviewTab({ campaign, onTab }: { campaign: Campaign; onTab: (t
       <section className="workspace-card"><h3>주요 담당자</h3><p>매니저 <strong>{campaign.managerName || '-'}</strong></p><p>MD <strong>{campaign.mdName || '-'}</strong></p></section>
       <section className="workspace-card"><h3>위험 신호</h3>{openWorks.some((item) => item.dueDate < today()) ? <p className="danger-text">기한이 지난 업무가 있습니다. 업무 탭에서 확인하세요.</p> : <p className="success-text">현재 감지된 긴급 위험이 없습니다.</p>}</section>
     </div>
+    <CampaignSettlementReference campaign={campaign} />
     <section className="workspace-card"><div className="section-heading"><div><h3>최근 활동</h3><p>Campaign과 연결된 최신 변경입니다.</p></div><button className="text-button" onClick={() => onTab('history')} type="button">전체 이력</button></div>
       {activities.length ? activities.slice(0, 5).map((item) => <div className="activity-row" key={item.id}><span>{dateText(item.occurredAt)}</span><strong>{item.eventType}</strong><p>{item.description}</p></div>) : <p className="muted">아직 저장된 활동이 없습니다. 업무 완료, 파일 또는 소통 기록부터 활동이 쌓입니다.</p>}
     </section>

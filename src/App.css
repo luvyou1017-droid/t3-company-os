@@ -613,6 +613,8 @@
 .campaign-field--error select,
 .campaign-field--error textarea { border-color: #ef4444 !important; box-shadow: 0 0 0 3px rgba(239,68,68,.1); }
 .campaign-field--error { scroll-margin-top: 140px; }
+.field-link-button { justify-self: start; padding: 2px 0; }
+.auto-source-text { color: #2563eb; font-size: 12px; font-weight: 800; }
 .campaign-v2-notice, .campaign-policy-warning { margin: 16px 28px 0; padding: 13px 15px; border-radius: 10px; color: #9a3412; background: #fff7ed; }
 .campaign-create-v2 .campaign-create-form { min-height: 520px; }
 .campaign-create-scroll-form { gap: 28px; scroll-behavior: smooth; }
@@ -646,6 +648,8 @@
 .event-summary-grid strong, .final-review-grid strong { display: block; margin-top: 6px; overflow-wrap: anywhere; }
 .campaign-event-list { display: grid; gap: 12px; }
 .campaign-event-card { border: 1px solid #dbe3ef; border-radius: 14px; overflow: hidden; background: #fff; }
+.campaign-event-card--error { border-color: #fca5a5; box-shadow: 0 0 0 3px rgba(239,68,68,.08); }
+.event-error-summary { background: #fef2f2; display: grid; gap: 4px; padding: 10px 16px; }
 .campaign-event-card > header { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 13px 16px; background: #f8fafc; }
 .campaign-event-card > .campaign-create-grid { padding: 16px; }
 .winner-announcement-card { align-items: end; background: #f8fafc; border: 1px solid #dbe3ef; border-radius: 12px; display: grid; gap: 12px; grid-template-columns: minmax(220px, 360px) auto; padding: 14px; }
@@ -666,6 +670,12 @@
 .helper-modal h3, .helper-modal p { margin: 0; }
 .helper-modal input, .helper-modal textarea { padding: 12px; border: 1px solid #cbd5e1; border-radius: 10px; font: inherit; }
 .helper-preview { padding: 14px; border-radius: 11px; background: #eff6ff; }
+.seller-extra-pg-card { align-items: end; background: #f8fafc; border: 1px solid #dbe3ef; border-radius: 14px; display: grid; gap: 14px; grid-template-columns: minmax(160px, .6fr) minmax(240px, 1fr); padding: 16px; }
+.seller-extra-pg-card > div { display: grid; gap: 6px; }
+.seller-extra-pg-card span { color: #64748b; font-size: 12px; font-weight: 900; }
+.seller-extra-pg-card strong { font-size: 22px; }
+.seller-extra-pg-card p { color: #64748b; font-size: 12px; grid-column: 1 / -1; margin: 0; }
+.settlement-reference-grid { margin-top: 4px; }
 .campaign-draft-picker { width: min(980px, calc(100vw - 40px)); }
 .campaign-draft-picker__actions { align-items: center; display: flex; justify-content: space-between; padding: 18px 24px 8px; }
 .campaign-draft-list { display: grid; gap: 14px; overflow-y: auto; padding: 14px 24px 24px; }
@@ -687,6 +697,7 @@
   .campaign-create-grid .span-2 { grid-column: auto; }
   .final-review-grid--ordered > div:first-child { grid-column: auto; }
   .winner-announcement-card { grid-template-columns: 1fr; }
+  .seller-extra-pg-card { grid-template-columns: 1fr; }
   .campaign-draft-card dl { grid-template-columns: 1fr 1fr; }
 }
 

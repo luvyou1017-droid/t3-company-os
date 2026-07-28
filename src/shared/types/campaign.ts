@@ -29,6 +29,9 @@ export type Campaign = {
   totalCommissionRate?: number
   sellerCommissionRate?: number
   salesChannelType?: CampaignSalesChannelType
+  salesChannelSource?: import('../utils/campaignDefaults').SalesChannelSource
+  salesChannelManuallyOverridden?: boolean
+  sellerExtraPgRate?: number
   landingPageType?: string
   settlementDueDate: string
   memo?: string

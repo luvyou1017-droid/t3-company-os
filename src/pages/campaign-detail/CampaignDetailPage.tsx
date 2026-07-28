@@ -9,7 +9,7 @@ import type { CampaignTab } from '../../shared/types/campaignWorkspace'
 import type { WorkItem } from '../../features/myWork/types'
 import { CampaignDetailTabs } from './components/CampaignDetailTabs'
 import {
-  CommunicationsTab, CsTab, FilesTab, HistoryTab, OverviewTab, SalesTab,
+  CampaignSettlementReference, CommunicationsTab, CsTab, FilesTab, HistoryTab, OverviewTab, SalesTab,
   SamplesTab, SettlementTab, TimelineTab, WorkTab,
 } from './components/CampaignWorkspaceTabs'
 
@@ -93,7 +93,7 @@ export function CampaignDetailPage({ scheduleId, initialTab = 'overview', onBack
     if (activeTab === 'samples') return <SamplesTab campaign={campaign} onExternal={onOpenRelated} />
     if (activeTab === 'cs') return <CsTab campaign={campaign} onExternal={onOpenRelated} />
     if (activeTab === 'sales') return <SalesTab campaign={campaign} onChanged={refresh} onExternal={onOpenRelated} />
-    if (activeTab === 'settlement') return <SettlementTab campaign={campaign} onExternal={onOpenRelated} />
+    if (activeTab === 'settlement') return <div className="workspace-section-stack"><CampaignSettlementReference campaign={campaign} /><SettlementTab campaign={campaign} onExternal={onOpenRelated} /></div>
     return <HistoryTab campaign={campaign} />
   }
 

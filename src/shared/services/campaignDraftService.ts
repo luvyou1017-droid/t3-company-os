@@ -3,11 +3,15 @@ import type { CampaignCreationBusinessType, CampaignEvent, CampaignProductSelect
 import { STORAGE_KEYS, storageService } from './storageService.ts'
 
 export interface CampaignCreationFormData {
+  sellerId: string
   sellerName: string
-  businessType: CampaignCreationBusinessType
+  businessType: CampaignCreationBusinessType | ''
   brandId: string
   products: CampaignProductSelection[]
-  salesChannelType: NonNullable<Campaign['salesChannelType']>
+  salesChannelType: NonNullable<Campaign['salesChannelType']> | ''
+  salesChannelSource: NonNullable<Campaign['salesChannelSource']>
+  salesChannelManuallyOverridden: boolean
+  sellerExtraPgRate: number
   startDate: string
   endDate: string
   linkOpenTime: string
@@ -52,7 +56,7 @@ export const CAMPAIGN_REQUIRED_FIELD_LABELS = {
 
 export function getDraftMissingFields(form: CampaignCreationFormData) {
   return [
-    !form.sellerName?.trim() && CAMPAIGN_REQUIRED_FIELD_LABELS.sellerId,
+    !form.sellerId && CAMPAIGN_REQUIRED_FIELD_LABELS.sellerId,
     !form.businessType && CAMPAIGN_REQUIRED_FIELD_LABELS.businessType,
     !form.brandId && CAMPAIGN_REQUIRED_FIELD_LABELS.brandId,
     !form.products?.length && CAMPAIGN_REQUIRED_FIELD_LABELS.campaignProducts,

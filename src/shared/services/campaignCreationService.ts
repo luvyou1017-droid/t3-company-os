@@ -63,18 +63,24 @@ export function getCampaignEventTypeLabel(value?: string) {
   return value || '미입력'
 }
 
-export function captureProposalSnapshots(selections: CampaignProductSelection[]): CampaignProductProposalSnapshot[] {
+export function captureProposalSnapshots(selections: CampaignProductSelection[], sellerExtraPgRate = 0, selectedSalesChannelType?: Campaign['salesChannelType']): CampaignProductProposalSnapshot[] {
   return selections.map((selection) => {
     const product = campaignProductCatalogService.getProduct(selection.productId)
     if (!product || !campaignProductCatalogService.hasCompletePolicy(selection.productId)) throw new Error(`선택한 상품에 수수료 정책이 등록되지 않았습니다. 상품 정보를 먼저 완성해주세요. (${selection.productName})`)
     const seller = product.sellerCommissionRate!
-    const extra = product.extraPgSupportRate!
+    const extra = sellerExtraPgRate
     return {
       productId: product.id, regularPrice: product.regularPrice, salePrice: product.salePrice,
       shippingAmount: product.shippingAmount, supplyPrice: product.supplyPrice,
       totalCommissionRate: product.totalCommissionRate!, sellerCommissionRate: seller,
-      extraPgSupportRate: extra, effectiveSellerCommissionRate: seller + extra,
+      extraPgSupportRate: extra, sellerExtraPgRate: extra, effectiveSellerCommissionRate: seller + extra,
       companyCommissionRate: product.totalCommissionRate! - seller - extra, notes: product.notes,
+      defaultSalesChannelType: product.defaultSalesChannelType,
+      wiseShopAvailable: Boolean(product.wiseShopAvailable),
+      sellerCheckoutAvailable: Boolean(product.sellerCheckoutAvailable),
+      brandPgSupportAvailable: Boolean(product.brandPgSupportAvailable),
+      brandPgSupportRate: product.brandPgSupportAvailable ? product.brandPgSupportRate : undefined,
+      selectedSalesChannelType,
       capturedAt: new Date().toISOString(), sourceVersion: product.version,
     }
   })
@@ -99,6 +105,15 @@ export function summarizeEvents(events: CampaignEvent[]) {
   const byPayer = { vendor: 0, seller: 0, company_support: 0 }
   events.forEach((event) => { byPayer[event.payer] += event.estimatedTotalAmount })
   return { ...byPayer, total: Object.values(byPayer).reduce((sum, amount) => sum + amount, 0) }
+}
+
+export function getCampaignEventErrors(event: CampaignEvent) {
+  const errors: string[] = []
+  const requiresProducts = event.eventType !== 'other'
+  if (requiresProducts && !event.targetProductId) errors.push(event.eventType === 'try_it' ? '체험 대상 상품을 선택해주세요.' : '이벤트 적용 상품을 선택해주세요.')
+  if (requiresProducts && !event.rewardProductName) errors.push('증정·경품 상품을 선택해주세요.')
+  if ((event.eventType === 'first_come' || event.eventType === 'purchase_complete') && event.plannedQuantity <= 0) errors.push('예정 수량을 입력해주세요.')
+  return errors
 }
 
 const mockDraft: AiCampaignDraft = {

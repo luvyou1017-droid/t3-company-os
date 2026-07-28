@@ -24,6 +24,7 @@ import type { CampaignCreationBusinessType, CampaignEvent, CampaignProductPropos
 import { captureProposalSnapshots, generateCampaignName } from './campaignCreationService'
 
 export type CampaignCreateInput = {
+  sellerId?: string
   campaignName: string
   sellerName: string
   brandName: string
@@ -40,6 +41,9 @@ export type CampaignCreateInput = {
   landingPageType?: string
   memo?: string
   salesChannelType?: Campaign['salesChannelType']
+  salesChannelSource?: Campaign['salesChannelSource']
+  salesChannelManuallyOverridden?: boolean
+  sellerExtraPgRate?: number
   campaignProducts?: CampaignProductSelection[]
   proposalSnapshots?: CampaignProductProposalSnapshot[]
   campaignEvents?: CampaignEvent[]
@@ -398,7 +402,7 @@ export const campaignService = {
       id: createId('SCH'),
       campaignCode,
       campaignName: input.campaignName.trim() || generateCampaignName({ sellerName: input.sellerName, selectedProducts: input.campaignProducts ?? [] }),
-      sellerId: createId('seller'),
+      sellerId: input.sellerId ?? createId('seller'),
       sellerName: input.sellerName.trim(),
       brandId: input.campaignProducts?.[0]?.brandId ?? createId('brand'),
       brandName: input.brandName.trim(),
@@ -417,6 +421,9 @@ export const campaignService = {
       settlementDueDate: input.settlementDueDate ?? '',
       landingPageType: input.landingPageType,
       salesChannelType: input.salesChannelType,
+      salesChannelSource: input.salesChannelSource,
+      salesChannelManuallyOverridden: input.salesChannelManuallyOverridden,
+      sellerExtraPgRate: input.sellerExtraPgRate,
       memo: input.memo,
       createdAt,
       updatedAt: createdAt,

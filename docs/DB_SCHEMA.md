@@ -357,3 +357,30 @@ Mock 단계에서는 provider, sourceId, importedAt만 저장한다. 실제 toke
 ### AI draft metadata
 
 적용된 Mock 초안의 provider, prompt, confidence와 appliedAt을 기록한다. AI 결과는 자동 저장하지 않고 사용자 검토와 상품 master 매칭 후 적용한다.
+
+## Campaign Creation master defaults
+
+### sellers
+
+- `business_type`: `general_business`, `simplified_business`, `freelancer`. Campaign 등록 시 seller master에서 읽으며 미등록이면 생성을 차단한다.
+- `default_md_id`
+- `default_manager_id`
+
+### product sales link policy
+
+- `default_sales_channel_type`: `supplier_link`, `wise_shop_link`, `seller_checkout`
+- `wise_shop_available`: boolean
+- `seller_checkout_available`: boolean
+- `brand_pg_support_available`: boolean
+- `brand_pg_support_rate`: nullable numeric, 지원할 때만 1~5
+
+와이즈샵과 셀러 결제창 사용 가능 여부는 독립 저장한다. 기본 링크는 반드시 해당 상품에서 사용 가능한 값이어야 한다. 브랜드 PG 지원이 없으면 지원율은 null이어야 한다.
+
+### campaign link and PG decision
+
+- `sales_channel_type`: 실제 Campaign에서 선택한 링크
+- `sales_channel_source`: `product_default`, `manual`, `mixed_products`
+- `sales_channel_manually_overridden`: boolean
+- `seller_extra_pg_rate`: 이번 Campaign에서 셀러에게 실제로 추가 지급하는 비율
+
+`brand_pg_support_rate`는 브랜드의 회사 지원 조건이고 `seller_extra_pg_rate`는 실제 셀러 지급 조건이므로 별도 저장한다. Campaign 생성 snapshot에는 상품별 기본 링크, 링크 가용성, 브랜드 PG 지원, 실제 선택 링크, 셀러 기본·추가·최종 수수료, 총·회사 수수료와 배송비를 보존한다.
