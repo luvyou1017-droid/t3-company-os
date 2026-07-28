@@ -21,15 +21,16 @@ let products: ProductMaster[] = [
 let recentBrandIds: string[] = []
 
 function toCampaignProduct(product: ManagedProductMaster): ProductMaster {
+  const representativeSku = product.skus.find((sku) => sku.representative && sku.active) ?? product.skus.find((sku) => sku.active)
   return {
     id: product.id,
     brandId: product.brandId,
     brandName: product.brandName,
     productName: product.productName,
-    regularPrice: product.regularPrice,
-    salePrice: product.salePrice,
+    regularPrice: representativeSku?.regularPrice ?? product.regularPrice,
+    salePrice: representativeSku?.groupBuyPrice ?? product.salePrice,
     shippingAmount: product.shippingFee,
-    supplyPrice: product.supplyPrice,
+    supplyPrice: representativeSku?.supplyPrice ?? product.supplyPrice,
     totalCommissionRate: product.totalCommissionRate,
     sellerCommissionRate: product.sellerCommissionRate,
     notes: product.memo || product.internalMemo || '',

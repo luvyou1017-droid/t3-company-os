@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { productService, validateProductPolicy } from '../../../features/productMaster/services/productService'
-import type { ProductMasterInput, ProductPgSupportRate } from '../../../features/productMaster/types'
+import type { ProductMasterInput, ProductPgSupportRate, ProductSku, SellerPortalStatus } from '../../../features/productMaster/types'
 import type { ProductMasterPermission } from '../../../features/productMaster/permissions'
 
 type Errors = Record<string, string>
@@ -10,13 +10,15 @@ const sectionFields: Record<string, string[]> = {
   commission: ['totalCommissionRate', 'sellerCommissionRate'], link: ['defaultSalesChannelType', 'wiseShopAvailable', 'sellerCheckoutAvailable'],
 }
 const initial: ProductMasterInput = {
-  productCode: '', brandId: '', brandName: '', productName: '', category: '', imageUrl: '', memo: '',
+  productCode: '', vendorId: '', vendorName: '', brandId: '', brandName: '', productName: '', category: '', subCategory: '', imageUrl: '', representativeImageUrl: '', additionalImageUrls: [], internalDescription: '', sellerDescription: '', memo: '',
   regularPrice: 0, salePrice: 0, supplyPrice: 0, shippingFee: 0, freeShippingThreshold: undefined,
   totalCommissionRate: 0, sellerCommissionRate: 0, companyCommissionRate: 0,
   defaultSalesChannelType: 'supplier_link', wiseShopAvailable: false, sellerCheckoutAvailable: false,
   brandPgSupportAvailable: false, courierName: '', jejuExtraFee: 0, islandExtraFee: 0,
   bundleShippingAvailable: false, orderDeadlineTime: '', sampleSupportType: '', manufactureInfo: '',
-  shelfLifeInfo: '', orderMemo: '', settlementMemo: '', internalMemo: '', active: true, testData: false,
+  shelfLifeInfo: '', orderMemo: '', settlementMemo: '', internalMemo: '', skus: [], sellerPortalVisible: false,
+  sellerPortalStatus: 'closed', badges: [], sampleAvailable: false, managerName: '김병희', managerContact: '',
+  active: true, testData: false,
 }
 const money = (value: number) => `${Number(value || 0).toLocaleString('ko-KR')}원`
 const number = (value: string) => value === '' ? 0 : Number(value)
@@ -49,6 +51,16 @@ export function ProductFormPage({ productId, onBack, permission }: { productId?:
   const discountRate = form.regularPrice > 0 ? Math.round((1 - form.salePrice / form.regularPrice) * 1000) / 10 : 0
   const filteredBrands = brandOptions.filter((brand) => brand.name.toLowerCase().includes(brandQuery.toLowerCase()))
   const sectionCount = (section: string) => sectionFields[section]?.filter((field) => errors[field]).length ?? 0
+  const updateSku = (id: string, patchValue: Partial<ProductSku>) => patch('skus', form.skus.map((sku) => sku.id === id ? { ...sku, ...patchValue, updatedAt: new Date().toISOString() } : sku))
+  const addSku = () => {
+    const now = new Date().toISOString()
+    const id = crypto.randomUUID()
+    patch('skus', [...form.skus, { id, skuCode: `SKU-${Date.now().toString().slice(-6)}`, productId: productId ?? 'new-product', optionName: `옵션 ${form.skus.length + 1}`, regularPrice: form.regularPrice, groupBuyPrice: form.salePrice, supplyPrice: form.supplyPrice, stockStatus: 'available', sellerPortalVisible: true, representative: form.skus.length === 0, active: true, createdAt: now, updatedAt: now }])
+  }
+  const cloneSku = (source: ProductSku) => {
+    const now = new Date().toISOString()
+    patch('skus', [...form.skus, { ...source, id: crypto.randomUUID(), skuCode: `${source.skuCode}-COPY`, optionName: `${source.optionName} 복사본`, representative: false, createdAt: now, updatedAt: now }])
+  }
   const validate = () => {
     const next: Errors = {}
     if (!form.brandId) next.brandName = '브랜드를 검색해 선택해주세요.'
@@ -86,10 +98,11 @@ export function ProductFormPage({ productId, onBack, permission }: { productId?:
     <fieldset className="product-form-fieldset" disabled={readOnly}>
     <section className="product-form-section" id="product-basic">{sectionTitle('1. 기본 정보', 'basic')}<div className="product-form-grid">
       <label className={fieldClass('productCode')} data-field="productCode"><span>상품 코드</span><input value={form.productCode} placeholder="미입력 시 자동 생성" onChange={(e) => patch('productCode', e.target.value)} /></label>
+      <label className="product-field"><span>공급처</span><input value={form.vendorName} placeholder="공급처 DB 연결 준비" onChange={(e) => { patch('vendorName', e.target.value); patch('vendorId', e.target.value ? `vendor-${e.target.value}` : '') }} /></label>
       <div className={fieldClass('brandName')} data-field="brandName"><span>브랜드 *</span><input value={brandQuery} placeholder="브랜드 검색" onChange={(e) => { setBrandQuery(e.target.value); patch('brandId', ''); patch('brandName', e.target.value) }} />{brandQuery && !form.brandId && <div className="brand-options">{filteredBrands.map((brand) => <button key={brand.id} onClick={() => { patch('brandId', brand.id); patch('brandName', brand.name); setBrandQuery(brand.name) }}>{brand.name}</button>)}{filteredBrands.length === 0 && <p>브랜드가 없습니다. 브랜드 등록이 필요합니다.</p>}</div>}{errors.brandName && <small>{errors.brandName}</small>}</div>
       <label className={fieldClass('productName')} data-field="productName"><span>상품명 *</span><input value={form.productName} onChange={(e) => patch('productName', e.target.value)} />{errors.productName && <small>{errors.productName}</small>}</label>
       <label className="product-field"><span>카테고리</span><input value={form.category} onChange={(e) => patch('category', e.target.value)} /></label>
-      <label className="product-field"><span>대표 이미지 URL</span><input type="url" value={form.imageUrl} onChange={(e) => patch('imageUrl', e.target.value)} /></label>
+      <label className="product-field"><span>대표 이미지 URL</span><input type="url" value={form.representativeImageUrl} onChange={(e) => { patch('representativeImageUrl', e.target.value); patch('imageUrl', e.target.value) }} /></label>
       <label className="product-field product-check"><input type="checkbox" checked={form.active} onChange={(e) => patch('active', e.target.checked)} /><span>활성 상품</span></label>
       <label className="product-field product-span-2"><span>메모</span><textarea value={form.memo} onChange={(e) => patch('memo', e.target.value)} /></label>
     </div></section>
@@ -121,7 +134,24 @@ export function ProductFormPage({ productId, onBack, permission }: { productId?:
       <label className="product-field"><span>샘플 지원 여부</span><select value={form.sampleSupportType} onChange={(e) => patch('sampleSupportType', e.target.value)}><option value="">선택</option><option>지원 가능</option><option>지원 불가</option><option>협의 필요</option></select></label>
       {([['manufactureInfo','제조일자 정보'],['shelfLifeInfo','유통기한 정보'],['orderMemo','발주 참고사항'],['settlementMemo','정산 참고 메모'],['internalMemo','담당자 메모']] as const).map(([key,label]) => <label className="product-field" key={key}><span>{label}</span><textarea value={form[key]} onChange={(e) => patch(key, e.target.value)} /></label>)}
     </div></section>
-    <section className="product-form-section"><h2>7. 최종 확인</h2><div className="product-review">
+    <section className="product-form-section"><h2>7. 셀러 공개 정보</h2><p className="policy-note">이 영역만 셀러 카탈로그의 공개 전용 데이터로 변환됩니다. 공급가·수수료·PG·내부 메모는 전달되지 않습니다.</p><div className="product-form-grid">
+      <BooleanSelect label="셀러 카탈로그 공개" value={form.sellerPortalVisible} onChange={(value) => patch('sellerPortalVisible', value)} />
+      <label className="product-field"><span>공구 가능 상태</span><select value={form.sellerPortalStatus} onChange={(e) => patch('sellerPortalStatus', e.target.value as SellerPortalStatus)}><option value="available">공구 가능</option><option value="coming_soon">곧 진행 가능</option><option value="paused">일시 중단</option><option value="sold_out">품절</option><option value="closed">진행 종료</option></select></label>
+      <BooleanSelect label="샘플 가능 여부" value={form.sampleAvailable} onChange={(value) => patch('sampleAvailable', value)} />
+      <label className="product-field"><span>담당 매니저</span><input value={form.managerName} onChange={(e) => patch('managerName', e.target.value)} /></label>
+      <label className="product-field product-span-2"><span>셀러용 설명</span><textarea value={form.sellerDescription} onChange={(e) => patch('sellerDescription', e.target.value)} /></label>
+      <div className="product-field product-span-2"><span>공개 Badge</span><div className="badge-checks">{([['new','NEW'],['popular','인기'],['recommended','추천'],['recently_successful','최근 진행 성과']] as const).map(([value,label]) => <label key={value}><input type="checkbox" checked={form.badges?.includes(value)} onChange={(e) => patch('badges', e.target.checked ? [...(form.badges ?? []), value] : (form.badges ?? []).filter((badge) => badge !== value))} />{label}</label>)}</div></div>
+    </div></section>
+    <section className="product-form-section"><div className="sku-heading"><div><h2>8. SKU 관리</h2><p>SKU별 가격과 판매 가능 상태를 관리하고 제품 기본값을 예외 덮어쓸 수 있습니다.</p></div>{!readOnly && <button type="button" className="secondary-button" onClick={addSku}>SKU 추가</button>}</div>
+      {form.skus.length === 0 ? <div className="master-empty">등록된 SKU가 없습니다. SKU를 추가해주세요.</div> : <div className="sku-list">{form.skus.map((sku) => <article className={!sku.active ? 'sku-card is-inactive' : 'sku-card'} key={sku.id}>
+        <div className="sku-card__title"><label><input type="radio" name="representative-sku" checked={Boolean(sku.representative)} onChange={() => patch('skus', form.skus.map((item) => ({ ...item, representative: item.id === sku.id })))} /> 대표 SKU</label><strong>{sku.skuCode}</strong><span className={`status-badge ${sku.stockStatus === 'available' ? 'done' : 'waiting'}`}>{sku.stockStatus === 'available' ? '판매 가능' : sku.stockStatus === 'limited' ? '재고 한정' : '판매 불가'}</span></div>
+        <div className="sku-grid"><label>옵션명<input value={sku.optionName} onChange={(e) => updateSku(sku.id, { optionName: e.target.value })} /></label><label>정상가<input type="number" value={sku.regularPrice} onChange={(e) => updateSku(sku.id, { regularPrice: number(e.target.value) })} /></label><label>공구가<input type="number" value={sku.groupBuyPrice} onChange={(e) => updateSku(sku.id, { groupBuyPrice: number(e.target.value) })} /></label><label>공급가<input type="number" value={sku.supplyPrice} onChange={(e) => updateSku(sku.id, { supplyPrice: number(e.target.value) })} /></label><label>재고 상태<select value={sku.stockStatus} onChange={(e) => updateSku(sku.id, { stockStatus: e.target.value as ProductSku['stockStatus'] })}><option value="available">판매 가능</option><option value="limited">재고 한정</option><option value="out_of_stock">품절</option><option value="discontinued">단종</option></select></label></div>
+        <div className="sku-policy-source"><span>배송비 {money(sku.policyOverrides?.shippingFee ?? form.shippingFee)}</span><small>출처: {sku.policyOverrides?.shippingFee !== undefined ? 'SKU 예외 설정' : '제품 기본값'}</small><span>기본 링크 {channelLabels[sku.policyOverrides?.defaultSalesChannelType ?? form.defaultSalesChannelType]}</span><small>출처: {sku.policyOverrides?.defaultSalesChannelType ? 'SKU 예외 설정' : '제품 기본값'}</small></div>
+        {!readOnly && <div className="table-actions"><button type="button" onClick={() => cloneSku(sku)}>SKU 복제</button><button type="button" onClick={() => updateSku(sku.id, { active: !sku.active })}>{sku.active ? 'SKU 비활성화' : 'SKU 활성화'}</button></div>}
+      </article>)}</div>}
+      {form.skus.length > 1 && <div className="sku-price-compare"><h3>가격 비교</h3>{form.skus.map((sku) => <div key={sku.id}><span>{sku.optionName}</span><span>정상가 {money(sku.regularPrice)}</span><strong>공구가 {money(sku.groupBuyPrice)}</strong><span>차액 {money(sku.groupBuyPrice - sku.supplyPrice)}</span></div>)}</div>}
+    </section>
+    <section className="product-form-section"><h2>9. 최종 확인</h2><div className="product-review">
       {[
         ['브랜드', form.brandName || '미선택'], ['상품명', form.productName || '미입력'], ['정상가', money(form.regularPrice)], ['공구가', money(form.salePrice)],
         ['공급가', money(form.supplyPrice)], ['배송비', money(form.shippingFee)], ['총 수수료율', `${form.totalCommissionRate}%`],

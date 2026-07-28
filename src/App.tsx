@@ -24,10 +24,13 @@ import { PreparingMasterPage } from './pages/master/PreparingMasterPage'
 import { ProductFormPage } from './pages/master/products/ProductFormPage'
 import { ProductListPage } from './pages/master/products/ProductListPage'
 import { getCurrentProductMasterPermission } from './features/productMaster/permissions'
+import { canAccessInternalProductMaster, enterSellerPortal, leaveSellerPortal } from './features/productMaster/access'
+import { SellerCatalogPage } from './pages/seller-catalog/SellerCatalogPage'
 
-export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리' | '지급 승인' | '셀러 마스터' | '브랜드 마스터' | '상품 마스터' | '벤더 마스터' | '가져오기/내보내기' | '운영 시나리오 테스트' | 'Supabase 파일럿 테스트'
+export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리' | '지급 승인' | '셀러 마스터' | '매니저 마스터' | '브랜드 마스터' | '상품 마스터' | '벤더 마스터' | '제안서 마스터' | '가져오기/내보내기' | '운영 시나리오 테스트' | 'Supabase 파일럿 테스트'
 
 function App() {
+  const sellerRoute = parseSellerRoute()
   const productMasterPermission = getCurrentProductMasterPermission()
   const isPublicCsIntake = window.location.hash === '#public-cs-intake'
   const route = parseCampaignRoute()
@@ -53,7 +56,7 @@ function App() {
     setSelectedSalesDataImportId(null)
     setSelectedSettlementId(null)
     if (page === '지급 승인') window.history.pushState({ from: '/', label: '지급 요청 목록' }, '', '/payments?tab=requests')
-    const masterPaths: Partial<Record<AppPage, string>> = { '셀러 마스터': '/master/sellers', '브랜드 마스터': '/master/brands', '상품 마스터': '/master/products', '벤더 마스터': '/master/vendors', '가져오기/내보내기': '/master/import-export' }
+    const masterPaths: Partial<Record<AppPage, string>> = { '셀러 마스터': '/master/sellers', '매니저 마스터': '/master/managers', '브랜드 마스터': '/master/brands', '상품 마스터': '/master/products', '벤더 마스터': '/master/vendors', '제안서 마스터': '/master/proposals', '가져오기/내보내기': '/master/import-export' }
     if (masterPaths[page]) window.history.pushState({}, '', masterPaths[page])
   }
 
@@ -101,6 +104,24 @@ function App() {
   if (isPublicCsIntake) {
     return <PublicCsIntakePage />
   }
+  if (sellerRoute) {
+    enterSellerPortal()
+    return <SellerCatalogPage productId={sellerRoute.productId} onOpen={(id) => {
+      window.history.pushState({}, '', `/seller/catalog/${encodeURIComponent(id)}`)
+      window.location.reload()
+    }} onBackToCatalog={() => {
+      window.history.pushState({}, '', '/seller/catalog')
+      window.location.reload()
+    }} onLeave={() => {
+      leaveSellerPortal()
+      window.location.assign('/')
+    }} />
+  }
+  if (masterRoute?.page === '상품 마스터' && !canAccessInternalProductMaster()) {
+    window.history.replaceState({}, '', '/seller/catalog')
+    window.location.reload()
+    return null
+  }
 
   return (
     <AppLayout activePage={activePage} onNavigate={handleNavigate} onOpenRelated={openRelated}>
@@ -123,6 +144,8 @@ function App() {
       {activePage === '셀러 마스터' && <PreparingMasterPage title="셀러" />}
       {activePage === '브랜드 마스터' && <PreparingMasterPage title="브랜드" />}
       {activePage === '벤더 마스터' && <PreparingMasterPage title="벤더" />}
+      {activePage === '제안서 마스터' && <PreparingMasterPage title="공동구매 제안서" />}
+      {activePage === '매니저 마스터' && <PreparingMasterPage title="매니저" />}
       {activePage === '가져오기/내보내기' && <PreparingMasterPage title="가져오기/내보내기" />}
       {import.meta.env.DEV && activePage === '운영 시나리오 테스트' && <OperationalScenariosPage />}
       {import.meta.env.DEV && activePage === 'Supabase 파일럿 테스트' && <SupabasePilotPage />}
@@ -165,7 +188,15 @@ function parseMasterRoute(): { page: AppPage; productId?: string } | null {
   if (path === '/master/brands') return { page: '브랜드 마스터' }
   if (path === '/master/vendors') return { page: '벤더 마스터' }
   if (path === '/master/import-export') return { page: '가져오기/내보내기' }
+  if (path === '/master/proposals') return { page: '제안서 마스터' }
+  if (path === '/master/managers') return { page: '매니저 마스터' }
   return null
+}
+
+function parseSellerRoute(): { productId?: string } | null {
+  if (window.location.pathname === '/seller/catalog') return {}
+  const match = window.location.pathname.match(/^\/seller\/catalog\/([^/]+)$/)
+  return match ? { productId: decodeURIComponent(match[1]) } : null
 }
 
 function parseCampaignRoute(): { campaignId: string; tab: CampaignTab } | null {

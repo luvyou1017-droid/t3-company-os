@@ -11,7 +11,21 @@ export class LocalProductRepository implements ProductRepository {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(mockProductMasters))
       return mockProductMasters
     }
-    try { return JSON.parse(stored) as ProductMaster[] } catch { return mockProductMasters }
+    try {
+      const storedProducts = JSON.parse(stored) as ProductMaster[]
+      const byId = new Map(mockProductMasters.map((product) => [product.id, product]))
+      storedProducts.forEach((product) => byId.set(product.id, { ...byId.get(product.id), ...product } as ProductMaster))
+      const products = Array.from(byId.values()).map((product) => ({
+        ...product,
+        representativeImageUrl: product.representativeImageUrl ?? product.imageUrl,
+        skus: product.skus ?? [],
+        sampleAvailable: product.sampleAvailable ?? product.sampleSupportType === '지원 가능',
+        sellerPortalVisible: product.sellerPortalVisible ?? false,
+        sellerPortalStatus: product.sellerPortalStatus ?? 'closed',
+      }))
+      this.write(products)
+      return products
+    } catch { return mockProductMasters }
   }
   private write(products: ProductMaster[]) { localStorage.setItem(STORAGE_KEY, JSON.stringify(products)) }
   async listProducts() { return this.read() }

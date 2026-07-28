@@ -89,6 +89,26 @@ Campaign이 참조하는 상품 기본 조건이다. Campaign 저장 시 현재 
 
 `metadata`에는 `regularPrice`, `salePrice`, `supplyPrice`, `shippingFee`, `freeShippingThreshold`, `totalCommissionRate`, `sellerCommissionRate`, `companyCommissionRate`, `defaultSalesChannelType`, 링크별 사용 가능 여부, 브랜드 PG 지원 여부·1~5% 지원율, 배송 정책, 샘플·운영 참고 정보, `version`을 저장한다. 브랜드 PG 지원율과 Campaign의 실제 셀러 추가 PG 지급률은 별도 값이다.
 
+### product hierarchy 확장
+
+UI·workflow 검증 단계에서는 기존 `product_masters.metadata`에 관계와 SKU를 보존한다. 정규화 시 아래 테이블로 분리한다.
+
+| Table | 주요 관계와 역할 |
+| --- | --- |
+| `vendors` | 공급처와 공급·배송 기본 정책 |
+| `brands` | `vendor_id` 참조, 브랜드 기본 정책 |
+| `product_masters` | `vendor_id`, `brand_id`, 공개 정보·상태, 제품 기본 정책 |
+| `product_skus` | `product_id` 참조, 옵션·가격·재고·정책 override |
+| `proposals` | 내부 제안서 메타데이터 |
+| `proposal_products` | Proposal과 Product/SKU N:M 연결 |
+| `campaign_products` | Campaign과 Product/SKU N:M 및 조건 snapshot |
+
+`seller_portal_visible=false`인 제품은 셀러 view/RPC에서 제외한다. 셀러 view는 브랜드, 제품명, 이미지, 카테고리, 셀러 설명, 예상 가격 범위, 배송 안내, 샘플, 공개 상태·Badge와 담당 매니저만 반환한다. 공급가, 수수료, PG 지원, 정산 메모, 공급처 연락처는 view 컬럼에 포함하지 않는다.
+
+`campaign_products`에는 `product_master_id`, nullable `sku_id`, `product_master_version`, `captured_at`, `policy_snapshot jsonb`, `policy_sources jsonb`를 둔다. Campaign 생성 당시 해석된 값을 저장하며 마스터 수정 시 갱신하지 않는다.
+
+Proposal은 `brand_ids`, `product_ids`, `sku_ids` 관계를 가질 수 있지만 내부 자산이다. 셀러 역할은 원본 Proposal과 내부 활동 로그를 조회할 수 없다. 운영 Supabase에서는 직원용 product RLS와 셀러 공개용 제한 view/RPC를 분리한다.
+
 ### users
 
 Internal staff accounts.

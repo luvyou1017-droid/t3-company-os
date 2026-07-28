@@ -59,3 +59,13 @@ Campaign 저장 시 상품 마스터의 현재값과 `productMasterId`, `product
 ## CSV Import 예정 구조
 
 V1에는 CSV 일괄등록을 구현하지 않는다. 다음 단계에서 다운로드 템플릿, 컬럼 매핑, 행 단위 검증, 중복 상품 코드 처리, dry-run 결과, 성공·실패 리포트, version 증가와 감사 로그를 Repository 위의 import service로 추가한다.
+
+## Product hierarchy와 Seller Catalog 확장
+
+기존 ProductMaster의 평면 가격·수수료·링크 필드는 Campaign 호환 기준값으로 유지한다. 신규 관계는 `Vendor 1:N Brand`, `Brand 1:N ProductMaster`, `ProductMaster 1:N ProductSku`다. SKU는 제품 상세 안에서 추가, 수정, 복제, 비활성화, 대표 지정하며 별도 사이드바 메뉴로 만들지 않는다.
+
+정책은 공급처, 브랜드, 제품, SKU 순으로 상속하고 가장 가까운 하위 값을 사용한다. `resolveProductPolicy`는 각 결과에 `PolicySource`를 포함한다. SKU 선택 Campaign snapshot은 SKU ID·코드, 제품 버전, 캡처 시각, 해석된 정책값과 출처를 저장한다.
+
+셀러 공개는 `sellerPortalVisible`과 `sellerPortalStatus`로 관리한다. 공개 데이터는 내부 ProductMaster를 직접 사용하지 않고 `SellerCatalogProduct`로 변환한다. 공급가, 내부 수수료, 브랜드 PG 조건, 정산·내부 메모와 공급처 연락처는 이 DTO에 존재하지 않는다. 상세 설계는 `PRODUCT_CATALOG_ARCHITECTURE.md`를 따른다.
+
+향후 Proposal은 `vendorId`, `brandIds`, `productIds`, `skuIds`로 여러 제품과 SKU를 참조한다. Proposal은 내부 자산이며 카탈로그 전체 공개 대상이 아니다.
