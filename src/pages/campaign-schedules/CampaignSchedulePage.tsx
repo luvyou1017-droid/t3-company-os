@@ -111,7 +111,7 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
   const [activeTab, setActiveTab] = useState<CampaignViewTab>(savedState.activeTab)
   const [filters, setFilters] = useState<CampaignFilters>(savedState.filters)
   const [selectedSchedule, setSelectedSchedule] = useState<CampaignSchedule | null>(null)
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState(() => window.location.pathname === '/campaigns/new')
   const [notice, setNotice] = useState('')
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => campaignService.getCampaigns())
 
@@ -153,6 +153,7 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
 
   const handleCreateClick = () => {
     setNotice('')
+    window.history.pushState({}, '', '/campaigns/new')
     setCreating(true)
   }
 

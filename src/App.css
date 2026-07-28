@@ -607,6 +607,12 @@
 .campaign-create-anchors { background: #f8fafc; border-block: 1px solid #e7ebf1; display: flex; gap: 6px; overflow-x: auto; padding: 10px 28px; }
 .campaign-create-anchors button { background: transparent; border: 0; border-radius: 8px; color: #475569; cursor: pointer; font-weight: 800; padding: 8px 11px; white-space: nowrap; }
 .campaign-create-anchors button:hover { background: #eaf2ff; color: #1d4ed8; }
+.campaign-create-anchors button { align-items: center; display: inline-flex; gap: 6px; }
+.section-error-badge { background: #fef2f2; border: 1px solid #fecaca; border-radius: 999px; color: #b91c1c; cursor: pointer; font-size: 11px; font-weight: 900; padding: 4px 8px; }
+.campaign-field--error input,
+.campaign-field--error select,
+.campaign-field--error textarea { border-color: #ef4444 !important; box-shadow: 0 0 0 3px rgba(239,68,68,.1); }
+.campaign-field--error { scroll-margin-top: 140px; }
 .campaign-v2-notice, .campaign-policy-warning { margin: 16px 28px 0; padding: 13px 15px; border-radius: 10px; color: #9a3412; background: #fff7ed; }
 .campaign-create-v2 .campaign-create-form { min-height: 520px; }
 .campaign-create-scroll-form { gap: 28px; scroll-behavior: smooth; }
@@ -660,6 +666,20 @@
 .helper-modal h3, .helper-modal p { margin: 0; }
 .helper-modal input, .helper-modal textarea { padding: 12px; border: 1px solid #cbd5e1; border-radius: 10px; font: inherit; }
 .helper-preview { padding: 14px; border-radius: 11px; background: #eff6ff; }
+.campaign-draft-picker { width: min(980px, calc(100vw - 40px)); }
+.campaign-draft-picker__actions { align-items: center; display: flex; justify-content: space-between; padding: 18px 24px 8px; }
+.campaign-draft-list { display: grid; gap: 14px; overflow-y: auto; padding: 14px 24px 24px; }
+.campaign-draft-card { background: #fff; border: 1px solid #dbe3ef; border-radius: 16px; box-shadow: 0 8px 24px rgba(15,23,42,.05); display: grid; gap: 16px; padding: 20px; }
+.campaign-draft-card__heading { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
+.campaign-draft-card__heading h3 { font-size: 18px; margin: 4px 0 0; }
+.campaign-draft-card__heading > div > span { color: #2563eb; font-size: 12px; font-weight: 900; }
+.draft-missing-badge { background: #fef2f2; border-radius: 999px; color: #b91c1c; font-size: 11px; font-weight: 900; padding: 6px 9px; }
+.campaign-draft-card dl { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
+.campaign-draft-card dl div { min-width: 0; }
+.campaign-draft-card dt { color: #64748b; font-size: 11px; }
+.campaign-draft-card dd { font-size: 13px; font-weight: 800; margin: 4px 0 0; overflow-wrap: anywhere; }
+.campaign-draft-card .button-row { justify-content: flex-end; }
+.danger-button { background: #dc2626 !important; }
 
 @media (max-width: 900px) {
   .proposal-preview-grid, .final-review-grid, .final-event-list { grid-template-columns: 1fr; }
@@ -667,6 +687,7 @@
   .campaign-create-grid .span-2 { grid-column: auto; }
   .final-review-grid--ordered > div:first-child { grid-column: auto; }
   .winner-announcement-card { grid-template-columns: 1fr; }
+  .campaign-draft-card dl { grid-template-columns: 1fr 1fr; }
 }
 
 .campaign-create-modal__actions {

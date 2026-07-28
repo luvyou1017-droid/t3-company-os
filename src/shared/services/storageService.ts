@@ -6,6 +6,8 @@ export const STORAGE_KEYS = {
   notifications: 't3_company_os_notifications',
   campaignChecklistItems: 't3_company_os_campaign_checklist_items',
   campaignCreateDraft: 't3_company_os_campaign_create_draft',
+  campaignCreateDrafts: 't3_company_os_campaign_create_drafts',
+  campaignCreateDraftMigrationCompleted: 't3_company_os_campaign_create_draft_migration_completed',
   salesDataImports: 't3_company_os_sales_data_imports',
   salesDataRows: 't3_company_os_sales_data_rows',
   settlements: 't3_company_os_settlements',

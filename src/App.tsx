@@ -27,7 +27,7 @@ function App() {
   const isPublicCsIntake = window.location.hash === '#public-cs-intake'
   const route = parseCampaignRoute()
   const isPaymentRoute = window.location.pathname.startsWith('/payments')
-  const [activePage, setActivePage] = useState<AppPage>(route ? '공동구매 일정' : isPaymentRoute ? '지급 승인' : 'Dashboard')
+  const [activePage, setActivePage] = useState<AppPage>(route || window.location.pathname === '/campaigns/new' ? '공동구매 일정' : isPaymentRoute ? '지급 승인' : 'Dashboard')
   const [paymentRouteKey, setPaymentRouteKey] = useState(0)
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(route?.campaignId ?? null)
   const [campaignTab, setCampaignTab] = useState<CampaignTab>(route?.tab ?? 'overview')
@@ -54,7 +54,7 @@ function App() {
         setActivePage('지급 승인')
         setPaymentRouteKey((value) => value + 1)
       } else {
-        setActivePage(nextRoute ? '공동구매 일정' : 'Dashboard')
+        setActivePage(nextRoute || window.location.pathname === '/campaigns/new' ? '공동구매 일정' : 'Dashboard')
         setSelectedScheduleId(nextRoute?.campaignId ?? null)
         setCampaignTab(nextRoute?.tab ?? 'overview')
       }
@@ -130,6 +130,7 @@ function App() {
 }
 
 function parseCampaignRoute(): { campaignId: string; tab: CampaignTab } | null {
+  if (window.location.pathname === '/campaigns/new') return null
   const match = window.location.pathname.match(/^\/campaigns\/([^/]+)/)
   if (!match) return null
   const requested = new URLSearchParams(window.location.search).get('tab') as CampaignTab | null
