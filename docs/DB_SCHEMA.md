@@ -109,6 +109,60 @@ UI·workflow 검증 단계에서는 기존 `product_masters.metadata`에 관계�
 
 Proposal은 `brand_ids`, `product_ids`, `sku_ids` 관계를 가질 수 있지만 내부 자산이다. 셀러 역할은 원본 Proposal과 내부 활동 로그를 조회할 수 없다. 운영 Supabase에서는 직원용 product RLS와 셀러 공개용 제한 view/RPC를 분리한다.
 
+### proposals
+
+제안서의 기본정보, 상태, 원본 스프레드시트와 복제 관계를 관리한다.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | Primary key |
+| `proposal_name` | text | 내부 제안서명 |
+| `status` | text | `draft`, `reviewing`, `shareable`, `archived` |
+| `vendor_id` | uuid/text | 대표 공급처, nullable |
+| `reference_date` | date | 제안 기준일 |
+| `source_spreadsheet_url` | text | 기존 스프레드시트 원본 URL |
+| `source_spreadsheet_metadata` | jsonb | provider, sheet name, capturedAt 등; token 저장 금지 |
+| `source_proposal_id` | uuid | 복제 원본 Proposal, nullable |
+| `metadata` | jsonb | 제목, 브랜드, 담당자, 배송·샘플, 판매 포인트, 내부 메모 |
+| `created_by` | uuid | 작성자 |
+| `created_at` | timestamptz | 작성일 |
+| `updated_at` | timestamptz | 수정일 |
+
+### proposal_product_items
+
+Proposal과 Product/SKU의 N:M 관계이자 제안 생성 당시 snapshot이다.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | Primary key |
+| `proposal_id` | uuid | References `proposals.id` |
+| `product_id` | uuid/text | Product master reference |
+| `sku_ids` | jsonb/text[] | 선택 SKU IDs |
+| `display_order` | integer | 공유 페이지 표시 순서 |
+| `visible_in_shared_view` | boolean | 공유 미리보기 표시 여부 |
+| `representative` | boolean | 대표 상품 |
+| `public_snapshot` | jsonb | 브랜드·상품·가격·배송·샘플·판매 포인트 허용 정보 |
+| `internal_snapshot` | jsonb | 공급가·내부 수수료·PG·링크·정산 메모 |
+| `price_overridden` | boolean | 제안서 가격 override |
+| `commission_overridden` | boolean | 제안서 셀러 수수료 override |
+| `source_version` | integer | Product master version |
+| `captured_at` | timestamptz | snapshot 시각 |
+
+### proposal_preview_images
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | Primary key |
+| `proposal_id` | uuid | References `proposals.id` |
+| `image_type` | text | `legacy_capture`, `web_export`, `cover` |
+| `storage_bucket` | text | 향후 private Storage bucket |
+| `storage_path` | text | private path |
+| `external_url` | text | 기존 캡처 URL 호환, nullable |
+| `display_order` | integer | 표시 순서 |
+| `created_at` | timestamptz | 생성일 |
+
+셀러 역할은 위 세 테이블과 내부 preview route에 직접 접근할 수 없다. 공유 렌더링은 서버/RPC에서도 public snapshot 허용 컬럼만 선택해야 한다. Proposal 복제 시 새 ID, `draft` 상태와 `source_proposal_id`를 저장하고 preview images와 공유 이력은 복사하지 않는다.
+
 ### users
 
 Internal staff accounts.

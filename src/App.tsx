@@ -26,18 +26,25 @@ import { ProductListPage } from './pages/master/products/ProductListPage'
 import { getCurrentProductMasterPermission } from './features/productMaster/permissions'
 import { canAccessInternalProductMaster, enterSellerPortal, leaveSellerPortal } from './features/productMaster/access'
 import { SellerCatalogPage } from './pages/seller-catalog/SellerCatalogPage'
+import { ProposalListPage } from './pages/master/proposals/ProposalListPage'
+import { ProposalFormPage } from './pages/master/proposals/ProposalFormPage'
+import { ProposalPreviewPage } from './pages/master/proposals/ProposalPreviewPage'
+import { getCurrentProposalPermission } from './features/proposalMaster/permissions'
 
 export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리' | '지급 승인' | '셀러 마스터' | '매니저 마스터' | '브랜드 마스터' | '상품 마스터' | '벤더 마스터' | '제안서 마스터' | '가져오기/내보내기' | '운영 시나리오 테스트' | 'Supabase 파일럿 테스트'
 
 function App() {
   const sellerRoute = parseSellerRoute()
+  const proposalRoute = parseProposalRoute()
   const productMasterPermission = getCurrentProductMasterPermission()
+  const proposalPermission = getCurrentProposalPermission()
   const isPublicCsIntake = window.location.hash === '#public-cs-intake'
   const route = parseCampaignRoute()
   const isPaymentRoute = window.location.pathname.startsWith('/payments')
   const masterRoute = parseMasterRoute()
   const [activePage, setActivePage] = useState<AppPage>(route || window.location.pathname === '/campaigns/new' ? '공동구매 일정' : isPaymentRoute ? '지급 승인' : masterRoute?.page ?? 'Dashboard')
   const [productId, setProductId] = useState<string | undefined>(masterRoute?.productId)
+  const [proposalId, setProposalId] = useState<string | undefined>(proposalRoute?.mode === 'edit' ? proposalRoute.proposalId : undefined)
   const [paymentRouteKey, setPaymentRouteKey] = useState(0)
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(route?.campaignId ?? null)
   const [campaignTab, setCampaignTab] = useState<CampaignTab>(route?.tab ?? 'overview')
@@ -50,6 +57,7 @@ function App() {
     if (window.location.pathname.startsWith('/campaigns/') || window.location.pathname.startsWith('/payments') || window.location.pathname.startsWith('/master/')) window.history.pushState({}, '', '/')
     setActivePage(page)
     setProductId(undefined)
+    setProposalId(undefined)
     setSelectedScheduleId(null)
     setSelectedCsCaseId(null)
     setSelectedSampleId(null)
@@ -70,6 +78,8 @@ function App() {
         const master = parseMasterRoute()!
         setActivePage(master.page)
         setProductId(master.productId)
+        const nextProposal = parseProposalRoute()
+        setProposalId(nextProposal?.mode === 'edit' ? nextProposal.proposalId : undefined)
       } else {
         setActivePage(nextRoute || window.location.pathname === '/campaigns/new' ? '공동구매 일정' : 'Dashboard')
         setSelectedScheduleId(nextRoute?.campaignId ?? null)
@@ -117,10 +127,17 @@ function App() {
       window.location.assign('/')
     }} />
   }
-  if (masterRoute?.page === '상품 마스터' && !canAccessInternalProductMaster()) {
+  if ((masterRoute?.page === '상품 마스터' || masterRoute?.page === '제안서 마스터') && !canAccessInternalProductMaster()) {
     window.history.replaceState({}, '', '/seller/catalog')
     window.location.reload()
     return null
+  }
+  if (proposalRoute?.mode === 'preview') {
+    if (!proposalPermission.canPreview) {
+      window.location.replace('/seller/catalog')
+      return null
+    }
+    return <ProposalPreviewPage proposalId={proposalRoute.proposalId} onBack={() => window.location.assign('/master/proposals')} />
   }
 
   return (
@@ -144,7 +161,17 @@ function App() {
       {activePage === '셀러 마스터' && <PreparingMasterPage title="셀러" />}
       {activePage === '브랜드 마스터' && <PreparingMasterPage title="브랜드" />}
       {activePage === '벤더 마스터' && <PreparingMasterPage title="벤더" />}
-      {activePage === '제안서 마스터' && <PreparingMasterPage title="공동구매 제안서" />}
+      {activePage === '제안서 마스터' && !proposalId && <ProposalListPage permission={proposalPermission} onCreate={() => {
+        window.history.pushState({}, '', '/master/proposals/new')
+        setProposalId('new')
+      }} onEdit={(id) => {
+        window.history.pushState({}, '', `/master/proposals/${encodeURIComponent(id)}/edit`)
+        setProposalId(id)
+      }} onPreview={(id) => window.location.assign(`/master/proposals/${encodeURIComponent(id)}/preview`)} />}
+      {activePage === '제안서 마스터' && proposalId && <ProposalFormPage proposalId={proposalId === 'new' ? undefined : proposalId} permission={proposalPermission} onBack={() => {
+        window.history.pushState({}, '', '/master/proposals')
+        setProposalId(undefined)
+      }} onPreview={(id) => window.location.assign(`/master/proposals/${encodeURIComponent(id)}/preview`)} />}
       {activePage === '매니저 마스터' && <PreparingMasterPage title="매니저" />}
       {activePage === '가져오기/내보내기' && <PreparingMasterPage title="가져오기/내보내기" />}
       {import.meta.env.DEV && activePage === '운영 시나리오 테스트' && <OperationalScenariosPage />}
@@ -189,8 +216,19 @@ function parseMasterRoute(): { page: AppPage; productId?: string } | null {
   if (path === '/master/vendors') return { page: '벤더 마스터' }
   if (path === '/master/import-export') return { page: '가져오기/내보내기' }
   if (path === '/master/proposals') return { page: '제안서 마스터' }
+  if (/^\/master\/proposals\/(?:new|[^/]+\/edit|[^/]+\/preview)$/.test(path)) return { page: '제안서 마스터' }
   if (path === '/master/managers') return { page: '매니저 마스터' }
   return null
+}
+
+function parseProposalRoute(): { mode: 'list' } | { mode: 'edit'; proposalId?: string } | { mode: 'preview'; proposalId: string } | null {
+  const path = window.location.pathname
+  if (path === '/master/proposals') return { mode: 'list' }
+  if (path === '/master/proposals/new') return { mode: 'edit' }
+  const edit = path.match(/^\/master\/proposals\/([^/]+)\/edit$/)
+  if (edit) return { mode: 'edit', proposalId: decodeURIComponent(edit[1]) }
+  const preview = path.match(/^\/master\/proposals\/([^/]+)\/preview$/)
+  return preview ? { mode: 'preview', proposalId: decodeURIComponent(preview[1]) } : null
 }
 
 function parseSellerRoute(): { productId?: string } | null {
