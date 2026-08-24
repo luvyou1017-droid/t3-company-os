@@ -413,7 +413,25 @@ function FinalReview({ form, name, snapshots, missing, summary }: { form: Draft;
 }
 
 function HelperModal({ kind, input, preview, onInput, onPreview, onApply, onClose }: { kind: 'notion' | 'ai'; input: string; preview: AiCampaignDraft | null; onInput: (value: string) => void; onPreview: () => void; onApply: () => void; onClose: () => void }) {
-  return <div className="nested-modal-backdrop"><section className="helper-modal"><h3>{kind === 'notion' ? 'Notion에서 가져오기 · 준비 중' : 'AI로 일정 초안 만들기 · Mock'}</h3><p>{kind === 'notion' ? '예정 매핑: 셀러, 브랜드, 상품, 기간, 판매 링크, 이벤트. 실제 API Key는 브라우저에 두지 않습니다.' : 'AI 초안 → 사용자 검토 → 상품 마스터 매칭 → 최종 적용 → 저장 순서입니다.'}</p>{kind === 'notion' ? <input placeholder="Notion 페이지 URL 또는 ID" value={input} onChange={(e) => onInput(e.target.value)} /> : <textarea rows={5} placeholder="자연어로 공구 내용을 입력하세요." value={input} onChange={(e) => onInput(e.target.value)} />}<button className="secondary-button" onClick={onPreview}>Mock 미리보기</button>{preview && <div className="helper-preview"><strong>{preview.sellerName} · {preview.brandName}</strong><p>{preview.productNames.join(', ')}</p><p>{formatDateWithWeekday(preview.startDate)} ~ {formatDateWithWeekday(preview.endDate)} · {getSalesChannelTypeLabel(preview.salesChannelType)}</p><p>확인 필요: {preview.unresolvedFields.join(', ')}</p></div>}<div className="button-row"><button className="secondary-button" onClick={onClose}>닫기</button><button className="primary-button" disabled={!preview} onClick={onApply}>검토한 초안 적용</button></div></section></div>
+  const [draftInput, setDraftInput] = useState(input)
+  const composing = useRef(false)
+  const updateInput = (value: string) => {
+    setDraftInput(value)
+    if (!composing.current) onInput(value)
+  }
+  const finishComposition = (value: string) => {
+    composing.current = false
+    setDraftInput(value)
+    onInput(value)
+  }
+  const imeProps = {
+    value: draftInput,
+    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => updateInput(event.target.value),
+    onCompositionStart: () => { composing.current = true },
+    onCompositionEnd: (event: React.CompositionEvent<HTMLInputElement | HTMLTextAreaElement>) => finishComposition(event.currentTarget.value),
+  }
+
+  return <div className="nested-modal-backdrop"><section className="helper-modal"><h3>{kind === 'notion' ? 'Notion에서 가져오기 · 준비 중' : 'AI로 일정 초안 만들기 · Mock'}</h3><p>{kind === 'notion' ? '예정 매핑: 셀러, 브랜드, 상품, 기간, 판매 링크, 이벤트. 실제 API Key는 브라우저에 두지 않습니다.' : 'AI 초안 → 사용자 검토 → 상품 마스터 매칭 → 최종 적용 → 저장 순서입니다.'}</p>{kind === 'notion' ? <input placeholder="Notion 페이지 URL 또는 ID" {...imeProps} /> : <textarea rows={5} placeholder="자연어로 공구 내용을 입력하세요." {...imeProps} />}<button className="secondary-button" onClick={onPreview}>Mock 미리보기</button>{preview && <div className="helper-preview"><strong>{preview.sellerName} · {preview.brandName}</strong><p>{preview.productNames.join(', ')}</p><p>{formatDateWithWeekday(preview.startDate)} ~ {formatDateWithWeekday(preview.endDate)} · {getSalesChannelTypeLabel(preview.salesChannelType)}</p><p>확인 필요: {preview.unresolvedFields.join(', ')}</p></div>}<div className="button-row"><button className="secondary-button" onClick={onClose}>닫기</button><button className="primary-button" disabled={!preview} onClick={onApply}>검토한 초안 적용</button></div></section></div>
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
