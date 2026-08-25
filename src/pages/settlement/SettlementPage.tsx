@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { toBlob } from 'html-to-image'
 import { campaignService } from '../../shared/services/campaignService'
 import { salesDataService } from '../../shared/services/salesDataService'
 import { settlementService } from '../../shared/services/settlementService'
@@ -246,36 +247,9 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   const createSellerDocumentPng = async () => {
     const node = sellerDocumentRef.current
     if (!node) throw new Error('정산서 영역을 찾을 수 없습니다.')
-    const rect = node.getBoundingClientRect()
-    const cloned = node.cloneNode(true) as HTMLElement
-    cloned.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml')
-    const markup = new XMLSerializer().serializeToString(cloned)
-    const styles = Array.from(document.styleSheets).map((sheet) => {
-      try { return Array.from(sheet.cssRules).map((rule) => rule.cssText).join('\n') } catch { return '' }
-    }).join('\n')
-    const escapedStyles = styles.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(rect.width)}" height="${Math.ceil(rect.height)}"><foreignObject width="100%" height="100%"><style>${escapedStyles}</style>${markup}</foreignObject></svg>`
-    const image = new Image()
-    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }))
-    try {
-      await new Promise<void>((resolve, reject) => {
-        image.onload = () => resolve()
-        image.onerror = () => reject(new Error('이미지 변환에 실패했습니다.'))
-        image.src = url
-      })
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.ceil(rect.width * 2)
-      canvas.height = Math.ceil(rect.height * 2)
-      const context = canvas.getContext('2d')
-      if (!context) throw new Error('브라우저 캔버스를 사용할 수 없습니다.')
-      context.scale(2, 2)
-      context.fillStyle = '#ffffff'
-      context.fillRect(0, 0, rect.width, rect.height)
-      context.drawImage(image, 0, 0)
-      return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('PNG 생성에 실패했습니다.')), 'image/png'))
-    } finally {
-      URL.revokeObjectURL(url)
-    }
+    const blob = await toBlob(node, { backgroundColor: '#ffffff', cacheBust: true, pixelRatio: 2 })
+    if (!blob) throw new Error('PNG 생성에 실패했습니다.')
+    return blob
   }
 
   const saveSellerDocumentImage = async () => {
@@ -294,6 +268,10 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   }
 
   const copySellerDocumentImage = async () => {
+    if (!window.isSecureContext) {
+      setDocumentNotice('이미지 복사는 HTTPS 또는 localhost 환경에서만 사용할 수 있습니다.')
+      return
+    }
     if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
       setDocumentNotice('이 브라우저는 이미지 클립보드 복사를 지원하지 않습니다. PNG 저장을 이용해주세요.')
       return
@@ -303,7 +281,11 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngPromise })])
       setDocumentNotice('정산서 이미지가 클립보드에 복사되었습니다.')
     } catch (error) {
-      setDocumentNotice(error instanceof Error ? `이미지 복사 실패: ${error.message}` : '이미지 복사에 실패했습니다. 브라우저 권한을 확인해주세요.')
+      if (error instanceof DOMException && error.name === 'NotAllowedError') {
+        setDocumentNotice('이미지 복사 권한이 거부되었습니다. 브라우저의 클립보드 권한을 허용해주세요.')
+      } else {
+        setDocumentNotice(error instanceof Error ? `이미지 복사 실패: ${error.message}` : '이미지 복사에 실패했습니다. PNG 저장을 이용해주세요.')
+      }
     }
   }
 
