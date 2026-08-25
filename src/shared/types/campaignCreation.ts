@@ -1,7 +1,13 @@
 import type { CampaignSalesChannelType } from './campaign'
 
 export type CampaignCreationBusinessType = 'general_business' | 'simplified_business' | 'freelancer'
-export type EventPayer = 'vendor' | 'seller' | 'company_support'
+export type EventPayer = 'vendor' | 'seller' | 'company_support' | 'manager' | 'shared'
+export type CampaignEventCostOwner = 'seller' | 'company' | 'vendor' | 'manager'
+export interface CampaignEventCostShare {
+  owner: CampaignEventCostOwner
+  rate?: number
+  amount?: number
+}
 export type CampaignEventType = 'first_come' | 'purchase_complete' | 'try_it' | 'other'
 
 export interface ProductSalesLinkPolicy {
@@ -81,6 +87,7 @@ export interface CampaignEvent {
   /** @deprecated 신규 등록은 Campaign 공통 기간을 사용합니다. */
   endDate?: string
   memo?: string
+  costShares?: CampaignEventCostShare[]
   rewardProductMode?: 'master' | 'same_as_target' | 'direct' | 'none'
 }
 

@@ -11,10 +11,12 @@ import type { Settlement, SettlementDeduction, SettlementStatus, SettlementVersi
 import { canMoveToReview, runSettlementAssertions, statusLabel, validateSettlement } from '../../shared/utils/settlement'
 import { formatCurrency } from '../../shared/utils/salesData'
 import { openCampaignDetail } from '../../shared/utils/campaignNavigation'
-import { calculateFinalSellerPayment } from '../../shared/utils/sellerSettlement'
+import { calculateFinalSellerPayment, calculateVatExcludedAmount } from '../../shared/utils/sellerSettlement'
 import { companySettlementProfile } from '../../shared/data/companySettlementProfile'
+import { getCampaignEventTypeLabel, getEventPayerLabel } from '../../shared/services/campaignCreationService'
 import { EvidencePreviewModal } from '../payment-request/components/EvidencePreviewModal'
 import type { PaymentEvidence } from '../../shared/types/paymentEvidence'
+import type { CampaignEvent } from '../../shared/types/campaignCreation'
 
 type DocumentMode = '내부 검토용' | '셀러 전달용'
 const statusTone: Record<SettlementStatus, string> = {
@@ -241,17 +243,21 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
     setDocumentNotice('셀러용 정산서 내용을 클립보드에 복사했습니다.')
   }
 
-  const saveSellerDocumentImage = async () => {
+  const createSellerDocumentPng = async () => {
     const node = sellerDocumentRef.current
-    if (!node) return
+    if (!node) throw new Error('정산서 영역을 찾을 수 없습니다.')
+    const rect = node.getBoundingClientRect()
+    const cloned = node.cloneNode(true) as HTMLElement
+    cloned.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml')
+    const markup = new XMLSerializer().serializeToString(cloned)
+    const styles = Array.from(document.styleSheets).map((sheet) => {
+      try { return Array.from(sheet.cssRules).map((rule) => rule.cssText).join('\n') } catch { return '' }
+    }).join('\n')
+    const escapedStyles = styles.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(rect.width)}" height="${Math.ceil(rect.height)}"><foreignObject width="100%" height="100%"><style>${escapedStyles}</style>${markup}</foreignObject></svg>`
+    const image = new Image()
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }))
     try {
-      const rect = node.getBoundingClientRect()
-      const cloned = node.cloneNode(true) as HTMLElement
-      cloned.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml')
-      const markup = new XMLSerializer().serializeToString(cloned)
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(rect.width)}" height="${Math.ceil(rect.height)}"><foreignObject width="100%" height="100%">${markup}</foreignObject></svg>`
-      const image = new Image()
-      const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }))
       await new Promise<void>((resolve, reject) => {
         image.onload = () => resolve()
         image.onerror = () => reject(new Error('이미지 변환에 실패했습니다.'))
@@ -266,15 +272,38 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
       context.fillStyle = '#ffffff'
       context.fillRect(0, 0, rect.width, rect.height)
       context.drawImage(image, 0, 0)
+      return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('PNG 생성에 실패했습니다.')), 'image/png'))
+    } finally {
       URL.revokeObjectURL(url)
-      const pngUrl = canvas.toDataURL('image/png')
+    }
+  }
+
+  const saveSellerDocumentImage = async () => {
+    try {
+      const blob = await createSellerDocumentPng()
+      const pngUrl = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = pngUrl
       link.download = `정산서_${campaign?.sellerName ?? '셀러'}_${campaign?.campaignName ?? settlement.id}_${new Date().toISOString().slice(0, 10)}.png`
       link.click()
+      URL.revokeObjectURL(pngUrl)
       setDocumentNotice('셀러용 정산서를 이미지로 저장했습니다.')
     } catch (error) {
       setDocumentNotice(error instanceof Error ? error.message : '이미지 저장에 실패했습니다.')
+    }
+  }
+
+  const copySellerDocumentImage = async () => {
+    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+      setDocumentNotice('이 브라우저는 이미지 클립보드 복사를 지원하지 않습니다. PNG 저장을 이용해주세요.')
+      return
+    }
+    try {
+      const pngPromise = createSellerDocumentPng()
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngPromise })])
+      setDocumentNotice('정산서 이미지가 클립보드에 복사되었습니다.')
+    } catch (error) {
+      setDocumentNotice(error instanceof Error ? `이미지 복사 실패: ${error.message}` : '이미지 복사에 실패했습니다. 브라우저 권한을 확인해주세요.')
     }
   }
 
@@ -354,6 +383,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
                 <div><dt>원천세 리스트</dt><dd>{sellerRule?.businessType === 'freelancer' ? sellerTaxRegistered ? '등록' : '미등록' : '해당 없음'}</dd></div>
                 <div><dt>최종 지급액</dt><dd>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</dd></div>
               </dl>
+              <ManagerSettlementBasis campaign={campaign} deductions={deductions} settlement={settlement} />
             </article>
             <article className="readiness-card">
               <h3>매니저 지급 증빙</h3>
@@ -406,6 +436,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
             <>
               <SettlementDocumentActions
                 onCopyText={copySellerDocumentText}
+                onCopyImage={copySellerDocumentImage}
                 onCopyMessage={copySellerMessage}
                 onPreview={() => setDocumentNotice('아래 셀러용 정산서 영역이 이미지 미리보기 기준입니다.')}
                 onPrint={() => window.print()}
@@ -581,10 +612,53 @@ function InternalSettlementDocument({ campaignName, settlement }: { campaignName
   )
 }
 
+function eventAmount(event: CampaignEvent) {
+  return event.confirmedTotalAmount ?? event.estimatedTotalAmount
+}
+
+function settlementEventPayerLabel(payer: CampaignEvent['payer']) {
+  return payer === 'company_support' ? '회사 부담' : getEventPayerLabel(payer)
+}
+
+function EventShareList({ event }: { event: CampaignEvent }) {
+  if (!event.costShares?.length) return <span className="seller-document__warning">공동 부담 데이터 미연결</span>
+  return <ul className="event-share-list">{event.costShares.map((share, index) => <li key={`${share.owner}-${index}`}><span>{costOwnerLabel[share.owner] ?? share.owner}{share.rate !== undefined ? ` ${share.rate}%` : ''}</span><strong>{share.amount !== undefined ? money(share.amount) : '금액 미연결'}</strong></li>)}</ul>
+}
+
+function SellerAdditionalCosts({ campaign, deductions }: { campaign: ReturnType<typeof getCampaign>; deductions: SettlementDeduction[] }) {
+  const sellerDeductions = deductions.filter((item) => item.applyLocation === 'seller_payment')
+  const eventRows = campaign?.campaignEvents?.filter((event) => event.payer === 'seller' || event.payer === 'shared') ?? []
+  const categories = [
+    { label: '개인구매비용', types: ['purchase'] },
+    { label: '셀러 부담 이벤트', types: ['event'] },
+    { label: '기타 차감', types: ['other'] },
+    { label: '기타 추가 지급', types: ['promotion'] },
+  ]
+  return <section className="seller-document__costs"><h3>추가 비용 및 차감</h3><table className="seller-document__table"><thead><tr><th>항목명</th><th>금액</th><th>부담 주체</th><th>메모</th></tr></thead><tbody>
+    {categories.map((category) => {
+      const items = sellerDeductions.filter((item) => category.types.includes(item.type))
+      return <tr key={category.label}><th>{category.label}</th><td className="amount-cell">{money(items.reduce((sum, item) => sum + item.amount, 0))}</td><td>{items.length ? '셀러 부담' : '없음'}</td><td>{items.map((item) => item.memo).filter(Boolean).join(' / ') || '없음'}</td></tr>
+    })}
+    {eventRows.map((event) => <tr key={event.id}><th>{event.payer === 'shared' ? '공동 부담 이벤트' : '셀러 부담 이벤트'} · {getCampaignEventTypeLabel(event.eventType)}</th><td className="amount-cell">{money(eventAmount(event))}</td><td>{settlementEventPayerLabel(event.payer)}{event.payer === 'shared' && <EventShareList event={event} />}</td><td>{event.memo || event.rewardProductName || '없음'} · Settlement 반영 {sellerDeductions.some((item) => item.linkedData.includes(event.id)) ? '확인' : '데이터 미연결'}</td></tr>)}
+  </tbody></table></section>
+}
+
+function ManagerSettlementBasis({ campaign, deductions, settlement }: { campaign: ReturnType<typeof getCampaign>; deductions: SettlementDeduction[]; settlement: Settlement }) {
+  const calculation = settlement.currentCalculation
+  const managerDeductions = deductions.filter((item) => item.applyLocation === 'manager_payment' && item.reflected)
+  const managerEvents = campaign?.campaignEvents?.filter((event) => event.payer === 'manager' || event.payer === 'shared') ?? []
+  const managerBaseAmount = calculation.managerAmount + calculation.managerDeductionTotal
+  return <section className="manager-settlement-basis"><h4>매니저 정산 기준</h4><p>총매출 {money(calculation.grossSales)}을 기준으로 산정된 배분 대상 수수료 {money(calculation.distributableVendorCommission)}의 배분 내역입니다.</p><dl>
+    <div><dt>총매출</dt><dd>{money(calculation.grossSales)}</dd></div><div><dt>배분 대상 수수료</dt><dd>{money(calculation.distributableVendorCommission)}</dd></div><div><dt>매니저 배분율</dt><dd>{calculation.managerShareRate}%</dd></div><div><dt>매니저 기본 배분액</dt><dd>{money(managerBaseAmount)}</dd></div><div><dt>회사 배분율</dt><dd>{calculation.companyShareRate}%</dd></div><div><dt>회사 귀속액</dt><dd>{money(calculation.companyAmount)}</dd></div>
+    {managerDeductions.map((item) => <div key={item.id}><dt>{item.type === 'event' ? '매니저 부담 이벤트' : '기타 차감'} · {item.title}</dt><dd>- {money(item.amount)}</dd></div>)}
+    <div><dt>최종 매니저 지급액</dt><dd><strong>{money(calculation.managerAmount)}</strong></dd></div>
+  </dl>{managerEvents.map((event) => <article className="manager-event-cost" key={event.id}><strong>{event.payer === 'shared' ? '공동 부담 이벤트' : '매니저 부담 이벤트'} · {getCampaignEventTypeLabel(event.eventType)}</strong><span>총 비용 {money(eventAmount(event))}</span>{event.payer === 'shared' && <EventShareList event={event} />}</article>)}{!managerEvents.some((event) => event.payer === 'shared') && <p className="muted-note">공동 부담 데이터 미연결</p>}</section>
+}
+
 function SellerSettlementDocument({ rows, sellerDocumentRef, settlement }: { rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
   const campaign = getCampaign(settlement)
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
-  const deductions = settlementService.getDeductionsBySettlementId(settlement.id).filter((item) => ['purchase', 'event'].includes(item.type) && item.costOwner === 'seller')
+  const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
   const sellerRule = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)
   const totalQuantity = rows.reduce((total, row) => total + row.netQuantity, 0)
   const sellerDeductions = settlement.currentCalculation.sellerDeductionTotal
@@ -593,14 +667,15 @@ function SellerSettlementDocument({ rows, sellerDocumentRef, settlement }: { row
     { type: 'simplified_business', label: '간이사업자', evidence: '현금영수증 발행금액', ...calculateFinalSellerPayment(settlement.currentCalculation.sellerCommissionAmount, 'simplified_business', sellerDeductions) },
     { type: 'freelancer', label: '개인 프리랜서', evidence: '3.3% 원천세 공제 후 입금액', ...calculateFinalSellerPayment(settlement.currentCalculation.sellerCommissionAmount, 'freelancer', sellerDeductions) },
   ] as const
-  const issuedAt = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  const statementDate = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(settlement.createdAt))
+  const evidenceName = sellerRule?.businessType === 'freelancer' ? '원천세 리스트 등록' : sellerRule?.businessType === 'simplified_business' ? '현금영수증 발행' : sellerRule ? '세금계산서 발행' : '데이터 미연결'
 
   return (
     <div className="seller-document-shell">
       <div className="seller-document" ref={sellerDocumentRef}>
         <header className="seller-document__header">
           <div>
-            <h2>[{companySettlementProfile.companyName} 공동구매 정산서]</h2>
+            <h2>[{companySettlementProfile.statementBrandName} 공동구매 정산서]</h2>
           </div>
         </header>
 
@@ -608,9 +683,12 @@ function SellerSettlementDocument({ rows, sellerDocumentRef, settlement }: { row
           <div><span>공구기간</span><strong>{salesImport?.salesStartDate ?? campaign?.startDate ?? '-'} ~ {salesImport?.salesEndDate ?? campaign?.endDate ?? '-'}</strong></div>
           <div><span>진행 상품</span><strong>{campaign?.productName ?? '-'}</strong></div>
           <div><span>셀러</span><strong>{campaign?.sellerName ?? '-'}</strong></div>
-          <div><span>발행일</span><strong>{issuedAt}</strong></div>
+          <div><span>셀러 담당 매니저</span><strong>{campaign?.managerName ?? '데이터 미연결'}</strong></div>
+          <div><span>정산 담당자</span><strong>{settlement.assigneeName || '데이터 미연결'}</strong></div>
+          <div><span>정산서 작성일</span><strong>{statementDate}</strong></div>
         </section>
 
+        <p className="seller-document__vat-notice">* 본 정산서의 금액은 부가세 포함 금액을 기준으로 합니다.</p>
         <table className="seller-document__table">
           <thead><tr><th>상품명</th><th>구분</th><th>판매수량</th><th>공구가(VAT 포함)</th><th>매출액(VAT 포함)</th><th>수수료율(VAT 포함)</th><th>수수료</th></tr></thead>
           <tbody>
@@ -628,7 +706,7 @@ function SellerSettlementDocument({ rows, sellerDocumentRef, settlement }: { row
           </tbody>
         </table>
 
-        <section className="seller-document__costs"><h3>추가 비용 및 차감</h3><table className="seller-document__table"><tbody>{deductions.length ? deductions.map((item) => <tr key={item.id}><th>{deductionTypeLabel[item.type] ?? item.title}</th><td className="amount-cell">{money(item.amount)}</td><td>{item.reflected ? '정산 반영' : '미반영'}</td></tr>) : <tr><th>개인구매비용</th><td className="amount-cell">0원</td><td>없음</td></tr>}</tbody></table></section>
+        <SellerAdditionalCosts campaign={campaign} deductions={deductions} />
 
         <section className="seller-document__totals">
           <div><span>총 판매수량</span><strong>{totalQuantity.toLocaleString('ko-KR')}개</strong></div>
@@ -639,34 +717,40 @@ function SellerSettlementDocument({ rows, sellerDocumentRef, settlement }: { row
 
         <section className="seller-document__tax">
           <h3>사업자 유형별 정산금액</h3>
-          <div className="seller-business-amounts">{businessAmounts.map((item) => <div className={sellerRule?.businessType === item.type || (sellerRule?.businessType === 'general_business' && item.type === 'corporation') ? 'is-active' : ''} key={item.type}><dt>{item.label}<small>{item.evidence}</small></dt><dd>{money(item.finalSellerPaymentAmount)}</dd></div>)}</div>
+          <div className="seller-business-amounts">{businessAmounts.map((item) => {
+            const supplyAmount = calculateVatExcludedAmount(item.taxDocumentAmount)
+            const vatAmount = item.taxDocumentAmount - supplyAmount
+            const active = sellerRule?.businessType === item.type || (sellerRule?.businessType === 'general_business' && item.type === 'corporation')
+            return <div className={active ? 'is-active' : ''} key={item.type}><dt>{item.label}<small>{item.evidence}</small></dt><dd>{money(item.finalSellerPaymentAmount)}</dd>{item.type === 'corporation' && <dl className="seller-vat-breakdown"><div><dt>세금계산서 발행금액</dt><dd>{money(item.taxDocumentAmount)}</dd></div><div><dt>공급가액</dt><dd>{money(supplyAmount)}</dd></div><div><dt>부가세</dt><dd>{money(vatAmount)}</dd></div></dl>}</div>
+          })}</div>
         </section>
 
-        <section className="seller-document__account"><h3>입금계좌</h3><p className="seller-document__warning">⚠ 지급 계좌가 등록되지 않았습니다.</p></section>
+        <section className="seller-document__account"><h3>셀러 지급 계좌</h3><p className="seller-document__warning">⚠ 지급 계좌 등록 정보 없음</p></section>
+
+        <section className="seller-document__schedule"><h3>증빙 및 입금 일정</h3><dl><div><dt>필요한 증빙</dt><dd>{evidenceName}</dd></div><div><dt>증빙 마감</dt><dd>금요일까지</dd></div><div><dt>입금 예정일</dt><dd>{settlement.paymentDueDate || '데이터 미연결'}</dd></div></dl></section>
 
         <footer className="seller-document__footer">
           <h3>정산 안내</h3>
-          {companySettlementProfile.settlementNotice && <p>{companySettlementProfile.settlementNotice}</p>}
-          <p>회사 정보: {companySettlementProfile.companyName}</p>
-          {companySettlementProfile.businessRegistrationNumber && <p>사업자등록번호 {companySettlementProfile.businessRegistrationNumber}</p>}
-          {companySettlementProfile.taxInvoiceEmail && <p>세금계산서 이메일 {companySettlementProfile.taxInvoiceEmail}</p>}
-          {companySettlementProfile.address && <p>주소 {companySettlementProfile.address}</p>}
-          {companySettlementProfile.representative && <p>대표자 {companySettlementProfile.representative}</p>}
-          <p>발행일 {issuedAt} · 지급 예정일 {settlement.paymentDueDate}</p>
+          <p>본 정산서의 금액은 부가세 포함 금액을 기준으로 합니다.</p>
+          <p>정산 내용을 확인하신 후 {evidenceName}을 금요일까지 완료해주시면 차주 월요일에 입금됩니다. 월요일이 휴일인 경우 다음 영업일에 지급됩니다.</p>
+          <section className="seller-document__company"><h3>{companySettlementProfile.statementBrandName} 회사 정보</h3><dl><div><dt>회사명</dt><dd>{companySettlementProfile.legalName}</dd></div><div><dt>대표자</dt><dd>{companySettlementProfile.representativeName}</dd></div><div><dt>사업자등록번호</dt><dd>{companySettlementProfile.businessRegistrationNumber}</dd></div><div><dt>주소</dt><dd>{companySettlementProfile.businessAddress}</dd></div><div><dt>업태</dt><dd>{companySettlementProfile.businessType}</dd></div><div><dt>종목</dt><dd>{companySettlementProfile.businessItem}</dd></div><div><dt>세금계산서 발행 메일</dt><dd><a href={`mailto:${companySettlementProfile.taxInvoiceEmail}`}>{companySettlementProfile.taxInvoiceEmail}</a></dd></div></dl></section>
+          <details className="seller-document__company-account"><summary>{companySettlementProfile.statementBrandName} 정산 계좌</summary><p>{companySettlementProfile.settlementBankName} {companySettlementProfile.settlementBankAccount}</p><p>예금주 {companySettlementProfile.settlementAccountHolder}</p></details>
+          <p>정산서 작성일 {statementDate} · 입금 예정일 {settlement.paymentDueDate}</p>
         </footer>
       </div>
     </div>
   )
 }
 
-function SettlementDocumentActions({ onCopyMessage, onCopyText, onPreview, onPrint, onSaveImage }: { onCopyMessage: () => void; onCopyText: () => void; onPreview: () => void; onPrint: () => void; onSaveImage: () => void }) {
+function SettlementDocumentActions({ onCopyImage, onCopyMessage, onCopyText, onPreview, onPrint, onSaveImage }: { onCopyImage: () => void; onCopyMessage: () => void; onCopyText: () => void; onPreview: () => void; onPrint: () => void; onSaveImage: () => void }) {
   return (
     <div className="action-row seller-document-actions no-print">
       <button className="secondary-button" onClick={onPreview} type="button">이미지 미리보기</button>
       <button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button>
-      <button className="secondary-button" onClick={onCopyText} type="button">클립보드에 복사</button>
-      <button className="secondary-button" onClick={onPrint} type="button">인쇄</button>
+      <button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button>
+      <button className="secondary-button" onClick={onCopyText} type="button">정산 내용 복사</button>
       <button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button>
+      <button className="text-button" onClick={onPrint} type="button">인쇄</button>
     </div>
   )
 }

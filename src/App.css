@@ -1635,6 +1635,8 @@
   font-size: 13px;
 }
 
+.seller-document__vat-notice { color: #64748b; font-size: 12px; margin: -8px 0 -12px; }
+
 .seller-document__meta,
 .seller-document__totals {
   display: grid;
@@ -1724,6 +1726,29 @@
 .seller-document__costs h3, .seller-document__account h3, .seller-document__footer h3 { font-size: 16px; margin: 0 0 10px; }
 .seller-document__account { border: 1px solid #d1d5db; padding: 16px; }
 .seller-document__warning { color: #b45309; font-weight: 800; margin: 0; }
+.seller-vat-breakdown { border-top: 1px solid #c7d2fe; display: grid !important; gap: 6px !important; margin-top: 10px !important; padding-top: 10px; }
+.seller-vat-breakdown div { padding: 0 !important; }
+.seller-vat-breakdown dt, .seller-vat-breakdown dd { font-size: 12px !important; }
+.seller-document__schedule { border: 1px solid #d1d5db; padding: 16px; }
+.seller-document__schedule h3 { font-size: 16px; margin: 0 0 10px; }
+.seller-document__schedule dl, .seller-document__company dl { display: grid; gap: 8px; margin: 0; }
+.seller-document__schedule dl div, .seller-document__company dl div { display: grid; gap: 4px; grid-template-columns: 150px minmax(0, 1fr); }
+.seller-document__schedule dt, .seller-document__company dt { color: #64748b; font-size: 12px; font-weight: 800; }
+.seller-document__schedule dd, .seller-document__company dd { font-size: 13px; font-weight: 700; margin: 0; overflow-wrap: anywhere; }
+.seller-document__company { border-top: 1px solid #d1d5db; margin-top: 12px; padding-top: 16px; }
+.seller-document__company a { color: #3730a3; }
+.seller-document__company-account { border: 1px solid #d1d5db; margin-top: 8px; padding: 12px; }
+.seller-document__company-account summary { cursor: pointer; font-size: 13px; font-weight: 900; }
+.event-share-list { display: grid; gap: 4px; list-style: none; margin: 8px 0 0; padding: 0; }
+.event-share-list li { display: flex; gap: 12px; justify-content: space-between; }
+.manager-settlement-basis { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; }
+.manager-settlement-basis h4 { margin: 0 0 8px; }
+.manager-settlement-basis > p { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.manager-settlement-basis dl { display: grid; gap: 8px; margin: 14px 0 0; }
+.manager-settlement-basis dl div { display: flex; gap: 16px; justify-content: space-between; }
+.manager-settlement-basis dt, .manager-settlement-basis dd { font-size: 12px; margin: 0; }
+.manager-event-cost { background: var(--surface-subtle); display: grid; font-size: 12px; gap: 6px; margin-top: 10px; padding: 12px; }
+.muted-note { color: var(--muted); font-size: 12px; }
 
 .seller-document__footer {
   border-top: 1px solid #d1d5db;
