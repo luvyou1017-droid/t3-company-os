@@ -1440,12 +1440,14 @@
 .settlement-next-action span { color: var(--muted); font-size: 12px; font-weight: 800; }
 .settlement-next-action strong { font-size: 15px; }
 
-.settlement-calculation-summary { order: 40; }
-#calculation-detail { order: 41; }
-#calculation-detail + .settlement-page-section { order: 42; }
+#basic-info, #key-amounts { order: 10; }
+#progress { order: 15; }
+#product-settlement { order: 20; }
+#additional-costs { order: 30; }
+#calculation-detail { order: 40; }
 #seller-document { order: 50; }
 #evidence { order: 60; }
-#evidence + .settlement-page-section { order: 43; }
+#evidence + .settlement-page-section { order: 70; }
 #payment-history { order: 80; }
 .settlement-detail-page > .preview-drawer__actions { order: 90; }
 
@@ -1526,75 +1528,21 @@
   box-shadow: none;
 }
 
-.calculation-timeline {
-  display: grid;
-  gap: 12px;
-}
-
-.calculation-step {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  display: grid;
-  gap: 12px;
-  grid-template-columns: 36px minmax(0, 1fr);
-  padding: 14px;
-}
-
-.calculation-step__index {
-  align-items: center;
-  background: var(--primary-soft);
-  border-radius: 8px;
-  color: var(--primary);
-  display: flex;
-  font-size: 15px;
-  font-weight: 900;
-  height: 36px;
-  justify-content: center;
-  width: 36px;
-}
-
-.calculation-step__head {
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-}
-
-.calculation-step__head strong {
-  color: var(--text);
-  font-size: 15px;
-}
-
-.calculation-step__head span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.calculation-result {
-  color: var(--text);
-  font-size: 20px;
-  font-weight: 900;
-  margin-top: 4px;
-}
-
-.calculation-step dl {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 10px 0 0;
-}
-
-.calculation-step dt {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.calculation-step dd {
-  color: #374151;
-  font-size: 13px;
-  margin: 0;
-}
+.settlement-work-table-wrap { overflow-x: auto; }
+.settlement-work-table { border-collapse: collapse; min-width: 820px; width: 100%; }
+.settlement-work-table th, .settlement-work-table td { border-bottom: 1px solid var(--border); font-size: 13px; padding: 14px 12px; text-align: left; vertical-align: top; }
+.settlement-work-table thead th { background: var(--surface-subtle); color: #475569; font-size: 12px; }
+.settlement-work-table tfoot th, .settlement-work-table tfoot td { background: #f8fafc; border-top: 2px solid #cbd5e1; font-weight: 900; }
+.settlement-work-table .amount-cell { text-align: right; }
+.settlement-calculation-table td:first-child { min-width: 150px; }
+.settlement-calculation-table td:nth-child(2) { color: #475569; min-width: 260px; }
+.calculation-evidence summary { color: var(--primary); cursor: pointer; font-weight: 800; white-space: nowrap; }
+.calculation-evidence dl { background: var(--surface-subtle); display: grid; gap: 8px; margin: 10px 0 0; padding: 12px; }
+.calculation-evidence dl div { display: grid; gap: 3px; }
+.calculation-evidence dt { color: var(--muted); font-size: 11px; font-weight: 800; }
+.calculation-evidence dd { margin: 0; }
+.manual-modified { color: var(--danger); display: block; font-size: 11px; margin-top: 4px; }
+.settlement-empty-data { background: var(--surface-subtle); color: var(--muted); padding: 24px; }
 
 .deduction-table {
   min-width: 1180px;
@@ -1770,6 +1718,12 @@
   font-weight: 800;
   margin: 0;
 }
+
+.seller-business-amounts .is-active { background: #eef2ff; box-shadow: inset 4px 0 0 var(--primary); padding: 12px; }
+.seller-business-amounts small { color: #64748b; display: block; font-size: 11px; margin-top: 3px; }
+.seller-document__costs h3, .seller-document__account h3, .seller-document__footer h3 { font-size: 16px; margin: 0 0 10px; }
+.seller-document__account { border: 1px solid #d1d5db; padding: 16px; }
+.seller-document__warning { color: #b45309; font-weight: 800; margin: 0; }
 
 .seller-document__footer {
   border-top: 1px solid #d1d5db;
@@ -4180,10 +4134,6 @@
 .statement-key dt, .statement-key dd { color: #312e81; font-size: 20px; font-weight: 900; }
 .payment-notice { margin: 16px 0; padding: 14px 16px; border-radius: 10px; background: #fff7ed; color: #9a3412; font-size: 14px; line-height: 1.5; }
 .calculation-proof { position: sticky; top: 20px; }
-.calculation-step { display: flex; justify-content: space-between; gap: 16px; padding: 16px 0; border-top: 1px solid #edf0f4; }
-.calculation-step span { color: #64748b; }
-.calculation-step strong { text-align: right; }
-.calculation-step.is-strong { margin-top: 8px; padding: 18px; border: 0; border-radius: 12px; background: #f1f5f9; }
 
 @media (max-width: 1200px) {
   .payment-kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }

@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { campaignService } from '../../shared/services/campaignService'
 import { salesDataService } from '../../shared/services/salesDataService'
-import { sampleService } from '../../shared/services/sampleService'
 import { settlementService } from '../../shared/services/settlementService'
 import { paymentEvidenceService } from '../../shared/services/paymentEvidenceService'
 import { managerPaymentService } from '../../shared/services/managerPaymentService'
 import { sellerSettlementService } from '../../shared/services/sellerSettlementService'
 import { withholdingTaxService } from '../../shared/services/withholdingTaxService'
-import type { SampleRequest } from '../../features/samples/types'
 import type { SalesDataRow } from '../../shared/types/salesData'
 import type { Settlement, SettlementDeduction, SettlementStatus, SettlementVersion } from '../../shared/types/settlement'
 import { canMoveToReview, runSettlementAssertions, statusLabel, validateSettlement } from '../../shared/utils/settlement'
 import { formatCurrency } from '../../shared/utils/salesData'
 import { openCampaignDetail } from '../../shared/utils/campaignNavigation'
+import { calculateFinalSellerPayment } from '../../shared/utils/sellerSettlement'
+import { companySettlementProfile } from '../../shared/data/companySettlementProfile'
 import { EvidencePreviewModal } from '../payment-request/components/EvidencePreviewModal'
 import type { PaymentEvidence } from '../../shared/types/paymentEvidence'
 
@@ -211,7 +211,6 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
   const versions = settlementService.getSettlementVersionsBySettlementId(settlement.id)
   const logs = settlementService.getActivityLogsBySettlementId(settlement.id)
-  const samples = sampleService.getSamplesByCampaignId(settlement.campaignId)
   const validation = validateSettlement(settlement)
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
   const salesRows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
@@ -303,19 +302,17 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
           </div>
         )}
 
-        <section className="settlement-page-section" id="basic-info"><div className="section-heading"><div><p className="page-eyebrow">1. 기본정보</p><h2>기본정보</h2></div></div><div className="settlement-top-meta">
+        <section className="settlement-page-section" id="basic-info"><div className="section-heading"><div><p className="page-eyebrow">1. 정산 요약</p><h2>정산 요약</h2></div><Badge label={statusLabel(settlement.status)} tone={statusTone[settlement.status]} /></div><div className="settlement-top-meta">
           <Summary label="공동구매명" value={campaign?.campaignName ?? settlement.campaignId} />
           <Summary label="셀러" value={campaign?.sellerName ?? '-'} />
           <Summary label="브랜드" value={campaign?.brandName ?? '-'} />
           <Summary label="판매 기간" value={`${salesImport?.salesStartDate || '-'} ~ ${salesImport?.salesEndDate || '-'}`} />
-          <Summary label="정산 상태" value={statusLabel(settlement.status)} />
           <Summary label="버전" value={`v${settlement.settlementVersion}`} />
           <Summary label="정산 담당자" value={settlement.assigneeName} />
         </div></section>
 
-        <section className="settlement-page-section" id="key-amounts"><div className="section-heading"><div><p className="page-eyebrow">2. 핵심 정산금액</p><h2>핵심 정산금액</h2></div><span className="section-description">실제 지급과 관련된 금액을 우선 표시합니다.</span></div><div className="settlement-summary-grid settlement-summary-grid--primary">
+        <section className="settlement-page-section" id="key-amounts"><div className="section-heading"><div><h3>핵심 금액</h3></div></div><div className="settlement-summary-grid settlement-summary-grid--primary">
           <Summary label="총매출" value={money(settlement.currentCalculation.grossSales)} amount />
-          <Summary label="총수수료" value={money(settlement.currentCalculation.grossCommission)} amount />
           <Summary label="셀러 지급 예정액" value={money(settlement.currentCalculation.finalSellerPaymentAmount)} amount emphasis />
           <Summary label="매니저 지급 예정액" value={money(settlement.currentCalculation.managerAmount)} amount emphasis />
           <Summary label="회사 귀속액" value={money(settlement.currentCalculation.companyAmount)} amount />
@@ -323,62 +320,15 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
 
         <SettlementProgress settlement={settlement} />
 
-          <section className="detail-card settlement-card settlement-page-section settlement-calculation-summary">
-            <div className="checklist-head">
-              <div><h3>정산 요약</h3><p>핵심 금액과 현재 처리 상태만 표시합니다.</p></div>
-              <Badge label={statusLabel(settlement.status)} tone={statusTone[settlement.status]} />
-            </div>
-            <div className="settlement-summary-grid">
-              <Summary label="정산 상태" value={statusLabel(settlement.status)} />
-              <Summary label="버전" value={`v${settlement.settlementVersion}`} />
-              <Summary label="총수수료율" value={`${settlement.currentCalculation.totalCommissionRate}%`} />
-              <Summary label="셀러 수수료율" value={`${settlement.currentCalculation.sellerCommissionRate}%`} />
-              <Summary label="셀러 수수료" value={money(settlement.currentCalculation.sellerCommissionAmount)} amount />
-              <Summary label="차감 합계" value={money(settlement.currentCalculation.deductionTotal)} amount />
-              <Summary label="지급 상태" value={settlement.status === 'completed' ? '완료' : settlement.status === 'payment_ready' ? '지급 준비' : '대기'} />
-            </div>
-          </section>
+        <ProductSettlementTable rows={salesRows} settlement={settlement} productName={campaign?.productName} />
+
+        <AdditionalCosts deductions={deductions} />
 
         <section className="detail-card settlement-card settlement-page-section" id="calculation-detail">
           <div className="checklist-head">
-            <div><p className="page-eyebrow">4. 정산 계산 상세</p><h2>정산 계산 상세</h2><p>각 단계의 입력값, 공식, 출처, 수정 여부, 계산 시간을 표시합니다.</p></div>
+            <div><p className="page-eyebrow">4. 내부 정산 계산표</p><h2>정산 계산 상세</h2><p>기존 정산 계산 결과를 검수 순서대로 표시합니다.</p></div>
           </div>
-          <div className="calculation-timeline">
-            {settlement.calculationSteps.map((step) => (
-              <article className="calculation-step" key={step.id}>
-                <div className="calculation-step__index">{step.order}</div>
-                <div>
-                  <div className="calculation-step__head"><strong>{step.label}</strong><span>{step.calculatedAt}</span></div>
-                  <p className="calculation-result">{typeof step.result === 'number' ? money(step.result) : step.result}</p>
-                  <dl>
-                    <div><dt>입력값</dt><dd>{step.inputValues.length ? step.inputValues.join(' / ') : '-'}</dd></div>
-                    <div><dt>공식</dt><dd>{step.formula}</dd></div>
-                    <div><dt>값의 출처</dt><dd>{step.source}</dd></div>
-                    <div><dt>수정 여부</dt><dd>{step.modified ? '담당자 수정' : '자동 계산'}</dd></div>
-                  </dl>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="detail-card settlement-card settlement-page-section">
-          <div className="checklist-head">
-            <div><h3>차감 내역</h3><p>샘플비는 제안서가 아닌 Sample 관리의 실제값만 반영합니다.</p></div>
-          </div>
-          <div className="comparison-table-wrap">
-            <table className="comparison-table deduction-table">
-              <thead><tr><th>유형</th><th>항목명</th><th>금액</th><th>부담자</th><th>연결 데이터</th><th>증빙</th><th>반영 위치</th><th>반영</th><th>메모</th></tr></thead>
-              <tbody>
-                {deductions.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.type}</td><td>{item.title}</td><td className="amount-cell">{money(item.amount)}</td><td>{item.costOwner}</td><td>{item.linkedData}</td><td>{item.evidenceStatus}</td><td>{applyLocationLabel(item.applyLocation)}</td><td>{item.reflected ? '반영' : '제외'}</td><td>{item.memo}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <SampleDeductionDetails deductions={deductions} samples={samples} />
+          <CalculationTable settlement={settlement} />
         </section>
 
         <section className="detail-card settlement-card settlement-page-section" id="evidence">
@@ -462,7 +412,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
                 onSaveImage={saveSellerDocumentImage}
               />
               {documentNotice && <p className="mock-notice">{documentNotice}</p>}
-              <SellerSettlementDocument campaignName={campaign?.campaignName ?? settlement.campaignId} rows={salesRows} sellerDocumentRef={sellerDocumentRef} settlement={settlement} />
+              <SellerSettlementDocument rows={salesRows} sellerDocumentRef={sellerDocumentRef} settlement={settlement} />
             </>
           )}
         </section>
@@ -480,7 +430,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
             {versions.map((version) => (
               <article key={version.id}>
                 <strong>v{version.version}</strong>
-                <span>{version.changedAt} · {version.changedBy}</span>
+                <span>{formatKoreanDateTime(version.changedAt)} · {version.changedBy}</span>
                 <p>{version.reason}</p>
                 <dl><div><dt>변경 전</dt><dd>{money(version.beforeAmount)}</dd></div><div><dt>변경 후</dt><dd>{money(version.afterAmount)}</dd></div><div><dt>승인 상태</dt><dd>{statusLabel(version.status)}</dd></div></dl>
               </article>
@@ -504,6 +454,52 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
         <EvidencePreviewModal evidence={previewEvidence} onClose={() => setPreviewEvidence(null)} />
     </section>
   )
+}
+
+function ProductSettlementTable({ productName, rows, settlement }: { productName?: string; rows: SalesDataRow[]; settlement: Settlement }) {
+  const totalQuantity = rows.reduce((sum, row) => sum + row.netQuantity, 0)
+  return (
+    <section className="detail-card settlement-card settlement-page-section" id="product-settlement">
+      <div className="section-heading"><div><p className="page-eyebrow">2. 상품/SKU별 정산 내역</p><h2>상품/SKU별 정산 내역</h2></div></div>
+      {rows.length ? <>
+        <div className="settlement-work-table-wrap"><table className="settlement-work-table">
+          <thead><tr><th>상품명</th><th>구분/SKU</th><th>판매수량</th><th>공구가(VAT 포함)</th><th>매출액(VAT 포함)</th><th>수수료율(VAT 포함)</th><th>수수료</th><th>비고</th></tr></thead>
+          <tbody>{rows.map((row) => <tr key={row.id}><td>{productName ?? '-'}</td><td>{row.optionName}</td><td className="amount-cell">{row.netQuantity.toLocaleString('ko-KR')}</td><td className="amount-cell">{money(row.unitPrice)}</td><td className="amount-cell">{money(row.netSales)}</td><td className="amount-cell">{settlement.currentCalculation.sellerCommissionRate}%</td><td className="amount-cell">{money(Math.round(row.netSales * settlement.currentCalculation.sellerCommissionRate / 100))}</td><td>{row.validationStatus === 'valid' ? '' : row.validationMessage}</td></tr>)}</tbody>
+          <tfoot><tr><th colSpan={2}>판매 소계</th><td className="amount-cell">{totalQuantity.toLocaleString('ko-KR')}</td><td></td><td className="amount-cell">{money(settlement.currentCalculation.grossSales)}</td><td></td><td className="amount-cell">{money(settlement.currentCalculation.sellerCommissionAmount)}</td><td></td></tr></tfoot>
+        </table></div>
+      </> : <p className="settlement-empty-data">SKU별 판매 데이터가 아직 연결되지 않았습니다.</p>}
+    </section>
+  )
+}
+
+const deductionTypeLabel: Record<string, string> = { purchase: '개인구매비용', event: '이벤트비용', other: '기타 차감', promotion: '기타 추가 지급' }
+const costOwnerLabel: Record<string, string> = { seller: '셀러', company: '회사', brand: '벤더', manager: '매니저', undecided: '미정' }
+
+function AdditionalCosts({ deductions }: { deductions: SettlementDeduction[] }) {
+  const categories = ['purchase', 'event', 'other', 'promotion'].map((type) => {
+    const items = deductions.filter((item) => item.type === type)
+    return { type, items, amount: items.reduce((sum, item) => sum + item.amount, 0) }
+  })
+  return (
+    <section className="detail-card settlement-card settlement-page-section" id="additional-costs">
+      <div className="section-heading"><div><p className="page-eyebrow">3. 추가 비용 및 차감</p><h2>추가 비용 및 차감</h2><p>배송비는 판매 수수료 계산 대상에서 제외하는 기존 정책을 유지합니다.</p></div></div>
+      <div className="settlement-work-table-wrap"><table className="settlement-work-table"><thead><tr><th>항목</th><th>금액</th><th>부담 주체</th><th>메모</th><th>최종 정산 반영</th></tr></thead><tbody>
+        {categories.map(({ amount, items, type }) => <tr key={type}><td>{deductionTypeLabel[type]}</td><td className="amount-cell">{money(amount)}</td><td>{items.length ? [...new Set(items.map((item) => costOwnerLabel[item.costOwner] ?? item.costOwner))].join(', ') : '없음'}</td><td>{items.map((item) => item.memo).filter(Boolean).join(' / ') || '없음'}</td><td>{items.some((item) => item.reflected) ? '반영' : '미반영'}</td></tr>)}
+      </tbody></table></div>
+    </section>
+  )
+}
+
+function formatKoreanDateTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(date).replace(/\. /g, '-').replace('.', '')
+}
+
+function CalculationTable({ settlement }: { settlement: Settlement }) {
+  return <div className="settlement-work-table-wrap"><table className="settlement-work-table settlement-calculation-table"><thead><tr><th>항목</th><th>계산식</th><th>결과</th><th>계산 근거</th></tr></thead><tbody>{settlement.calculationSteps.map((step) => (
+    <tr key={step.id}><td><strong>{step.label}</strong>{step.modified && <span className="manual-modified">⚠ 수동 수정</span>}</td><td>{step.formula}</td><td className="amount-cell">{typeof step.result === 'number' ? money(step.result) : step.result}</td><td><details className="calculation-evidence"><summary>계산 근거 보기</summary><dl><div><dt>입력값</dt><dd>{step.inputValues.length ? step.inputValues.join(' / ') : '-'}</dd></div><div><dt>값의 출처</dt><dd>{step.source}</dd></div><div><dt>수정 여부</dt><dd>{step.modified ? '담당자 수정' : '자동 계산'}</dd></div><div><dt>계산 시각</dt><dd>{formatKoreanDateTime(step.calculatedAt)}</dd></div></dl></details></td></tr>
+  ))}</tbody></table></div>
 }
 
 function Summary({ label, value, amount, emphasis }: { label: string; value: string; amount?: boolean; emphasis?: boolean }) {
@@ -557,74 +553,6 @@ const checklistLabels = {
   paymentAccountConfirmed: '지급 계좌 정보가 확인됨',
 }
 
-function applyLocationLabel(location: SettlementDeduction['applyLocation']) {
-  const labels: Record<SettlementDeduction['applyLocation'], string> = {
-    net_company_commission: '최종 배분 대상 금액 차감',
-    seller_payment: '셀러 지급액 차감',
-    manager_payment: '매니저 지급액 차감',
-    record_only: '기록만 유지',
-    needs_review: '확인 필요',
-  }
-  return labels[location]
-}
-
-function SampleDeductionDetails({ deductions, samples }: { deductions: SettlementDeduction[]; samples: SampleRequest[] }) {
-  const sampleDeductions = deductions.filter((item) => item.type === 'sample' && item.linkedData.startsWith('sample:'))
-  if (!sampleDeductions.length) return <div className="empty-state"><strong>반영 대상 샘플비가 없습니다.</strong><span>실제 발주된 유상 Sample 확정값만 표시됩니다.</span></div>
-
-  return (
-    <div className="sample-deduction-list">
-      {sampleDeductions.map((deduction) => {
-        const sampleId = deduction.linkedData.replace('sample:', '')
-        const sample = samples.find((item) => item.id === sampleId)
-        const unitPrice = sample?.unitPrice ?? sample?.sampleCost ?? 0
-        const sampleCost = sample ? unitPrice * sample.quantity : deduction.amount
-        const shippingCost = sample?.shippingCost ?? 0
-        const totalCost = sampleCost + shippingCost
-        const proposalWarning = sample ? getProposalSampleWarning(sample, unitPrice, totalCost) : null
-        return (
-          <article className="sample-deduction-card" key={deduction.id}>
-            <div className="checklist-head">
-              <div>
-                <h4>{sample?.productName ?? deduction.title}</h4>
-                <p>{sample?.optionName ?? 'Sample 원본 확인 필요'}</p>
-              </div>
-              <Badge label={deduction.reflected ? '정산 반영' : '기록만 유지'} tone={deduction.reflected ? 'complete' : 'muted'} />
-            </div>
-            <dl>
-              <div><dt>수량</dt><dd>{sample?.quantity.toLocaleString('ko-KR') ?? '-'}개</dd></div>
-              <div><dt>단가</dt><dd className="amount-cell">{money(unitPrice)}</dd></div>
-              <div><dt>샘플비</dt><dd className="amount-cell">{money(sampleCost)}</dd></div>
-              <div><dt>배송비</dt><dd className="amount-cell">{money(shippingCost)}</dd></div>
-              <div><dt>총비용</dt><dd className="amount-cell">{money(totalCost)}</dd></div>
-              <div><dt>비용 부담자</dt><dd>{sample?.costOwner ?? deduction.costOwner}</dd></div>
-              <div><dt>발주 상태</dt><dd>{sample?.orderStatus ?? sample?.status ?? '-'}</dd></div>
-              <div><dt>수령 상태</dt><dd>{sample?.deliveryStatus ?? '-'}</dd></div>
-              <div><dt>정산 반영 상태</dt><dd>{sample?.settlementReflected ? `완료 (${sample.settlementId ?? deduction.settlementId})` : '대기'}</dd></div>
-              <div><dt>원본 Sample 바로가기</dt><dd>{sample?.id ?? deduction.linkedData}</dd></div>
-            </dl>
-            {sample && sample.quantity === 2 && unitPrice === 56_000 && totalCost === 112_000 && (
-              <p className="mock-notice">회사 부담 유상 샘플 56,000원 × 2개가 실제 Sample 값으로 반영되었습니다.</p>
-            )}
-            {proposalWarning && <p className="settlement-warning-text">{proposalWarning}</p>}
-          </article>
-        )
-      })}
-    </div>
-  )
-}
-
-function getProposalSampleWarning(sample: SampleRequest, actualUnitPrice: number, actualTotal: number) {
-  const hasExpected = sample.proposalExpectedQuantity !== undefined || sample.proposalExpectedUnitPrice !== undefined || sample.proposalExpectedCostOwner !== undefined || sample.proposalExpectedTotalAmount !== undefined
-  if (!hasExpected) return null
-  const differs =
-    (sample.proposalExpectedQuantity !== undefined && sample.proposalExpectedQuantity !== sample.quantity) ||
-    (sample.proposalExpectedUnitPrice !== undefined && sample.proposalExpectedUnitPrice !== actualUnitPrice) ||
-    (sample.proposalExpectedCostOwner !== undefined && sample.proposalExpectedCostOwner !== sample.costOwner) ||
-    (sample.proposalExpectedTotalAmount !== undefined && sample.proposalExpectedTotalAmount !== actualTotal)
-  return differs ? '제안서 예상값과 실제 샘플 비용이 다릅니다.' : null
-}
-
 function InternalSettlementDocument({ campaignName, settlement }: { campaignName: string; settlement: Settlement }) {
   return (
     <div className="internal-settlement-document">
@@ -653,74 +581,78 @@ function InternalSettlementDocument({ campaignName, settlement }: { campaignName
   )
 }
 
-function SellerSettlementDocument({ campaignName, rows, sellerDocumentRef, settlement }: { campaignName: string; rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
+function SellerSettlementDocument({ rows, sellerDocumentRef, settlement }: { rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
   const campaign = getCampaign(settlement)
+  const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
+  const deductions = settlementService.getDeductionsBySettlementId(settlement.id).filter((item) => ['purchase', 'event'].includes(item.type) && item.costOwner === 'seller')
+  const sellerRule = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)
   const totalQuantity = rows.reduce((total, row) => total + row.netQuantity, 0)
-  const evidenceLabel = settlement.taxType === 'tax_invoice' ? '세금계산서 발행금액' : settlement.taxType === 'cash_receipt' ? '현금영수증 발행금액' : '최종 지급액'
+  const sellerDeductions = settlement.currentCalculation.sellerDeductionTotal
+  const businessAmounts = [
+    { type: 'corporation', label: '법인/개인사업자', evidence: '세금계산서 발행금액', ...calculateFinalSellerPayment(settlement.currentCalculation.sellerCommissionAmount, 'general_business', sellerDeductions) },
+    { type: 'simplified_business', label: '간이사업자', evidence: '현금영수증 발행금액', ...calculateFinalSellerPayment(settlement.currentCalculation.sellerCommissionAmount, 'simplified_business', sellerDeductions) },
+    { type: 'freelancer', label: '개인 프리랜서', evidence: '3.3% 원천세 공제 후 입금액', ...calculateFinalSellerPayment(settlement.currentCalculation.sellerCommissionAmount, 'freelancer', sellerDeductions) },
+  ] as const
+  const issuedAt = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 
   return (
     <div className="seller-document-shell">
       <div className="seller-document" ref={sellerDocumentRef}>
         <header className="seller-document__header">
-          <div className="seller-document__logo">T3</div>
           <div>
-            <h2>{campaign?.sellerName ?? '셀러'} 공동구매 정산서</h2>
-            <p>발행일 {new Date().toISOString().slice(0, 10)}</p>
+            <h2>[{companySettlementProfile.companyName} 공동구매 정산서]</h2>
           </div>
         </header>
 
         <section className="seller-document__meta">
-          <div><span>공동구매명</span><strong>{campaignName}</strong></div>
-          <div><span>공급 기간</span><strong>{campaign?.startDate ?? '-'} ~ {campaign?.endDate ?? '-'}</strong></div>
+          <div><span>공구기간</span><strong>{salesImport?.salesStartDate ?? campaign?.startDate ?? '-'} ~ {salesImport?.salesEndDate ?? campaign?.endDate ?? '-'}</strong></div>
           <div><span>진행 상품</span><strong>{campaign?.productName ?? '-'}</strong></div>
-          <div><span>셀러명</span><strong>{campaign?.sellerName ?? '-'}</strong></div>
+          <div><span>셀러</span><strong>{campaign?.sellerName ?? '-'}</strong></div>
+          <div><span>발행일</span><strong>{issuedAt}</strong></div>
         </section>
 
         <table className="seller-document__table">
-          <thead><tr><th>상품명</th><th>옵션</th><th>판매수량</th><th>판매가</th><th>매출액</th><th>수수료율</th><th>셀러 수수료</th></tr></thead>
+          <thead><tr><th>상품명</th><th>구분</th><th>판매수량</th><th>공구가(VAT 포함)</th><th>매출액(VAT 포함)</th><th>수수료율(VAT 포함)</th><th>수수료</th></tr></thead>
           <tbody>
-            {rows.map((row) => (
+            {rows.length ? rows.map((row) => (
               <tr key={row.id}>
                 <td>{campaign?.productName ?? '-'}</td>
                 <td>{row.optionName}</td>
                 <td className="amount-cell">{row.netQuantity.toLocaleString('ko-KR')}</td>
                 <td className="amount-cell">{money(row.unitPrice)}</td>
-                <td className="amount-cell">{money(row.grossSales)}</td>
+                <td className="amount-cell">{money(row.netSales)}</td>
                 <td className="amount-cell">{settlement.currentCalculation.sellerCommissionRate}%</td>
-                <td className="amount-cell">{money(Math.round(row.grossSales * (settlement.currentCalculation.sellerCommissionRate / 100)))}</td>
+                <td className="amount-cell">{money(Math.round(row.netSales * (settlement.currentCalculation.sellerCommissionRate / 100)))}</td>
               </tr>
-            ))}
+            )) : <tr><td colSpan={7}>SKU별 판매 데이터가 아직 연결되지 않았습니다.</td></tr>}
           </tbody>
         </table>
+
+        <section className="seller-document__costs"><h3>추가 비용 및 차감</h3><table className="seller-document__table"><tbody>{deductions.length ? deductions.map((item) => <tr key={item.id}><th>{deductionTypeLabel[item.type] ?? item.title}</th><td className="amount-cell">{money(item.amount)}</td><td>{item.reflected ? '정산 반영' : '미반영'}</td></tr>) : <tr><th>개인구매비용</th><td className="amount-cell">0원</td><td>없음</td></tr>}</tbody></table></section>
 
         <section className="seller-document__totals">
           <div><span>총 판매수량</span><strong>{totalQuantity.toLocaleString('ko-KR')}개</strong></div>
           <div><span>총매출</span><strong>{money(settlement.currentCalculation.grossSales)}</strong></div>
-          <div><span>셀러 수수료율</span><strong>{settlement.currentCalculation.sellerCommissionRate}%</strong></div>
-          <div><span>셀러 정산금액</span><strong>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</strong></div>
+          <div><span>수수료</span><strong>{money(settlement.currentCalculation.sellerCommissionAmount)}</strong></div>
+          <div><span>정산금액</span><strong>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</strong></div>
         </section>
 
         <section className="seller-document__tax">
-          <h3>세무·증빙</h3>
-          {settlement.taxType === 'withholding_3_3' ? (
-            <dl>
-              <div><dt>정산금액</dt><dd>{money(settlement.currentCalculation.sellerCommissionAmount)}</dd></div>
-              <div><dt>3.3% 원천징수액</dt><dd>{money(settlement.currentCalculation.taxAmount)}</dd></div>
-              <div><dt>{evidenceLabel}</dt><dd>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</dd></div>
-            </dl>
-          ) : (
-            <dl>
-              <div><dt>{evidenceLabel}</dt><dd>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</dd></div>
-              <div><dt>증빙 요청 안내</dt><dd>정산 확인 후 증빙 발행을 요청드립니다.</dd></div>
-            </dl>
-          )}
+          <h3>사업자 유형별 정산금액</h3>
+          <div className="seller-business-amounts">{businessAmounts.map((item) => <div className={sellerRule?.businessType === item.type || (sellerRule?.businessType === 'general_business' && item.type === 'corporation') ? 'is-active' : ''} key={item.type}><dt>{item.label}<small>{item.evidence}</small></dt><dd>{money(item.finalSellerPaymentAmount)}</dd></div>)}</div>
         </section>
 
+        <section className="seller-document__account"><h3>입금계좌</h3><p className="seller-document__warning">⚠ 지급 계좌가 등록되지 않았습니다.</p></section>
+
         <footer className="seller-document__footer">
-          <p>입금 계좌: ****-***-****** (확인 후 별도 안내)</p>
-          <p>지급 예정일: {settlement.paymentDueDate}</p>
-          <p>T3 Company · 사업자등록번호 000-00-00000 · 대표자 이현지 · settlement@t3.company</p>
-          <p>본 정산서는 셀러 전달용으로 내부 벤더 수수료, 매니저 지급액, 회사 귀속액을 표시하지 않습니다.</p>
+          <h3>정산 안내</h3>
+          {companySettlementProfile.settlementNotice && <p>{companySettlementProfile.settlementNotice}</p>}
+          <p>회사 정보: {companySettlementProfile.companyName}</p>
+          {companySettlementProfile.businessRegistrationNumber && <p>사업자등록번호 {companySettlementProfile.businessRegistrationNumber}</p>}
+          {companySettlementProfile.taxInvoiceEmail && <p>세금계산서 이메일 {companySettlementProfile.taxInvoiceEmail}</p>}
+          {companySettlementProfile.address && <p>주소 {companySettlementProfile.address}</p>}
+          {companySettlementProfile.representative && <p>대표자 {companySettlementProfile.representative}</p>}
+          <p>발행일 {issuedAt} · 지급 예정일 {settlement.paymentDueDate}</p>
         </footer>
       </div>
     </div>
@@ -743,7 +675,7 @@ function HistoryContent({ logs, settlement }: { logs: ReturnType<typeof settleme
   return (
     <div className="preview-text-list">
       {settlement.calculationSteps.map((step) => <p key={step.id}>계산 · {step.order}. {step.label}: {typeof step.result === 'number' ? money(step.result) : step.result}</p>)}
-      {logs.map((log) => <p key={log.id}>{log.at} · {actionLabels[log.action]} · {log.previousStatus ? statusLabel(log.previousStatus) : '-'} → {log.nextStatus ? statusLabel(log.nextStatus) : '-'} · v{log.version}</p>)}
+      {logs.map((log) => <p key={log.id}>{formatKoreanDateTime(log.at)} · {actionLabels[log.action]} · {log.previousStatus ? statusLabel(log.previousStatus) : '-'} → {log.nextStatus ? statusLabel(log.nextStatus) : '-'} · v{log.version}</p>)}
     </div>
   )
 }
