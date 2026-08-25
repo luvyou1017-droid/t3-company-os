@@ -1373,6 +1373,100 @@
   gap: 16px;
 }
 
+.settlement-detail-page {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin: 0 auto;
+  max-width: 1680px;
+  width: 100%;
+}
+
+.settlement-back-button,
+.settlement-name-link {
+  background: none;
+  border: 0;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.settlement-back-button {
+  align-self: flex-start;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 6px 0;
+}
+
+.settlement-name-link { display: grid; gap: 4px; }
+.settlement-name-link strong { color: var(--text); }
+.settlement-name-link:hover strong { color: var(--primary); text-decoration: underline; }
+
+.settlement-detail-header,
+.settlement-page-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: clamp(20px, 2.4vw, 36px);
+}
+
+.settlement-detail-header { background: linear-gradient(135deg, #fff 60%, #f5f3ff); }
+.settlement-detail-header h1 { font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em; margin: 0; }
+.settlement-detail-header p { color: var(--muted); font-size: 15px; margin: 8px 0 0; }
+.settlement-title-row { align-items: center; display: flex; flex-wrap: wrap; gap: 16px; }
+.settlement-page-section .section-heading { margin-bottom: 20px; }
+.settlement-page-section h2 { margin: 0; }
+
+.settlement-summary-grid--primary { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.settlement-summary-grid--primary .settlement-summary-item { min-height: 116px; padding: 20px; }
+.settlement-summary-grid--primary .settlement-summary-item strong { font-size: clamp(18px, 1.6vw, 26px); }
+.settlement-summary-item--emphasis { background: #eef2ff; border-color: #a5b4fc; }
+.settlement-summary-item--emphasis strong { color: var(--primary); }
+
+.settlement-stepper { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); list-style: none; margin: 12px 0 24px; padding: 0; }
+.settlement-stepper li { align-items: center; color: var(--muted); display: flex; flex-direction: column; gap: 10px; position: relative; text-align: center; }
+.settlement-stepper li::before { background: var(--border); content: ''; height: 2px; left: -50%; position: absolute; top: 17px; width: 100%; }
+.settlement-stepper li:first-child::before { display: none; }
+.settlement-stepper li span { align-items: center; background: #eef0f3; border: 2px solid #d5dae1; border-radius: 50%; display: flex; font-size: 12px; font-weight: 900; height: 36px; justify-content: center; position: relative; width: 36px; z-index: 1; }
+.settlement-stepper li strong { font-size: 13px; }
+.settlement-stepper li.is-complete::before, .settlement-stepper li.is-current::before { background: var(--primary); }
+.settlement-stepper li.is-complete span, .settlement-stepper li.is-current span { background: var(--primary); border-color: var(--primary); color: #fff; }
+.settlement-stepper li.is-current strong { color: var(--primary); }
+.settlement-next-action { background: var(--surface-subtle); border-radius: 12px; display: grid; gap: 16px; grid-template-columns: minmax(180px, .4fr) 1fr; padding: 18px 20px; }
+.settlement-next-action div { display: grid; gap: 5px; }
+.settlement-next-action span { color: var(--muted); font-size: 12px; font-weight: 800; }
+.settlement-next-action strong { font-size: 15px; }
+
+.settlement-calculation-summary { order: 40; }
+#calculation-detail { order: 41; }
+#calculation-detail + .settlement-page-section { order: 42; }
+#seller-document { order: 50; }
+#evidence { order: 60; }
+#evidence + .settlement-page-section { order: 43; }
+#payment-history { order: 80; }
+.settlement-detail-page > .preview-drawer__actions { order: 90; }
+
+.settlement-evidence-list { display: grid; gap: 14px; margin-top: 20px; }
+.settlement-evidence-list article { align-items: center; border: 1px solid var(--border); border-radius: 12px; display: grid; gap: 18px; grid-template-columns: 140px minmax(0, 1fr) auto; padding: 16px; }
+.settlement-evidence-list dl { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
+.settlement-evidence-list dt { color: var(--muted); font-size: 11px; font-weight: 800; }
+.settlement-evidence-list dd { font-size: 13px; margin: 3px 0 0; overflow-wrap: anywhere; }
+.settlement-evidence-preview { background: #f3f4f6; border: 1px solid var(--border); border-radius: 10px; cursor: zoom-in; height: 96px; overflow: hidden; padding: 0; width: 140px; }
+.settlement-evidence-preview img { height: 100%; object-fit: cover; width: 100%; }
+.settlement-evidence-preview span { align-items: center; display: flex; flex-direction: column; font-weight: 900; gap: 4px; justify-content: center; }
+.settlement-evidence-preview small { color: var(--muted); font-size: 11px; }
+
+.settlement-mobile-list { display: none; }
+.settlement-mobile-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; display: grid; gap: 14px; padding: 16px; }
+.settlement-mobile-card > .campaign-status { justify-self: start; }
+.settlement-mobile-card dl { display: grid; gap: 12px; margin: 0; }
+.settlement-mobile-card dl div { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+.settlement-mobile-card dt { color: var(--muted); font-size: 12px; font-weight: 800; }
+.settlement-mobile-card dd { font-size: 13px; font-weight: 700; margin: 0; text-align: right; }
+
 .settlement-top-meta {
   display: grid;
   gap: 10px;
@@ -3176,6 +3270,23 @@
     width: 100%;
   }
 
+  .settlement-detail-page { gap: 14px; }
+  .settlement-detail-header,
+  .settlement-page-section { border-radius: 12px; padding: 18px; }
+  .settlement-title-row { align-items: flex-start; flex-direction: column; }
+  .settlement-stepper { gap: 10px; grid-template-columns: 1fr; }
+  .settlement-stepper li { align-items: center; flex-direction: row; text-align: left; }
+  .settlement-stepper li::before { height: calc(100% + 10px); left: 17px; top: -100%; width: 2px; }
+  .settlement-next-action { grid-template-columns: 1fr; }
+  .settlement-evidence-list article { align-items: stretch; grid-template-columns: 1fr; }
+  .settlement-evidence-list dl { grid-template-columns: 1fr; }
+  .settlement-evidence-preview { height: 180px; width: 100%; }
+  .settlement-document-actions,
+  .seller-document-actions { justify-content: stretch; }
+  .settlement-document-actions button,
+  .seller-document-actions button { flex: 1 1 160px; }
+  .settlement-mobile-list { display: grid; }
+
   .settlement-top-meta,
   .settlement-summary-grid,
   .settlement-summary-grid--primary,
@@ -3320,6 +3431,15 @@
   .settlement-card:not(.settlement-document-tab),
   .settlement-modal-backdrop {
     display: none !important;
+  }
+
+  .settlement-detail-page > *:not(.settlement-document-tab) {
+    display: none !important;
+  }
+
+  .settlement-detail-page > .settlement-document-tab {
+    display: block !important;
+    order: 0;
   }
 
   .app-shell,

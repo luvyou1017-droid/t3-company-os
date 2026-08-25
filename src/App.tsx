@@ -8,7 +8,7 @@ import { MyWorkPage } from './pages/my-work/MyWorkPage'
 import { PublicCsIntakePage } from './pages/public-cs-intake/PublicCsIntakePage'
 import { SampleManagementPage } from './pages/sample-management/SampleManagementPage'
 import { SalesDataPage } from './pages/sales-data/SalesDataPage'
-import { SettlementPage } from './pages/settlement/SettlementPage'
+import { SettlementDetailPage, SettlementPage } from './pages/settlement/SettlementPage'
 import { PaymentRequestPage } from './pages/payment-request/PaymentRequestPage'
 import './App.css'
 import type { CampaignTab } from './shared/types/campaignWorkspace'
@@ -40,9 +40,10 @@ function App() {
   const proposalPermission = getCurrentProposalPermission()
   const isPublicCsIntake = window.location.hash === '#public-cs-intake'
   const route = parseCampaignRoute()
+  const settlementRoute = parseSettlementRoute()
   const isPaymentRoute = window.location.pathname.startsWith('/payments')
   const masterRoute = parseMasterRoute()
-  const [activePage, setActivePage] = useState<AppPage>(route || window.location.pathname === '/campaigns/new' ? '공동구매 일정' : isPaymentRoute ? '지급 승인' : masterRoute?.page ?? 'Dashboard')
+  const [activePage, setActivePage] = useState<AppPage>(settlementRoute ? '정산 관리' : route || window.location.pathname === '/campaigns/new' ? '공동구매 일정' : isPaymentRoute ? '지급 승인' : masterRoute?.page ?? 'Dashboard')
   const [productId, setProductId] = useState<string | undefined>(masterRoute?.productId)
   const [proposalId, setProposalId] = useState<string | undefined>(proposalRoute?.mode === 'edit' ? proposalRoute.proposalId : undefined)
   const [paymentRouteKey, setPaymentRouteKey] = useState(0)
@@ -51,10 +52,10 @@ function App() {
   const [selectedCsCaseId, setSelectedCsCaseId] = useState<string | null>(null)
   const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
   const [selectedSalesDataImportId, setSelectedSalesDataImportId] = useState<string | null>(null)
-  const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null)
+  const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(settlementRoute?.settlementId ?? null)
 
   const handleNavigate = (page: AppPage) => {
-    if (window.location.pathname.startsWith('/campaigns/') || window.location.pathname.startsWith('/payments') || window.location.pathname.startsWith('/master/')) window.history.pushState({}, '', '/')
+    if (window.location.pathname.startsWith('/campaigns/') || window.location.pathname.startsWith('/payments') || window.location.pathname.startsWith('/master/') || window.location.pathname.startsWith('/settlements')) window.history.pushState({}, '', '/')
     setActivePage(page)
     setProductId(undefined)
     setProposalId(undefined)
@@ -63,6 +64,7 @@ function App() {
     setSelectedSampleId(null)
     setSelectedSalesDataImportId(null)
     setSelectedSettlementId(null)
+    if (page === '정산 관리') window.history.pushState({}, '', '/settlements')
     if (page === '지급 승인') window.history.pushState({ from: '/', label: '지급 요청 목록' }, '', '/payments?tab=requests')
     const masterPaths: Partial<Record<AppPage, string>> = { '셀러 마스터': '/master/sellers', '매니저 마스터': '/master/managers', '브랜드 마스터': '/master/brands', '상품 마스터': '/master/products', '벤더 마스터': '/master/vendors', '제안서 마스터': '/master/proposals', '가져오기/내보내기': '/master/import-export' }
     if (masterPaths[page]) window.history.pushState({}, '', masterPaths[page])
@@ -74,6 +76,9 @@ function App() {
       if (window.location.pathname.startsWith('/payments')) {
         setActivePage('지급 승인')
         setPaymentRouteKey((value) => value + 1)
+      } else if (parseSettlementRoute()) {
+        setActivePage('정산 관리')
+        setSelectedSettlementId(parseSettlementRoute()?.settlementId ?? null)
       } else if (parseMasterRoute()) {
         const master = parseMasterRoute()!
         setActivePage(master.page)
@@ -147,7 +152,17 @@ function App() {
       {activePage === 'CS 관리' && <CsManagementPage initialCaseId={selectedCsCaseId} />}
       {activePage === '샘플 관리' && <SampleManagementPage initialSampleId={selectedSampleId} />}
       {activePage === '판매 데이터' && <SalesDataPage initialImportId={selectedSalesDataImportId} />}
-      {activePage === '정산 관리' && <SettlementPage initialSettlementId={selectedSettlementId} />}
+      {activePage === '정산 관리' && !selectedSettlementId && <SettlementPage onOpenDetail={(id) => {
+        window.history.pushState({ from: '/settlements', scrollY: window.scrollY }, '', `/settlements/${encodeURIComponent(id)}`)
+        setSelectedSettlementId(id)
+      }} />}
+      {activePage === '정산 관리' && selectedSettlementId && <SettlementDetailPage settlementId={selectedSettlementId} onBack={() => {
+        if (window.history.state?.from === '/settlements') window.history.back()
+        else {
+          window.history.pushState({}, '', '/settlements')
+          setSelectedSettlementId(null)
+        }
+      }} />}
       {activePage === '지급 승인' && <PaymentRequestPage key={paymentRouteKey} />}
       {activePage === '상품 마스터' && !productId && <ProductListPage permission={productMasterPermission} onOpen={(id) => {
         const path = id ? `/master/products/${encodeURIComponent(id)}` : '/master/products/new'
@@ -197,7 +212,11 @@ function App() {
             if (type === 'cs') { setActivePage('CS 관리'); setSelectedCsCaseId(id ?? null) }
             if (type === 'samples') { setActivePage('샘플 관리'); setSelectedSampleId(id ?? null) }
             if (type === 'sales') { setActivePage('판매 데이터'); setSelectedSalesDataImportId(id ?? null) }
-            if (type === 'settlement') { setActivePage('정산 관리'); setSelectedSettlementId(id ?? null) }
+            if (type === 'settlement') {
+              setActivePage('정산 관리')
+              setSelectedSettlementId(id ?? null)
+              window.history.pushState({}, '', id ? `/settlements/${encodeURIComponent(id)}` : '/settlements')
+            }
           }}
           scheduleId={selectedScheduleId}
         />
@@ -244,6 +263,12 @@ function parseCampaignRoute(): { campaignId: string; tab: CampaignTab } | null {
   const requested = new URLSearchParams(window.location.search).get('tab') as CampaignTab | null
   const tabs: CampaignTab[] = ['overview','timeline','work','files','communications','samples','cs','sales','settlement','history']
   return { campaignId: decodeURIComponent(match[1]), tab: requested && tabs.includes(requested) ? requested : 'overview' }
+}
+
+function parseSettlementRoute(): { settlementId?: string } | null {
+  if (window.location.pathname === '/settlements') return {}
+  const match = window.location.pathname.match(/^\/settlements\/([^/]+)$/)
+  return match ? { settlementId: decodeURIComponent(match[1]) } : null
 }
 
 export default App
