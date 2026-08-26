@@ -238,6 +238,19 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   const managerBusinessType = managerPaymentService.getBusinessType(campaign?.managerName ?? '')
   const sellerPaymentRequest = campaign ? paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'seller', campaign.sellerId, settlement.settlementVersion) : undefined
   const managerPaymentRequest = campaign ? paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'manager', campaign.managerId, settlement.settlementVersion) : undefined
+  const checklist = settlement.reviewChecklist
+  const settlementPreparationWarnings = [
+    (!salesDataConfirmed || !checklist.salesMatches) && '판매 데이터 확정이 필요합니다.',
+    !checklist.commissionRateConfirmed && '수수료율 확인이 필요합니다.',
+    !checklist.sampleCostReflected && '샘플비 반영 확인이 필요합니다.',
+    !checklist.eventCostReflected && '이벤트비 반영 확인이 필요합니다.',
+    !checklist.otherDeductionsConfirmed && '기타 차감 확인이 필요합니다.',
+    !checklist.costOwnersConfirmed && '비용 부담자 확인이 필요합니다.',
+    !checklist.managerShareConfirmed && '매니저 배분율 확인이 필요합니다.',
+    (!sellerRule || !checklist.taxTypeConfirmed) && '사업자 유형이 등록되지 않았습니다.',
+    (!sellerRule?.confirmedEvidenceType || !checklist.evidenceConfirmed) && '증빙 유형 확인이 필요합니다.',
+    !checklist.paymentAccountConfirmed && '셀러 지급 계좌가 등록되지 않았습니다.',
+  ].filter((item): item is string => Boolean(item))
 
   const syncAction = (action: () => unknown) => {
     action()
@@ -345,7 +358,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
 
   const showDocument = (mode: DocumentMode) => {
     setDocumentMode(mode)
-    requestAnimationFrame(() => document.getElementById(mode === '매니저 정산서' ? 'manager-settlement-document' : 'seller-settlement-document')?.scrollIntoView({ behavior: 'smooth' }))
+    requestAnimationFrame(() => (document.getElementById(mode === '매니저 정산서' ? 'manager-settlement-document' : 'seller-settlement-document') ?? document.getElementById('settlement-preparation'))?.scrollIntoView({ behavior: 'smooth' }))
   }
 
   const openDetailSection = (id: string) => {
@@ -397,31 +410,11 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
 
         <AdditionalCosts deductions={deductions} />
 
-        <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="calculation-detail"><summary><div><h2>정산 계산 상세</h2><p>정산 금액의 계산식과 계산 근거를 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><CalculationTable settlement={settlement} /></div></details>
+        <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="calculation-detail"><summary><div><h2>정산 계산 상세</h2><p>정산 금액의 계산식과 계산 근거를 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><CalculationTable settlement={settlement} /><details className="settlement-internal-validation"><summary>내부 검증 항목 관리</summary><div className="settlement-checklist">{Object.entries(checklistLabels).map(([key, label]) => <label className="checklist-item" key={key}><input checked={settlement.reviewChecklist[key as keyof typeof settlement.reviewChecklist]} onChange={(event) => { settlementService.updateReviewChecklist(settlement.id, { ...settlement.reviewChecklist, [key]: event.target.checked }); setSettlement(settlementService.getSettlementById(settlement.id) ?? null) }} type="checkbox" />{label}</label>)}</div></details></div></details>
 
-        <section className="detail-card settlement-card settlement-page-section">
-          <div className="checklist-head">
-            <div><h3>검토 체크리스트</h3><p>모든 필수 항목이 완료되어야 매니저 검토 완료가 가능합니다.</p></div>
-            <strong>{Object.values(settlement.reviewChecklist).filter(Boolean).length}/10</strong>
-          </div>
-          <div className="settlement-checklist">
-            {Object.entries(checklistLabels).map(([key, label]) => (
-              <label className="checklist-item" key={key}>
-                <input checked={settlement.reviewChecklist[key as keyof typeof settlement.reviewChecklist]} onChange={(event) => {
-                  settlementService.updateReviewChecklist(settlement.id, { ...settlement.reviewChecklist, [key]: event.target.checked })
-                  setSettlement(settlementService.getSettlementById(settlement.id) ?? null)
-                }} type="checkbox" />
-                {label}
-              </label>
-            ))}
-          </div>
-          <div className="settlement-preview">
-            <p>승인 상태: {statusLabel(settlement.status)} / 증빙: {settlement.evidenceStatus === 'confirmed' ? '확인 완료' : '미확인'}</p>
-            <p>매니저 지급액 {money(settlement.currentCalculation.managerAmount)} / 회사 귀속액 {money(settlement.currentCalculation.companyAmount)}</p>
-          </div>
-        </section>
+        {settlementPreparationWarnings.length > 0 && <section className="settlement-preparation-warning" id="settlement-preparation"><div><span aria-hidden="true">!</span><h2>정산 준비 필요</h2></div><ul>{settlementPreparationWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></section>}
 
-        <section className="detail-card settlement-card settlement-document-tab settlement-page-section" id="settlement-documents">
+        {settlementPreparationWarnings.length === 0 && <section className="detail-card settlement-card settlement-document-tab settlement-page-section" id="settlement-documents">
           <div className="checklist-head">
             <div><p className="page-eyebrow">5. 정산서 보기</p><h2>정산서 비교</h2><p>셀러 정산서와 매니저 정산서를 한 화면에서 비교합니다.</p></div>
             <div className="document-view-tabs" role="tablist" aria-label="정산서 종류">
@@ -447,7 +440,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
               {documentNotice && <p className="mock-notice settlement-document-comparison__notice">{documentNotice}</p>}
             </div>
           )}
-        </section>
+        </section>}
 
         <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="payment-history"><summary><div><h2>지급 요청 및 승인 이력</h2><p>계산, 상태 변경, 승인, 지급 및 버전 이력을 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><HistoryContent logs={logs} settlement={settlement} />
           <div className="checklist-head">
@@ -471,7 +464,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
           <SettlementStatusActions
             checklistDone={checklistDone}
             onHistory={() => openDetailSection('payment-history')}
-            onSetDocument={() => document.getElementById('settlement-documents')?.scrollIntoView({ behavior: 'smooth' })}
+            onSetDocument={() => (document.getElementById('settlement-documents') ?? document.getElementById('settlement-preparation'))?.scrollIntoView({ behavior: 'smooth' })}
             reviewReady={reviewReady}
             settlement={settlement}
             syncAction={syncAction}
