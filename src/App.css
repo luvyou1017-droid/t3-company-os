@@ -1851,6 +1851,23 @@
 .seller-document--exporting * { overflow: visible !important; }
 .seller-document--exporting details { display: block !important; }
 .seller-document--exporting details > * { display: block !important; }
+.seller-export-timestamp { color: #4b5563; font-size: 10px; margin: 2px 0 0; text-align: right; }
+.settlement-work-table td small { color: #64748b; display: block; font-size: 10px; margin-top: 3px; white-space: nowrap; }
+.manager-statement { max-width: 1180px; }
+.manager-statement .manager-document__section { border: 0; display: grid; gap: 8px; padding: 0; }
+.manager-statement .manager-document__section h3 { font-size: 15px; margin: 0; }
+.manager-statement .manager-event-cost { border: 1px solid #111827; margin: 0; }
+.manager-allocation-basis { border: 2px solid #111827 !important; padding: 14px !important; }
+.manager-allocation-basis > strong { font-size: 22px; text-align: right; }
+.manager-allocation-basis > p { color: #374151 !important; margin: 0; }
+.manager-final-row th,
+.manager-final-row td { background: #e5e7eb !important; font-size: 14px !important; font-weight: 900 !important; }
+
+@media print {
+  .seller-export-timestamp { display: block !important; }
+  .seller-statement .seller-document__table { display: table !important; overflow: visible !important; }
+  .seller-statement .seller-document__section { break-inside: avoid; }
+}
 
 .settlement-preview,
 .preview-text-list {
