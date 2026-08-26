@@ -1413,7 +1413,7 @@
   padding: clamp(20px, 2.4vw, 36px);
 }
 
-.settlement-detail-header { background: linear-gradient(135deg, #fff 60%, #f5f3ff); }
+.settlement-detail-header { align-items: center; background: linear-gradient(135deg, #fff 60%, #f5f3ff); display: flex; gap: 24px; justify-content: space-between; }
 .settlement-detail-header h1 { font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em; margin: 0; }
 .settlement-detail-header p { color: var(--muted); font-size: 15px; margin: 8px 0 0; }
 .settlement-title-row { align-items: center; display: flex; flex-wrap: wrap; gap: 16px; }
@@ -1445,7 +1445,7 @@
 #product-settlement { order: 20; }
 #additional-costs { order: 30; }
 #calculation-detail { order: 40; }
-#seller-document { order: 50; }
+#settlement-documents { order: 50; }
 #evidence { order: 60; }
 #evidence + .settlement-page-section { order: 70; }
 #payment-history { order: 80; }
@@ -1570,6 +1570,31 @@
 
 .settlement-document-actions {
   justify-content: flex-end;
+}
+
+.document-view-tabs {
+  background: #eef0f3;
+  border-radius: 10px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+}
+
+.document-view-tabs button {
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: #4b5563;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 9px 13px;
+}
+
+.document-view-tabs button.is-active {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 14%);
+  color: #111827;
 }
 
 .internal-settlement-document {
@@ -3374,6 +3399,8 @@
   .settlement-evidence-preview { height: 180px; width: 100%; }
   .settlement-document-actions,
   .seller-document-actions { justify-content: stretch; }
+  .document-view-tabs { align-self: stretch; overflow-x: auto; }
+  .document-view-tabs button { flex: 1 0 auto; }
   .settlement-document-actions button,
   .seller-document-actions button { flex: 1 1 160px; }
   .settlement-mobile-list { display: grid; }

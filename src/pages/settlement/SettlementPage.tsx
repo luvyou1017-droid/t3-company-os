@@ -220,6 +220,8 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   if (!settlement) return <section className="settlement-detail-page"><button className="settlement-back-button" onClick={onBack} type="button">← 정산 관리로 돌아가기</button><div className="empty-state"><strong>정산을 찾을 수 없습니다.</strong><span>삭제되었거나 접근할 수 없는 정산입니다.</span></div></section>
 
   const campaign = getCampaign(settlement)
+  const currentUser = getUserById('u-001')
+  const canAccessManagerDocument = Boolean(currentUser && canViewManagerSettlement(currentUser, campaign?.managerId))
   const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
   const versions = settlementService.getSettlementVersionsBySettlementId(settlement.id)
   const logs = settlementService.getActivityLogsBySettlementId(settlement.id)
@@ -344,6 +346,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
             <p>{salesImport?.salesStartDate || '-'} ~ {salesImport?.salesEndDate || '-'}</p>
             <p>정산 담당자 {settlement.assigneeName} · v{settlement.settlementVersion}</p>
           </div>
+          {canAccessManagerDocument && <button className="secondary-button" onClick={() => { setDocumentMode('매니저 정산서'); requestAnimationFrame(() => document.getElementById('settlement-documents')?.scrollIntoView({ behavior: 'smooth' })) }} type="button">매니저 정산서 바로보기</button>}
         </div>
 
         {settlement.hasSourceChanged && (
@@ -449,13 +452,13 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
           </div>
         </section>
 
-        <section className="detail-card settlement-card settlement-document-tab settlement-page-section" id="seller-document">
+        <section className="detail-card settlement-card settlement-document-tab settlement-page-section" id="settlement-documents">
           <div className="checklist-head">
-            <div><p className="page-eyebrow">5. 셀러 정산서</p><h2>셀러 정산서</h2><p>내부 검토용과 셀러 전달용 정산서를 분리해서 확인합니다.</p></div>
-            <div className="action-row settlement-document-actions">
-              <button className="secondary-button" onClick={() => setDocumentMode('내부 검토용')} type="button">내부 검토용</button>
-              {canViewManagerSettlement(getUserById('u-001')!, campaign?.managerId) && <button className="secondary-button" onClick={() => setDocumentMode('매니저 정산서')} type="button">매니저 정산서</button>}
-              <button className="primary-button" onClick={() => setDocumentMode('셀러 전달용')} type="button">셀러 전달용 정산서 보기</button>
+            <div><p className="page-eyebrow">5. 정산서 보기</p><h2>정산서 보기</h2><p>내부 검토용, 셀러 전달용, 매니저/회사 정산서를 전환해 확인합니다.</p></div>
+            <div className="document-view-tabs" role="tablist" aria-label="정산서 종류">
+              <button aria-selected={documentMode === '내부 검토용'} className={documentMode === '내부 검토용' ? 'is-active' : ''} onClick={() => setDocumentMode('내부 검토용')} role="tab" type="button">내부 검토용</button>
+              <button aria-selected={documentMode === '셀러 전달용'} className={documentMode === '셀러 전달용' ? 'is-active' : ''} onClick={() => setDocumentMode('셀러 전달용')} role="tab" type="button">셀러 정산서</button>
+              {canAccessManagerDocument && <button aria-selected={documentMode === '매니저 정산서'} className={documentMode === '매니저 정산서' ? 'is-active' : ''} onClick={() => setDocumentMode('매니저 정산서')} role="tab" type="button">매니저 정산서</button>}
             </div>
           </div>
           {documentMode === '내부 검토용' ? (
@@ -504,7 +507,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
           <SettlementStatusActions
             checklistDone={checklistDone}
             onHistory={() => document.getElementById('payment-history')?.scrollIntoView({ behavior: 'smooth' })}
-            onSetDocument={() => document.getElementById('seller-document')?.scrollIntoView({ behavior: 'smooth' })}
+            onSetDocument={() => document.getElementById('settlement-documents')?.scrollIntoView({ behavior: 'smooth' })}
             reviewReady={reviewReady}
             settlement={settlement}
             syncAction={syncAction}
@@ -747,7 +750,7 @@ function ManagerSettlementDocument({ documentRef, exportGeneratedAt, rows, settl
     <table className="seller-document__table seller-document__meta-table"><tbody><tr><th>공구명</th><td>{campaign?.campaignName ?? '-'}</td><th>공구기간</th><td>{campaign?.startDate ?? '-'} ~ {campaign?.endDate ?? '-'}</td></tr><tr><th>셀러</th><td>{campaign?.sellerName ?? '-'}</td><th>브랜드</th><td>{campaign?.brandName ?? '-'}</td></tr><tr><th>담당 매니저</th><td>{campaign?.managerName ?? '-'}</td><th>실제 판매 링크</th><td>{report.actualSalesChannel ? internalChannelLabels[report.actualSalesChannel] : '데이터 미연결'}</td></tr></tbody></table>
     <section className="manager-document__section"><h3>상품별 내부 정산표</h3><div className="settlement-work-table-wrap"><table className="seller-document__table"><thead><tr><th>상품명</th><th>공급가</th><th>공구가</th><th>총 수수료율</th><th>상품당 수수료</th><th>판매수량</th><th>판매 수수료</th><th>차감</th><th>비고</th></tr></thead><tbody>{rows.length ? rows.map((row) => { const unitCommission = Math.round(row.unitPrice * actualRate / 100); return <tr key={row.id}><td>{campaign?.productName ?? '-'}<small>{row.optionName}</small></td><td className="amount-cell">{snapshot ? money(snapshot.supplyPrice) : '데이터 미연결'}</td><td className="amount-cell">{money(row.unitPrice)}</td><td className="amount-cell">{actualRate}%</td><td className="amount-cell">{money(unitCommission)}</td><td className="amount-cell">{row.netQuantity}</td><td className="amount-cell">{money(Math.round(row.netSales * actualRate / 100))}</td><td>-</td><td>{snapshot?.supplierLinkPgDeductionRate ? `기본 ${snapshot.totalCommissionRate}% · -${snapshot.supplierLinkPgDeductionRate}%p` : ''}</td></tr> }) : <tr><td colSpan={9}>SKU별 판매 데이터가 아직 연결되지 않았습니다.</td></tr>}</tbody></table></div></section>
     <section className="manager-document__section"><h3>비용 및 차감</h3>{allCosts.length ? <table className="seller-document__table"><thead><tr><th>항목</th><th>총 비용</th><th>부담 주체</th><th>매니저 부담액</th><th>회사 부담액</th><th>비고</th></tr></thead><tbody>{allCosts.map((item) => <tr key={item.id}><td>{managerCostLabel(item)} · {item.title}</td><td className="amount-cell">{money(item.amount)}</td><td>{costOwnerLabel[item.costOwner] ?? item.costOwner}</td><td className="amount-cell">{item.applyLocation === 'manager_payment' ? `- ${money(item.amount)}` : '-'}</td><td className="amount-cell">{item.applyLocation === 'net_company_commission' ? `- ${money(item.amount)}` : '-'}</td><td>{item.memo || '-'}</td></tr>)}</tbody></table> : <p className="seller-document__empty">반영된 비용 및 차감 내역이 없습니다.</p>}{campaign?.campaignEvents?.filter((event) => event.payer === 'shared').map((event) => <article className="manager-event-cost" key={event.id}><strong>공동 부담 이벤트 · {getCampaignEventTypeLabel(event.eventType)}</strong><span>총 비용 {money(eventAmount(event))}</span><EventShareList event={event} /></article>)}</section>
-    <section className="manager-document__section"><h3>PG 비용</h3><table className="seller-document__table"><tbody><tr><th>판매 링크 / PG 조건</th><td>{pgPolicy}</td></tr><tr><th>스룩페이 수수료</th><td className="amount-cell">{snapshot?.actualSalesChannel === 'wise_shop_link' ? pgAmount === undefined ? '실제 비용 데이터 미연결' : `- ${money(pgAmount)}` : `${money(0)} · 별도 차감 없음`}</td></tr><tr><th>정산 반영</th><td>{snapshot?.actualSalesChannel === 'wise_shop_link' && pgAmount === undefined ? '실제 PG 비용 연결 후 반영 필요' : snapshot?.actualSalesChannel === 'wise_shop_link' ? 'Campaign Snapshot 실제 PG 비용' : '별도 스룩페이 차감 없음'}</td></tr></tbody></table></section>
+    <section className="manager-document__section"><h3>정산 기준 금액 / PG 비용</h3><table className="seller-document__table"><tbody><tr><th>총매출</th><td className="amount-cell">{money(report.totalSales)}</td></tr><tr><th>배송비</th><td className="amount-cell">{snapshot ? `${money(snapshot.shippingAmount)} · Campaign Snapshot` : '데이터 미연결'}</td></tr><tr><th>판매 링크 / PG 조건</th><td>{pgPolicy}</td></tr><tr><th>스룩페이 수수료</th><td className="amount-cell">{snapshot?.actualSalesChannel === 'wise_shop_link' ? pgAmount === undefined ? '실제 비용 데이터 미연결' : `- ${money(pgAmount)}` : `${money(0)} · 별도 차감 없음`}</td></tr><tr><th>정산 반영</th><td>{snapshot?.actualSalesChannel === 'wise_shop_link' && pgAmount === undefined ? '실제 PG 비용 연결 후 반영 필요' : snapshot?.actualSalesChannel === 'wise_shop_link' ? 'Campaign Snapshot 실제 PG 비용' : '별도 스룩페이 차감 없음'}</td></tr><tr className="manager-final-row"><th>최종 배분 대상 수수료</th><td className="amount-cell">{money(settlement.currentCalculation.distributableVendorCommission)}</td></tr></tbody></table></section>
     <section className="manager-document__section manager-allocation-basis"><h3>최종 배분 대상 수수료</h3><strong>{money(settlement.currentCalculation.distributableVendorCommission)}</strong><p>총매출이 아닌 최종 배분 대상 수수료를 기준으로 배분합니다.</p></section>
     <section className="manager-document__section"><h3>매니저 / 회사 배분</h3><table className="seller-document__table"><thead><tr><th>구분</th><th>배분 기준</th><th>배분율</th><th>기본 배분액</th><th>최종 금액</th></tr></thead><tbody><tr><td>매니저</td><td>최종 배분 대상 수수료</td><td className="amount-cell">{settlement.currentCalculation.managerShareRate}%</td><td className="amount-cell">{money(report.managerBaseShare)}</td><td className="amount-cell">{money(report.managerFinalSettlement)}</td></tr><tr><td>회사</td><td>최종 배분 대상 수수료</td><td className="amount-cell">{settlement.currentCalculation.companyShareRate}%</td><td className="amount-cell">{money(report.companyBaseShare)}</td><td className="amount-cell">{money(report.companyFinalContribution)}</td></tr></tbody></table></section>
     <section className="manager-document__section"><h3>매니저 최종 지급</h3><table className="seller-document__table"><tbody><tr><th>매니저 기본 배분액</th><td className="amount-cell">{money(report.managerBaseShare)}</td></tr>{report.managerDeductions.map((item) => <tr key={item.id}><th>{managerCostLabel(item)}</th><td className="amount-cell">- {money(item.amount)}</td></tr>)}<tr className="manager-final-row"><th>매니저 최종 정산금</th><td className="amount-cell">{money(report.managerFinalSettlement)}</td></tr><tr><th>증빙 유형 / 상태</th><td>{evidenceLabel} · {evidence.some((item) => item.reviewStatus === 'approved') ? '승인' : evidence.some((item) => item.reviewStatus === 'rejected') ? '반려' : evidence.length ? '검수 중' : '업로드 대기'}</td></tr>{tax && <tr><th>원천징수</th><td className="amount-cell">- {money(tax.totalWithholdingTaxAmount)}</td></tr>}<tr className="manager-final-row"><th>최종 입금액</th><td className="amount-cell">{money(request?.finalPaymentAmount ?? tax?.finalPaymentAmount ?? report.managerFinalSettlement)}</td></tr><tr><th>입금 예정일</th><td>{settlement.paymentDueDate}</td></tr></tbody></table></section>
