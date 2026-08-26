@@ -661,10 +661,14 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
   const additionalPayments = costRows.filter((item) => item.direction === 'payment' && item.amount !== undefined).reduce((sum, item) => sum + item.amount!, 0)
   const sellerRate = settlement.currentCalculation.sellerCommissionRate
   const productSubtotal = calculateSellerProductSubtotal(rows, sellerRate)
+  const sellerDocumentPayout = (businessType: SellerBusinessType) => {
+    const calculation = calculateFinalSellerPayment(productSubtotal.commissionAmount, businessType, sellerDeductions)
+    return { ...calculation, finalSellerPaymentAmount: calculation.finalSellerPaymentAmount + additionalPayments }
+  }
   const businessAmounts = [
-    { type: 'corporation', label: '법인/개인사업자', evidence: '세금계산서 발행금액', ...calculateFinalSellerPayment(settlement.currentCalculation.sellerCommissionAmount, 'general_business', sellerDeductions) },
-    { type: 'simplified_business', label: '간이사업자', evidence: '현금영수증 발행금액', ...calculateFinalSellerPayment(settlement.currentCalculation.sellerCommissionAmount, 'simplified_business', sellerDeductions) },
-    { type: 'freelancer', label: '개인 프리랜서', evidence: '3.3% 원천세 공제 후 입금액', ...calculateFinalSellerPayment(settlement.currentCalculation.sellerCommissionAmount, 'freelancer', sellerDeductions) },
+    { type: 'corporation', label: '법인/개인사업자', evidence: '세금계산서 발행금액', ...sellerDocumentPayout('general_business') },
+    { type: 'simplified_business', label: '간이사업자', evidence: '현금영수증 발행금액', ...sellerDocumentPayout('simplified_business') },
+    { type: 'freelancer', label: '개인 프리랜서', evidence: '3.3% 원천세 공제 후 입금액', ...sellerDocumentPayout('freelancer') },
   ] as const
   const statementDate = formatKoreanDocumentDate(settlement.createdAt)
   const schedule = getSellerSettlementSchedule(settlement.createdAt)
@@ -715,10 +719,10 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
         <SellerAdditionalCosts rows={displayCostRows} />
 
         <section className="seller-document__section seller-document__totals seller-compact-settlement"><h3>정산금액</h3><table className="seller-document__table"><tbody>
-          <tr><th>총 판매수량</th><td className="amount-cell">{productSubtotal.quantity.toLocaleString('ko-KR')}개</td><th>총매출</th><td className="amount-cell">{money(settlement.currentCalculation.grossSales)}</td></tr>
-          <tr><th>셀러 수수료</th><td className="amount-cell">{money(settlement.currentCalculation.sellerCommissionAmount)}</td>{sellerDeductions > 0 ? <><th>추가 차감</th><td className="amount-cell seller-cost-deduction-cell">- {money(sellerDeductions)}</td></> : <><th>추가 지급</th><td className="amount-cell seller-positive-amount">{additionalPayments ? `+ ${money(additionalPayments)}` : '-'}</td></>}</tr>
+          <tr><th>총 판매수량</th><td className="amount-cell">{productSubtotal.quantity.toLocaleString('ko-KR')}개</td><th>총매출</th><td className="amount-cell">{money(productSubtotal.salesAmount)}</td></tr>
+          <tr><th>셀러 수수료</th><td className="amount-cell">{money(productSubtotal.commissionAmount)}</td>{sellerDeductions > 0 ? <><th>추가 차감</th><td className="amount-cell seller-cost-deduction-cell">- {money(sellerDeductions)}</td></> : <><th>추가 지급</th><td className="amount-cell seller-positive-amount">{additionalPayments ? `+ ${money(additionalPayments)}` : '-'}</td></>}</tr>
           {sellerDeductions > 0 && additionalPayments > 0 && <tr><th>추가 지급</th><td className="amount-cell seller-positive-amount">+ {money(additionalPayments)}</td><td colSpan={2}></td></tr>}
-          <tr className="seller-summary-total"><th colSpan={3}>최종 정산금</th><td className="amount-cell">{money(settlement.currentCalculation.finalSellerPaymentAmount)}</td></tr>
+          <tr className="seller-summary-total"><th colSpan={3}>최종 정산금</th><td className="amount-cell">{money(currentBusinessAmount?.finalSellerPaymentAmount ?? productSubtotal.commissionAmount - sellerDeductions + additionalPayments)}</td></tr>
         </tbody></table></section>
 
         <section className="seller-document__section seller-document__tax seller-business-payment"><h3>사업자 유형별 지급금액</h3><table className="seller-document__table"><thead><tr><th>구분</th><th>증빙 / 지급 기준</th><th>지급금액</th><th>적용</th></tr></thead><tbody>

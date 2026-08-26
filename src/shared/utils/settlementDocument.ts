@@ -29,19 +29,20 @@ export function calculateSellerSupplyTotal(groupBuyPrice: number, sellerCommissi
   return calculateSellerSupplyPrice(groupBuyPrice, sellerCommissionRate) * Math.round(quantity)
 }
 
-export type SellerProductSubtotalRow = { unitPrice: number; netQuantity: number }
+export type SellerProductSubtotalRow = { unitPrice: number; netQuantity: number; sellerCommissionRate?: number }
 
 export function calculateSellerProductRow(row: SellerProductSubtotalRow, sellerCommissionRate: number) {
   if (!Number.isFinite(row.netQuantity) || row.netQuantity < 0) throw new Error('판매수량은 0 이상의 유한한 숫자여야 합니다.')
   if (!Number.isFinite(row.unitPrice) || row.unitPrice < 0) throw new Error('공구가는 0 이상의 유한한 숫자여야 합니다.')
+  const effectiveCommissionRate = row.sellerCommissionRate ?? sellerCommissionRate
   const quantity = Math.round(row.netQuantity)
   const salesAmount = quantity * row.unitPrice
   return {
     quantity,
-    supplyPrice: calculateSellerSupplyPrice(row.unitPrice, sellerCommissionRate),
-    supplyTotal: calculateSellerSupplyTotal(row.unitPrice, sellerCommissionRate, quantity),
+    supplyPrice: calculateSellerSupplyPrice(row.unitPrice, effectiveCommissionRate),
+    supplyTotal: calculateSellerSupplyTotal(row.unitPrice, effectiveCommissionRate, quantity),
     salesAmount,
-    commissionAmount: Math.round(salesAmount * sellerCommissionRate / 100),
+    commissionAmount: Math.round(salesAmount * effectiveCommissionRate / 100),
   }
 }
 
