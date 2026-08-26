@@ -15,6 +15,8 @@ import { canMoveToReview, runSettlementAssertions, statusLabel, validateSettleme
 import { formatCurrency } from '../../shared/utils/salesData'
 import { openCampaignDetail } from '../../shared/utils/campaignNavigation'
 import { calculateFinalSellerPayment } from '../../shared/utils/sellerSettlement'
+import { getRecommendedEvidenceType } from '../../shared/utils/sellerSettlement'
+import { sellerMasterService } from '../../shared/services/sellerMasterService'
 import { companySettlementProfile } from '../../shared/data/companySettlementProfile'
 import { managerSettlementReportService } from '../../shared/services/managerSettlementReportService'
 import { canViewManagerSettlement } from '../../shared/utils/managerSettlementPermission'
@@ -28,6 +30,9 @@ import type { CampaignEvent } from '../../shared/types/campaignCreation'
 import type { WithholdingTaxItem } from '../../shared/types/withholdingTax'
 
 type DocumentMode = '내부 검토용' | '셀러 전달용' | '매니저 정산서'
+type ReadinessModal = 'commission' | 'costs' | 'share' | 'business' | 'account'
+type ReadinessSeverity = 'blocking' | 'non-blocking'
+type ReadinessWarning = { id: string; message: string; actionLabel: string; severity: ReadinessSeverity; action: () => void }
 const evidenceAllowedTypes = new Set<string>(PAYMENT_EVIDENCE_ALLOWED_TYPES)
 const evidenceImageTypes = new Set<string>(PAYMENT_EVIDENCE_ALLOWED_TYPES.filter((type) => type.startsWith('image/')))
 const statusTone: Record<SettlementStatus, string> = {
@@ -211,7 +216,7 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: s
   return <div className={`settlement-money-kpi ${tone ? `settlement-money-kpi--${tone}` : ''}`}><span>{label}</span><strong>{value}</strong></div>
 }
 
-export function SettlementDetailPage({ settlementId, onBack }: { settlementId: string; onBack: () => void }) {
+export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: { settlementId: string; onBack: () => void; onOpenSalesData?: (importId: string) => void }) {
   const [settlement, setSettlement] = useState<Settlement | null>(() => settlementService.getSettlementById(settlementId) ?? null)
   const [documentMode, setDocumentMode] = useState<DocumentMode>('셀러 전달용')
   const [documentNotice, setDocumentNotice] = useState('')
@@ -221,6 +226,9 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   const [expandedDocument, setExpandedDocument] = useState<'seller' | 'manager' | null>(null)
   const [printingDocument, setPrintingDocument] = useState<'seller' | 'manager' | null>(null)
   const [paymentRequestTarget, setPaymentRequestTarget] = useState<EvidenceOwnerType | null>(null)
+  const [readinessModal, setReadinessModal] = useState<ReadinessModal | null>(null)
+  const [businessTypeDraft, setBusinessTypeDraft] = useState<SellerBusinessType>('general_business')
+  const [accountDraft, setAccountDraft] = useState({ bankName: '', accountNumber: '', accountHolder: '' })
   const [, setPaymentAutomationRevision] = useState(0)
   const sellerDocumentRef = useRef<HTMLDivElement | null>(null)
   const managerDocumentRef = useRef<HTMLDivElement | null>(null)
@@ -239,6 +247,28 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
     withholdingTaxService.syncSettlementRecipients(settlement.id, sellerBusinessType, targetManagerBusinessType)
     if (withholdingTaxService.getItems().length !== before) queueMicrotask(() => setPaymentAutomationRevision((value) => value + 1))
   }, [settlement])
+  useEffect(() => {
+    if (!settlement) return
+    const targetCampaign = getCampaign(settlement)
+    const targetImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
+    const targetRows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
+    const targetRule = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)
+    const targetProfile = targetCampaign ? sellerMasterService.getSellerById(targetCampaign.sellerId) : undefined
+    const targetDeductions = settlementService.getDeductionsBySettlementId(settlement.id).filter((item) => item.amount > 0)
+    const ratesValid = targetRows.length > 0 && settlement.currentCalculation.totalCommissionRate >= settlement.currentCalculation.sellerCommissionRate && settlement.currentCalculation.sellerCommissionRate >= 0 && settlement.currentCalculation.totalCommissionRate <= 100
+    const ownersResolved = targetDeductions.every((item) => item.costOwner !== 'undecided' && item.applyLocation !== 'needs_review')
+    const accountRegistered = Boolean(targetProfile?.bankName?.trim() && targetProfile.accountNumber?.trim() && targetProfile.accountHolder?.trim())
+    const automatic = {
+      salesMatches: targetImport?.reviewStatus === '확정 완료' || settlement.reviewChecklist.salesMatches,
+      commissionRateConfirmed: ratesValid || settlement.reviewChecklist.commissionRateConfirmed,
+      costOwnersConfirmed: ownersResolved || settlement.reviewChecklist.costOwnersConfirmed,
+      taxTypeConfirmed: Boolean(targetRule) || settlement.reviewChecklist.taxTypeConfirmed,
+      evidenceConfirmed: Boolean(targetRule && getRecommendedEvidenceType(targetRule.businessType)) || settlement.reviewChecklist.evidenceConfirmed,
+      paymentAccountConfirmed: accountRegistered || settlement.reviewChecklist.paymentAccountConfirmed,
+    }
+    const changed = Object.entries(automatic).some(([key, value]) => settlement.reviewChecklist[key as keyof typeof automatic] !== value)
+    if (changed) queueMicrotask(() => setSettlement(settlementService.updateReviewChecklist(settlement.id, { ...settlement.reviewChecklist, ...automatic }) ?? null))
+  }, [settlement])
   if (!settlement) return <section className="settlement-detail-page"><button className="settlement-back-button" onClick={onBack} type="button">← 정산 관리로 돌아가기</button><div className="empty-state"><strong>정산을 찾을 수 없습니다.</strong><span>삭제되었거나 접근할 수 없는 정산입니다.</span></div></section>
 
   const campaign = getCampaign(settlement)
@@ -251,8 +281,8 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   const salesRows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
   const salesDataConfirmed = salesImport?.reviewStatus === '확정 완료'
   const reviewReady = canMoveToReview(settlement, salesDataConfirmed)
-  const checklistDone = Object.values(settlement.reviewChecklist).every(Boolean)
   const sellerRule = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)
+  const sellerProfile = campaign ? sellerMasterService.getSellerById(campaign.sellerId) : undefined
   const managerBusinessType = managerPaymentService.getBusinessType(campaign?.managerName ?? '')
   const sellerPaymentRequest = campaign ? paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'seller', campaign.sellerId, settlement.settlementVersion) : undefined
   const managerPaymentRequest = campaign ? paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'manager', campaign.managerId, settlement.settlementVersion) : undefined
@@ -274,22 +304,75 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   const sellerActionReasons = sellerButtonBlockReasons.length ? sellerButtonBlockReasons : sellerRequestReasons.filter((reason) => evidenceModalReasons.includes(reason))
   const managerActionReasons = managerButtonBlockReasons.length ? managerButtonBlockReasons : managerRequestReasons.filter((reason) => evidenceModalReasons.includes(reason))
   const checklist = settlement.reviewChecklist
-  const settlementPreparationWarnings = [
-    (!salesDataConfirmed || !checklist.salesMatches) && '판매 데이터 확정이 필요합니다.',
-    !checklist.commissionRateConfirmed && '수수료율 확인이 필요합니다.',
-    !checklist.sampleCostReflected && '샘플비 반영 확인이 필요합니다.',
-    !checklist.eventCostReflected && '이벤트비 반영 확인이 필요합니다.',
-    !checklist.otherDeductionsConfirmed && '기타 차감 확인이 필요합니다.',
-    !checklist.costOwnersConfirmed && '비용 부담자 확인이 필요합니다.',
-    !checklist.managerShareConfirmed && '매니저 배분율 확인이 필요합니다.',
-    (!sellerRule || !checklist.taxTypeConfirmed) && '사업자 유형이 등록되지 않았습니다.',
-    (!sellerRule?.confirmedEvidenceType || !checklist.evidenceConfirmed) && '증빙 유형 확인이 필요합니다.',
-    !checklist.paymentAccountConfirmed && '셀러 지급 계좌가 등록되지 않았습니다.',
-  ].filter((item): item is string => Boolean(item))
+  const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
+  const actualCosts = deductions.filter((item) => item.amount > 0)
+  const unresolvedCostOwners = actualCosts.filter((item) => item.costOwner === 'undecided' || item.applyLocation === 'needs_review')
+  const totalRate = settlement.currentCalculation.totalCommissionRate
+  const sellerRate = settlement.currentCalculation.sellerCommissionRate
+  const commissionRatesValid = salesRows.length > 0 && Number.isFinite(totalRate) && Number.isFinite(sellerRate) && totalRate >= sellerRate && sellerRate >= 0 && totalRate <= 100
+  const managerShareTotal = settlement.currentCalculation.managerShareRate + settlement.currentCalculation.companyShareRate
+  const managerShareValid = Math.abs(managerShareTotal - 100) < 0.001
+  const hasSellerAccount = Boolean(sellerProfile?.bankName?.trim() && sellerProfile.accountNumber?.trim() && sellerProfile.accountHolder?.trim())
+  const effectiveSellerBusinessType = sellerProfile?.businessType ?? sellerRule?.businessType
+  const checklistDone = Object.values(checklist).every(Boolean)
+  const settlementPreparationWarnings: ReadinessWarning[] = []
+  if (!salesDataConfirmed) settlementPreparationWarnings.push({ id: 'sales', message: '판매 데이터 확정이 필요합니다.', actionLabel: '판매 데이터 확인', severity: 'blocking', action: () => onOpenSalesData?.(settlement.salesDataImportId) })
+  if (!commissionRatesValid) settlementPreparationWarnings.push({ id: 'commission', message: '수수료율 확인이 필요합니다.', actionLabel: '수수료율 확인', severity: 'blocking', action: () => setReadinessModal('commission') })
+  if (!checklist.sampleCostReflected) settlementPreparationWarnings.push({ id: 'sample', message: '샘플비 반영 확인이 필요합니다.', actionLabel: '비용/차감 확인', severity: 'non-blocking', action: () => setReadinessModal('costs') })
+  if (!checklist.eventCostReflected) settlementPreparationWarnings.push({ id: 'event', message: '이벤트비 반영 확인이 필요합니다.', actionLabel: '비용/차감 확인', severity: 'non-blocking', action: () => setReadinessModal('costs') })
+  if (!checklist.otherDeductionsConfirmed) settlementPreparationWarnings.push({ id: 'other', message: '기타 차감 확인이 필요합니다.', actionLabel: '비용/차감 확인', severity: 'non-blocking', action: () => setReadinessModal('costs') })
+  if (unresolvedCostOwners.length > 0) settlementPreparationWarnings.push({ id: 'owners', message: '비용 부담자 확인이 필요합니다.', actionLabel: '비용/차감 확인', severity: 'non-blocking', action: () => setReadinessModal('costs') })
+  if (!checklist.managerShareConfirmed || !managerShareValid) settlementPreparationWarnings.push({ id: 'share', message: '매니저 배분율 확인이 필요합니다.', actionLabel: '배분율 확인', severity: managerShareValid ? 'non-blocking' : 'blocking', action: () => setReadinessModal('share') })
+  if (!effectiveSellerBusinessType) settlementPreparationWarnings.push({ id: 'business', message: '사업자 유형이 등록되지 않았습니다.', actionLabel: '셀러 정보 등록', severity: 'non-blocking', action: () => setReadinessModal('business') })
+  if (!effectiveSellerBusinessType) settlementPreparationWarnings.push({ id: 'evidence', message: '증빙 유형 확인이 필요합니다.', actionLabel: '증빙 확인', severity: 'non-blocking', action: () => setReadinessModal('business') })
+  if (!hasSellerAccount) settlementPreparationWarnings.push({ id: 'account', message: '셀러 지급 계좌가 등록되지 않았습니다.', actionLabel: '계좌 등록', severity: 'non-blocking', action: () => { setAccountDraft({ bankName: sellerProfile?.bankName ?? '', accountNumber: sellerProfile?.accountNumber ?? '', accountHolder: sellerProfile?.accountHolder ?? campaign?.sellerName ?? '' }); setReadinessModal('account') } })
+  const blockingWarnings = settlementPreparationWarnings.filter((item) => item.severity === 'blocking')
+  const nonBlockingWarnings = settlementPreparationWarnings.filter((item) => item.severity === 'non-blocking')
 
   const syncAction = (action: () => unknown) => {
     action()
     setSettlement(settlementService.getSettlementById(settlement.id) ?? null)
+  }
+
+  const confirmChecklist = (values: Partial<typeof checklist>) => {
+    settlementService.updateReviewChecklist(settlement.id, { ...checklist, ...values })
+    setSettlement(settlementService.getSettlementById(settlement.id) ?? null)
+  }
+
+  const saveSellerBusinessType = () => {
+    if (!campaign) return
+    const normalizedMasterType = businessTypeDraft === 'freelancer' ? 'freelancer' : businessTypeDraft === 'simplified_business' ? 'simplified_business' : 'general_business'
+    sellerMasterService.saveSellerProfile({
+      id: campaign.sellerId,
+      name: campaign.sellerName,
+      businessType: normalizedMasterType,
+      defaultMdId: campaign.mdId,
+      defaultManagerId: campaign.managerId,
+      bankName: sellerProfile?.bankName,
+      accountNumber: sellerProfile?.accountNumber,
+      accountHolder: sellerProfile?.accountHolder,
+    })
+    const evidenceType = getRecommendedEvidenceType(businessTypeDraft)
+    if (sellerRule) sellerSettlementService.saveRule({ ...sellerRule, businessType: businessTypeDraft, recommendedEvidenceType: evidenceType, confirmedEvidenceType: evidenceType, evidenceConfirmed: true, evidenceConfirmedBy: '허수정', evidenceConfirmedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+    confirmChecklist({ taxTypeConfirmed: true, evidenceConfirmed: true })
+    setReadinessModal(null)
+  }
+
+  const saveSellerAccount = () => {
+    if (!campaign || !accountDraft.bankName.trim() || !accountDraft.accountNumber.trim() || !accountDraft.accountHolder.trim()) return
+    sellerMasterService.saveSellerProfile({
+      id: campaign.sellerId,
+      name: campaign.sellerName,
+      businessType: sellerProfile?.businessType ?? (effectiveSellerBusinessType === 'freelancer' ? 'freelancer' : effectiveSellerBusinessType === 'simplified_business' ? 'simplified_business' : effectiveSellerBusinessType ? 'general_business' : undefined),
+      defaultMdId: campaign.mdId,
+      defaultManagerId: campaign.managerId,
+      bankName: accountDraft.bankName.trim(),
+      accountNumber: accountDraft.accountNumber.trim(),
+      accountHolder: accountDraft.accountHolder.trim(),
+    })
+    settlementService.updateEvidence(settlement.id, settlement.evidenceStatus, settlement.taxEvidenceConfirmed, true)
+    confirmChecklist({ paymentAccountConfirmed: true })
+    setReadinessModal(null)
   }
 
   const completeWithholdingUpload = (ownerType: EvidenceOwnerType) => {
@@ -463,9 +546,10 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
           <Summary label="총매출" value={money(settlement.currentCalculation.grossSales)} amount />
         </div></section>
 
-        {settlementPreparationWarnings.length > 0 && <section className="settlement-preparation-warning" id="settlement-preparation"><div><span aria-hidden="true">!</span><h2>정산 준비 필요</h2></div><ul>{settlementPreparationWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></section>}
+        {blockingWarnings.length > 0 && <ReadinessWarningSection id="settlement-preparation" title="정산 계산 준비 필요" warnings={blockingWarnings} />}
+        {nonBlockingWarnings.length > 0 && <ReadinessWarningSection title="지급 준비 필요" warnings={nonBlockingWarnings} />}
 
-        {settlementPreparationWarnings.length === 0 && <section className="detail-card settlement-card settlement-document-tab settlement-page-section" id="settlement-documents">
+        {blockingWarnings.length === 0 && <section className="detail-card settlement-card settlement-document-tab settlement-page-section" id="settlement-documents">
           <div className="checklist-head">
             <div><p className="page-eyebrow">5. 정산서 보기</p><h2>정산서 비교</h2><p>셀러 정산서와 매니저 정산서를 한 화면에서 비교합니다.</p></div>
             <div className="document-view-tabs" role="tablist" aria-label="정산서 종류">
@@ -530,8 +614,19 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
 
         {compareOpen && <VersionCompareModal versions={versions} onClose={() => setCompareOpen(false)} />}
         {paymentRequestTarget && campaign && <PaymentRequestEvidenceModal campaign={campaign} managerBusinessType={managerBusinessType} onClose={() => setPaymentRequestTarget(null)} onRequested={() => { setPaymentRequestTarget(null); setSettlement(settlementService.getSettlementById(settlement.id) ?? null) }} ownerType={paymentRequestTarget} sellerBusinessType={sellerRule?.businessType ?? 'general_business'} settlement={settlement} />}
+        {readinessModal && campaign && <div className="settlement-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setReadinessModal(null) }}><section aria-modal="true" className="settlement-readiness-modal" role="dialog"><button aria-label="닫기" className="settlement-expanded-close" onClick={() => setReadinessModal(null)} type="button">×</button>
+          {readinessModal === 'commission' && <><h2>수수료율 확인</h2><p>Campaign Snapshot에 저장된 상품별 수수료율입니다.</p><div className="table-scroll"><table className="data-table"><thead><tr><th>상품 / SKU</th><th>총수수료율</th><th>셀러 수수료율</th></tr></thead><tbody>{salesRows.map((row) => <tr key={row.id}><td>{campaign.productName} / {row.optionName}</td><td>{totalRate}%</td><td>{sellerRate}%</td></tr>)}</tbody></table></div>{!commissionRatesValid && <p className="settlement-readiness-modal__error">유효한 수수료율이 없습니다. 상품 정보를 수정해주세요.</p>}<div className="modal-actions">{!commissionRatesValid && <button className="secondary-button" onClick={() => openCampaignDetail(campaign.id, 'overview')} type="button">상품 정보 수정</button>}<button className="primary-button" disabled={!commissionRatesValid} onClick={() => { confirmChecklist({ commissionRateConfirmed: true }); setReadinessModal(null) }} type="button">확인 완료</button></div></>}
+          {readinessModal === 'costs' && <><h2>정산 비용/차감 확인</h2><p>금액이 0원인 항목도 비용 없음으로 확인할 수 있습니다.</p><table className="data-table"><thead><tr><th>항목</th><th>금액</th><th>부담 주체</th></tr></thead><tbody>{(['sample', 'event', 'other'] as const).map((type) => { const items = deductions.filter((item) => item.type === type); const amount = items.reduce((sum, item) => sum + item.amount, 0); return <tr key={type}><td>{type === 'sample' ? '샘플비' : type === 'event' ? '이벤트비' : '기타 차감'}</td><td>{amount ? money(amount) : '0원 · 없음'}</td><td>{items.length ? [...new Set(items.map((item) => costOwnerLabel[item.costOwner] ?? item.costOwner))].join(', ') : '비용 없음'}</td></tr> })}</tbody></table>{unresolvedCostOwners.length > 0 && <p className="settlement-readiness-modal__error">부담 주체가 지정되지 않은 비용이 있습니다. 정산 계산 상세에서 비용 정보를 확인해주세요.</p>}<div className="modal-actions"><button className="primary-button" disabled={unresolvedCostOwners.length > 0} onClick={() => { confirmChecklist({ sampleCostReflected: true, eventCostReflected: true, otherDeductionsConfirmed: true, costOwnersConfirmed: true }); setReadinessModal(null) }} type="button">확인 완료</button></div></>}
+          {readinessModal === 'share' && <><h2>매니저 배분율 확인</h2><dl className="settlement-readiness-summary"><div><dt>매니저</dt><dd>{campaign.managerName}</dd></div><div><dt>매니저 배분율</dt><dd>{settlement.currentCalculation.managerShareRate}%</dd></div><div><dt>회사 배분율</dt><dd>{settlement.currentCalculation.companyShareRate}%</dd></div><div><dt>합계</dt><dd>{managerShareTotal}%</dd></div></dl>{!managerShareValid && <p className="settlement-readiness-modal__error">배분율 합계가 100%가 아닙니다.</p>}<div className="modal-actions">{!managerShareValid && <button className="secondary-button" onClick={() => openCampaignDetail(campaign.id, 'settlement')} type="button">기존 설정 확인</button>}<button className="primary-button" disabled={!managerShareValid} onClick={() => { confirmChecklist({ managerShareConfirmed: true }); setReadinessModal(null) }} type="button">확인 완료</button></div></>}
+          {readinessModal === 'business' && <><h2>셀러 정보 등록</h2><label className="form-field"><span>사업자 유형</span><select onChange={(event) => setBusinessTypeDraft(event.target.value as SellerBusinessType)} value={businessTypeDraft}><option value="general_business">법인/개인사업자</option><option value="simplified_business">간이사업자</option><option value="freelancer">개인 프리랜서</option></select></label><p>증빙 유형은 사업자 유형에 따라 세금계산서, 현금영수증 또는 원천세 리스트로 자동 결정됩니다.</p><div className="modal-actions"><button className="primary-button" onClick={saveSellerBusinessType} type="button">저장</button></div></>}
+          {readinessModal === 'account' && <><h2>셀러 지급 계좌 등록</h2><div className="settlement-readiness-form"><label className="form-field"><span>은행</span><input onChange={(event) => setAccountDraft((value) => ({ ...value, bankName: event.target.value }))} value={accountDraft.bankName} /></label><label className="form-field"><span>계좌번호</span><input onChange={(event) => setAccountDraft((value) => ({ ...value, accountNumber: event.target.value }))} value={accountDraft.accountNumber} /></label><label className="form-field"><span>예금주</span><input onChange={(event) => setAccountDraft((value) => ({ ...value, accountHolder: event.target.value }))} value={accountDraft.accountHolder} /></label></div><div className="modal-actions"><button className="primary-button" disabled={!accountDraft.bankName.trim() || !accountDraft.accountNumber.trim() || !accountDraft.accountHolder.trim()} onClick={saveSellerAccount} type="button">저장</button></div></>}
+        </section></div>}
     </section>
   )
+}
+
+function ReadinessWarningSection({ id, title, warnings }: { id?: string; title: string; warnings: ReadinessWarning[] }) {
+  return <section className="settlement-preparation-warning" id={id}><div><span aria-hidden="true">!</span><h2>{title}</h2><small>{warnings.length}개</small></div><ul>{warnings.map((warning) => <li key={warning.id}><span>{warning.message}</span><button className="secondary-button" onClick={warning.action} type="button">{warning.actionLabel}</button></li>)}</ul></section>
 }
 
 const costOwnerLabel: Record<string, string> = { seller: '셀러', company: '회사', brand: '벤더', manager: '매니저', undecided: '미정' }
@@ -732,6 +827,7 @@ function ManagerDocumentActions({ automaticWithholding, blockReasons, onCopy, on
 
 function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, settlement }: { exportGeneratedAt: string; rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
   const campaign = getCampaign(settlement)
+  const sellerProfile = campaign ? sellerMasterService.getSellerById(campaign.sellerId) : undefined
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
   const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
   const sellerRule = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)
@@ -811,7 +907,7 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
 
         <section className="seller-document__section seller-document__schedule seller-compact-schedule"><h3>증빙 및 입금 일정</h3><div className="seller-compact-schedule__dates"><p><span>필요 증빙</span><strong>{evidenceName}</strong></p><p><span>증빙 마감</span><strong>{evidenceDeadline} (금)</strong></p><p className="seller-payment-date"><span>입금 예정</span><strong>{calculatedPaymentDate} (월)</strong></p></div><p className="seller-compact-schedule__notice">금요일까지 필요한 증빙자료 전달 및 발행이 완료된 경우 기재된 입금 예정일에 입금됩니다. 입금 예정일이 휴일인 경우 다음 영업일에 지급됩니다.</p></section>
 
-        <section className="seller-document__section seller-document__account seller-compact-account"><h3>지급 계좌</h3><p className="seller-document__warning">지급 계좌 미등록</p></section>
+        <section className="seller-document__section seller-document__account seller-compact-account"><h3>지급 계좌</h3>{sellerProfile?.bankName && sellerProfile.accountNumber && sellerProfile.accountHolder ? <p><strong>{sellerProfile.bankName} {sellerProfile.accountNumber}</strong><span> · 예금주 {sellerProfile.accountHolder}</span></p> : <p className="seller-document__warning">지급 계좌 미등록</p>}</section>
 
         <footer className="seller-document__section seller-document__footer">
           <h3>회사 정보 / 정산 안내</h3>

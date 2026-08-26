@@ -4518,10 +4518,24 @@
   padding: 18px 20px;
 }
 .settlement-preparation-warning > div { align-items: center; display: flex; gap: 9px; }
+.settlement-preparation-warning > div small { margin-left: auto; font-weight: 800; }
 .settlement-preparation-warning > div span { align-items: center; background: #be123c; border-radius: 50%; color: #fff; display: inline-flex; font-size: 12px; font-weight: 900; height: 22px; justify-content: center; width: 22px; }
 .settlement-preparation-warning h2 { font-size: 17px; margin: 0; }
-.settlement-preparation-warning ul { display: grid; gap: 5px; margin: 10px 0 0 31px; padding: 0; }
-.settlement-preparation-warning li { font-size: 13px; line-height: 1.45; }
+.settlement-preparation-warning ul { display: grid; gap: 8px; list-style: none; margin: 12px 0 0 31px; padding: 0; }
+.settlement-preparation-warning li { align-items: center; background: rgba(255,255,255,.65); border-radius: 8px; display: flex; font-size: 13px; gap: 12px; justify-content: space-between; line-height: 1.45; padding: 8px 10px; }
+.settlement-preparation-warning li .secondary-button { flex: 0 0 auto; min-height: 32px; padding: 6px 10px; }
+.settlement-readiness-modal { background: #fff; border-radius: 14px; box-shadow: 0 24px 70px rgba(15,23,42,.24); display: grid; gap: 16px; max-height: 88vh; max-width: 720px; overflow: auto; padding: 24px; position: relative; width: min(100%, 720px); }
+.settlement-readiness-modal > .settlement-expanded-close { position: absolute; right: 16px; top: 16px; }
+.settlement-readiness-modal h2 { margin: 0; padding-right: 48px; }
+.settlement-readiness-modal > p { color: var(--muted); margin: 0; }
+.settlement-readiness-modal__error { background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px; color: #be123c !important; font-weight: 700; padding: 10px 12px; }
+.settlement-readiness-summary { border: 1px solid var(--border); border-radius: 10px; margin: 0; overflow: hidden; }
+.settlement-readiness-summary > div { align-items: center; display: flex; justify-content: space-between; padding: 10px 12px; }
+.settlement-readiness-summary > div + div { border-top: 1px solid var(--border); }
+.settlement-readiness-summary dt { color: var(--muted); }
+.settlement-readiness-summary dd { font-weight: 800; margin: 0; }
+.settlement-readiness-form { display: grid; gap: 12px; }
+@media (max-width: 640px) { .settlement-preparation-warning li { align-items: stretch; flex-direction: column; } .settlement-preparation-warning li .secondary-button { width: 100%; } }
 .settlement-internal-validation { border-top: 1px solid var(--border); padding-top: 14px; }
 .settlement-internal-validation > summary { color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 800; }
 .settlement-internal-validation .settlement-checklist { margin-top: 12px; }

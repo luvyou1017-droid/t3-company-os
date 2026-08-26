@@ -1,5 +1,6 @@
 import type { CampaignCreationBusinessType } from '../types/campaignCreation'
 import { appUsers, getUserById } from '../data/users.ts'
+import { storageService, STORAGE_KEYS } from './storageService'
 
 export interface SellerMaster {
   id: string
@@ -7,6 +8,9 @@ export interface SellerMaster {
   businessType?: CampaignCreationBusinessType
   defaultMdId: string
   defaultManagerId: string
+  bankName?: string
+  accountNumber?: string
+  accountHolder?: string
 }
 
 const sellers: SellerMaster[] = [
@@ -16,15 +20,24 @@ const sellers: SellerMaster[] = [
   { id: 'seller-incomplete', name: '정보확인 셀러', defaultMdId: 'u-004', defaultManagerId: 'u-008' },
 ]
 
+function getSellers() {
+  return storageService.getItem<SellerMaster[]>(STORAGE_KEYS.sellerMasters, sellers)
+}
+
 let recentSellerIds: string[] = []
 
 export const sellerMasterService = {
-  listSellers() { return sellers },
+  listSellers() { return getSellers() },
   searchSellers(query: string) {
     const normalized = query.trim().toLowerCase()
-    return sellers.filter((seller) => !normalized || seller.name.toLowerCase().includes(normalized))
+    return getSellers().filter((seller) => !normalized || seller.name.toLowerCase().includes(normalized))
   },
-  getSellerById(id: string) { return sellers.find((seller) => seller.id === id) },
+  getSellerById(id: string) { return getSellers().find((seller) => seller.id === id) },
+  saveSellerProfile(profile: SellerMaster) {
+    const next = [...getSellers().filter((seller) => seller.id !== profile.id), profile]
+    storageService.setItem(STORAGE_KEYS.sellerMasters, next)
+    return profile
+  },
   getRecentSellers() {
     return recentSellerIds.map((id) => this.getSellerById(id)).filter((seller): seller is SellerMaster => Boolean(seller))
   },

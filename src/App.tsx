@@ -156,7 +156,12 @@ function App() {
         window.history.pushState({ from: '/settlements', scrollY: window.scrollY }, '', `/settlements/${encodeURIComponent(id)}`)
         setSelectedSettlementId(id)
       }} />}
-      {activePage === '정산 관리' && selectedSettlementId && <SettlementDetailPage settlementId={selectedSettlementId} onBack={() => {
+      {activePage === '정산 관리' && selectedSettlementId && <SettlementDetailPage settlementId={selectedSettlementId} onOpenSalesData={(importId) => {
+        setSelectedSalesDataImportId(importId)
+        setSelectedSettlementId(null)
+        setActivePage('판매 데이터')
+        window.history.pushState({}, '', '/')
+      }} onBack={() => {
         if (window.history.state?.from === '/settlements') window.history.back()
         else {
           window.history.pushState({}, '', '/settlements')
