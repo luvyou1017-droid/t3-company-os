@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { PaymentEvidence } from '../../../shared/types/paymentEvidence'
+import { formatKoreanDateTime } from '../../../shared/utils/koreanDate'
 
 type Props = {
   evidence: PaymentEvidence | null
@@ -23,7 +24,7 @@ export function EvidencePreviewModal({ evidence, onClose }: Props) {
   return <div className="evidence-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section aria-label={`${evidence.fileName} 크게 보기`} aria-modal="true" className="evidence-preview-modal" role="dialog">
       <header>
-        <div><strong>{evidence.fileName}</strong><small>{evidence.uploadedBy} · {new Date(evidence.uploadedAt).toLocaleString('ko-KR')}</small></div>
+        <div><strong>{evidence.fileName}</strong><small>{evidence.uploadedBy} · {formatKoreanDateTime(evidence.uploadedAt)}</small></div>
         <div className="button-row evidence-viewer-controls">
           {isImage && <>
             <button onClick={() => setScale('fit')} type="button">화면 맞춤</button>

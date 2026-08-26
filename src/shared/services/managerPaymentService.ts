@@ -10,7 +10,26 @@ import { withholdingTaxService } from './withholdingTaxService'
 
 const now = () => new Date().toISOString()
 
+export interface ManagerMasterProfile {
+  id: string
+  name: string
+  businessName?: string
+  bankName?: string
+  accountNumber?: string
+  accountHolder?: string
+}
+
 export const managerPaymentService = {
+  getProfiles() {
+    return storageService.getItem<ManagerMasterProfile[]>(STORAGE_KEYS.managerMasters, [])
+  },
+  getProfile(managerId: string) {
+    return this.getProfiles().find((profile) => profile.id === managerId)
+  },
+  saveProfile(profile: ManagerMasterProfile) {
+    storageService.setItem(STORAGE_KEYS.managerMasters, [profile, ...this.getProfiles().filter((item) => item.id !== profile.id)])
+    return profile
+  },
   getManagers() {
     const unique = new Map<string, { id: string; name: string }>()
     campaignService.getCampaigns().forEach((campaign) => unique.set(campaign.managerId, { id: campaign.managerId, name: campaign.managerName }))

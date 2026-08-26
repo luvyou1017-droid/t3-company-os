@@ -6,6 +6,7 @@ export interface SellerMaster {
   id: string
   name: string
   businessType?: CampaignCreationBusinessType
+  businessName?: string
   defaultMdId: string
   defaultManagerId: string
   bankName?: string

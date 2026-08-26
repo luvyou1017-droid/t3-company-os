@@ -14,7 +14,7 @@ const checks = [
   ['증빙 마감 금요일', schedule.evidenceDeadline.toISOString().startsWith('2026-08-28')],
   ['다음 주 월요일 지급', schedule.paymentDate.toISOString().startsWith('2026-08-31')],
   ['공휴일 provider 다음 영업일', holidaySchedule.paymentDate.toISOString().startsWith('2026-09-01') && holidaySchedule.adjustedForHoliday],
-  ['한국 시간 export 포맷', formatKoreanExportTime(new Date('2026-08-26T01:42:00.000Z')) === '2026.08.26 10:42'],
+  ['한국 시간 export 포맷', formatKoreanExportTime(new Date('2026-08-26T01:42:00.000Z')) === '2026.08.26 (수) 10:42'],
   ['상품행 기준 판매 소계', exampleSubtotal.quantity === 232 && exampleSubtotal.supplyTotal === 7_317_280 && exampleSubtotal.salesAmount === 8_816_000 && exampleSubtotal.commissionAmount === 1_498_720],
   ['다중 SKU 행 합계', multiSkuSubtotal.quantity === 232 && multiSkuSubtotal.salesAmount === 8_880_000 && multiSkuSubtotal.commissionAmount === 1_509_600],
   ['서로 다른 SKU 수수료율 합산', mixedRateSubtotal.salesAmount === 200_000 && mixedRateSubtotal.commissionAmount === 30_000],
