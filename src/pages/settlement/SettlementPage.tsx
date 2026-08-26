@@ -347,6 +347,18 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
     } catch (error) { setDocumentNotice(error instanceof Error ? `이미지 복사 실패: ${error.message}` : '이미지 복사에 실패했습니다.') }
   }
 
+  const showDocument = (mode: DocumentMode) => {
+    setDocumentMode(mode)
+    requestAnimationFrame(() => document.getElementById('settlement-documents')?.scrollIntoView({ behavior: 'smooth' }))
+  }
+
+  const openDetailSection = (id: string) => {
+    const target = document.getElementById(id) as HTMLDetailsElement | null
+    if (!target) return
+    target.open = true
+    target.scrollIntoView({ behavior: 'smooth' })
+  }
+
   return (
     <section className="settlement-detail-page">
         <button className="settlement-back-button" onClick={onBack} type="button">← 정산 관리로 돌아가기</button>
@@ -357,7 +369,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
             <p>{salesImport?.salesStartDate || '-'} ~ {salesImport?.salesEndDate || '-'}</p>
             <p>정산 담당자 {settlement.assigneeName} · v{settlement.settlementVersion}</p>
           </div>
-          {canAccessManagerDocument && <button className="secondary-button" onClick={() => { setDocumentMode('매니저 정산서'); requestAnimationFrame(() => document.getElementById('settlement-documents')?.scrollIntoView({ behavior: 'smooth' })) }} type="button">매니저 정산서 바로보기</button>}
+          <div className="settlement-header-actions"><button className="secondary-button" onClick={() => showDocument('셀러 전달용')} type="button">셀러 정산서 바로보기</button>{canAccessManagerDocument && <button className="secondary-button" onClick={() => showDocument('매니저 정산서')} type="button">매니저 정산서 바로보기</button>}</div>
         </div>
 
         {settlement.hasSourceChanged && (
@@ -381,12 +393,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
           <Summary label="정산 담당자" value={settlement.assigneeName} />
         </div></section>
 
-        <section className="settlement-page-section" id="key-amounts"><div className="section-heading"><div><h3>핵심 금액</h3></div></div><div className="settlement-summary-grid settlement-summary-grid--primary">
-          <Summary label="총매출" value={money(settlement.currentCalculation.grossSales)} amount />
-          <Summary label="셀러 지급 예정액" value={money(settlement.currentCalculation.finalSellerPaymentAmount)} amount emphasis />
-          <Summary label="매니저 지급 예정액" value={money(settlement.currentCalculation.managerAmount)} amount emphasis />
-          <Summary label="회사 귀속액" value={money(settlement.currentCalculation.companyAmount)} amount />
-        </div></section>
+        <section className="settlement-page-section" id="key-amounts"><div className="section-heading"><div><h3>핵심 금액</h3></div></div><table className="settlement-key-amounts-table"><tbody><tr><th>총매출</th><td>{money(settlement.currentCalculation.grossSales)}</td></tr><tr><th>셀러 지급 예정액</th><td>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</td></tr><tr><th>매니저 지급 예정액</th><td>{money(settlement.currentCalculation.managerAmount)}</td></tr><tr><th>회사 귀속액</th><td>{money(settlement.currentCalculation.companyAmount)}</td></tr></tbody></table></section>
 
         <SettlementProgress settlement={settlement} />
 
@@ -394,24 +401,12 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
 
         <AdditionalCosts deductions={deductions} />
 
-        <section className="detail-card settlement-card settlement-page-section" id="calculation-detail">
-          <div className="checklist-head">
-            <div><p className="page-eyebrow">4. 내부 정산 계산표</p><h2>정산 계산 상세</h2><p>기존 정산 계산 결과를 검수 순서대로 표시합니다.</p></div>
-          </div>
-          <CalculationTable settlement={settlement} />
-        </section>
+        <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="calculation-detail"><summary><div><h2>정산 계산 상세</h2><p>정산 금액의 계산식과 계산 근거를 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><CalculationTable settlement={settlement} /></div></details>
 
         <section className="detail-card settlement-card settlement-page-section" id="evidence">
           <div className="checklist-head">
             <div><p className="page-eyebrow">6. 증빙자료 · 7. 계좌 확인</p><h2>증빙자료 및 계좌 확인</h2><p>세무 유형, 업로드 파일, 검수 상태와 지급 계좌 확인 여부를 확인합니다.</p></div>
             <button className="secondary-button" onClick={() => syncAction(() => settlementService.updateEvidence(settlement.id, 'confirmed', true, true))} type="button">증빙·계좌 확인</button>
-          </div>
-          <div className="settlement-summary-grid">
-            <Summary label="세무 유형" value={settlement.taxType === 'tax_invoice' ? '세금계산서' : settlement.taxType === 'cash_receipt' ? '현금영수증' : '3.3% 원천징수'} />
-            <Summary label="증빙 상태" value={settlement.evidenceStatus === 'confirmed' ? '확인 완료' : '미확인'} />
-            <Summary label="계좌 확인" value={settlement.accountConfirmed ? '확인 완료' : '미확인'} />
-            <Summary label="적용 세금" value={money(settlement.currentCalculation.taxAmount)} amount />
-            {campaign?.linkOwner === '브랜드사' && <Summary label="브랜드사 세금계산서 발행 금액" value={money(settlement.currentCalculation.grossCommission)} amount />}
           </div>
           <div className="payment-readiness-grid">
             <article className="readiness-card">
@@ -424,11 +419,9 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
                 <div><dt>원천세 리스트</dt><dd>{sellerRule?.businessType === 'freelancer' ? sellerTaxRegistered ? '등록' : '미등록' : '해당 없음'}</dd></div>
                 <div><dt>최종 지급액</dt><dd>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</dd></div>
               </dl>
-              <div className="recipient-payment-action"><span className="payment-recipient-status">{sellerPaymentRequest ? paymentStatusLabels[sellerPaymentRequest.status] : settlement.sellerPaymentCompleted ? '지급 완료' : '지급 대기'}</span><button className="secondary-button" disabled={Boolean(sellerPaymentRequest) || settlement.sellerPaymentCompleted} onClick={() => setPaymentRequestTarget('seller')} type="button">셀러 지급 요청</button></div>
             </article>
             <ManagerSettlementTable campaign={campaign} deductions={deductions} evidence={managerEvidence} settlement={settlement} />
           </div>
-          <div className="manager-payment-request-action"><span className="payment-recipient-status">{managerPaymentRequest ? paymentStatusLabels[managerPaymentRequest.status] : settlement.managerPaymentCompleted ? '지급 완료' : '지급 대기'}</span><button className="primary-button" disabled={Boolean(managerPaymentRequest) || settlement.managerPaymentCompleted} onClick={() => setPaymentRequestTarget('manager')} type="button">매니저 지급 요청</button></div>
           <EvidenceList evidence={[...sellerEvidence, ...managerEvidence]} onPreview={setPreviewEvidence} onSync={() => setSettlement(settlementService.getSettlementById(settlement.id) ?? null)} />
         </section>
 
@@ -466,7 +459,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
           {documentMode === '내부 검토용' ? (
             <InternalSettlementDocument campaignName={campaign?.campaignName ?? settlement.campaignId} settlement={settlement} />
           ) : documentMode === '매니저 정산서' ? (
-            <><ManagerDocumentActions onCopy={copyManagerDocumentImage} onPreview={() => setManagerExportGeneratedAt(formatKoreanExportTime())} onPrint={() => printDocument(setManagerExportGeneratedAt)} onSave={saveManagerDocumentImage} /><ManagerSettlementDocument documentRef={managerDocumentRef} exportGeneratedAt={managerExportGeneratedAt} rows={salesRows} settlement={settlement} />{documentNotice && <p className="mock-notice">{documentNotice}</p>}</>
+            <><ManagerDocumentActions onCopy={copyManagerDocumentImage} onPreview={() => setManagerExportGeneratedAt(formatKoreanExportTime())} onPrint={() => printDocument(setManagerExportGeneratedAt)} onRequestPayment={() => setPaymentRequestTarget('manager')} onSave={saveManagerDocumentImage} paymentDisabled={Boolean(managerPaymentRequest) || settlement.managerPaymentCompleted} paymentStatus={managerPaymentRequest ? paymentStatusLabels[managerPaymentRequest.status] : settlement.managerPaymentCompleted ? '지급 완료' : '지급 대기'} /><ManagerSettlementDocument documentRef={managerDocumentRef} exportGeneratedAt={managerExportGeneratedAt} rows={salesRows} settlement={settlement} />{documentNotice && <p className="mock-notice">{documentNotice}</p>}</>
           ) : (
             <>
               <SettlementDocumentActions
@@ -475,7 +468,10 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
                 onCopyMessage={copySellerMessage}
                 onPreview={() => { setSellerExportGeneratedAt(formatKoreanExportTime()); setDocumentNotice('아래 셀러용 정산서 전체가 이미지 미리보기 기준입니다.') }}
                 onPrint={() => printDocument(setSellerExportGeneratedAt)}
+                onRequestPayment={() => setPaymentRequestTarget('seller')}
                 onSaveImage={saveSellerDocumentImage}
+                paymentDisabled={Boolean(sellerPaymentRequest) || settlement.sellerPaymentCompleted}
+                paymentStatus={sellerPaymentRequest ? paymentStatusLabels[sellerPaymentRequest.status] : settlement.sellerPaymentCompleted ? '지급 완료' : '지급 대기'}
               />
               {documentNotice && <p className="mock-notice">{documentNotice}</p>}
               <SellerSettlementDocument exportGeneratedAt={sellerExportGeneratedAt} rows={salesRows} sellerDocumentRef={sellerDocumentRef} settlement={settlement} />
@@ -483,11 +479,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
           )}
         </section>
 
-        <section className="detail-card settlement-card settlement-page-section" id="payment-history">
-          <div className="checklist-head">
-            <div><p className="page-eyebrow">8. 지급 요청 및 승인 이력</p><h2>지급 요청 및 승인 이력</h2><p>계산, 수정, 검토, 승인, 지급 이력을 확인합니다.</p></div>
-          </div>
-          <HistoryContent logs={logs} settlement={settlement} />
+        <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="payment-history"><summary><div><h2>지급 요청 및 승인 이력</h2><p>계산, 상태 변경, 승인, 지급 및 버전 이력을 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><HistoryContent logs={logs} settlement={settlement} />
           <div className="checklist-head">
             <div><h3>버전 관리</h3><p>승인본은 직접 덮어쓰지 않고 버전을 증가시켜 비교합니다.</p></div>
             <button className="secondary-button" disabled={versions.length < 2} onClick={() => setCompareOpen(true)} type="button">버전 비교</button>
@@ -502,13 +494,13 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
               </article>
             ))}
           </div>
-        </section>
+        </div></details>
 
         <div className="preview-drawer__actions">
           <button className="secondary-button" onClick={() => openCampaignDetail(settlement.campaignId, 'settlement')} type="button">공동구매 상세 보기</button>
           <SettlementStatusActions
             checklistDone={checklistDone}
-            onHistory={() => document.getElementById('payment-history')?.scrollIntoView({ behavior: 'smooth' })}
+            onHistory={() => openDetailSection('payment-history')}
             onSetDocument={() => document.getElementById('settlement-documents')?.scrollIntoView({ behavior: 'smooth' })}
             reviewReady={reviewReady}
             settlement={settlement}
@@ -786,8 +778,8 @@ function ManagerSettlementDocument({ documentRef, exportGeneratedAt, rows, settl
   </div></div>
 }
 
-function ManagerDocumentActions({ onCopy, onPreview, onPrint, onSave }: { onCopy: () => void; onPreview: () => void; onPrint: () => void; onSave: () => void }) {
-  return <div className="action-row seller-document-actions no-print"><button className="secondary-button" onClick={() => { onPreview(); document.querySelector('.manager-document')?.scrollIntoView({ behavior: 'smooth' }) }}>큰 미리보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="text-button" onClick={onPrint}>인쇄</button></div>
+function ManagerDocumentActions({ onCopy, onPreview, onPrint, onRequestPayment, onSave, paymentDisabled, paymentStatus }: { onCopy: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSave: () => void; paymentDisabled: boolean; paymentStatus: string }) {
+  return <div className="document-action-bar no-print"><span className="payment-recipient-status">{paymentStatus}</span><div className="action-row seller-document-actions"><button className="secondary-button" onClick={() => { onPreview(); document.querySelector('.manager-document')?.scrollIntoView({ behavior: 'smooth' }) }}>큰 미리보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="text-button" onClick={onPrint}>인쇄</button><button className="primary-button" disabled={paymentDisabled} onClick={onRequestPayment} type="button">매니저 지급 요청</button></div></div>
 }
 
 function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, settlement }: { exportGeneratedAt: string; rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
@@ -881,15 +873,11 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
   )
 }
 
-function SettlementDocumentActions({ onCopyImage, onCopyMessage, onCopyText, onPreview, onPrint, onSaveImage }: { onCopyImage: () => void; onCopyMessage: () => void; onCopyText: () => void; onPreview: () => void; onPrint: () => void; onSaveImage: () => void }) {
+function SettlementDocumentActions({ onCopyImage, onCopyMessage, onCopyText, onPreview, onPrint, onRequestPayment, onSaveImage, paymentDisabled, paymentStatus }: { onCopyImage: () => void; onCopyMessage: () => void; onCopyText: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSaveImage: () => void; paymentDisabled: boolean; paymentStatus: string }) {
   return (
-    <div className="action-row seller-document-actions no-print">
-      <button className="secondary-button" onClick={onPreview} type="button">이미지 미리보기</button>
-      <button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button>
-      <button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button>
-      <button className="secondary-button" onClick={onCopyText} type="button">정산 내용 복사</button>
-      <button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button>
-      <button className="text-button" onClick={onPrint} type="button">인쇄</button>
+    <div className="document-action-bar no-print">
+      <span className="payment-recipient-status">{paymentStatus}</span>
+      <div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview} type="button">이미지 미리보기</button><button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button><button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button><button className="secondary-button" onClick={onCopyText} type="button">정산 내용 복사</button><button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button><button className="text-button" onClick={onPrint} type="button">인쇄</button><button className="primary-button" disabled={paymentDisabled} onClick={onRequestPayment} type="button">셀러 지급 요청</button></div>
     </div>
   )
 }

@@ -1414,15 +1414,20 @@
 }
 
 .settlement-detail-header { align-items: center; background: linear-gradient(135deg, #fff 60%, #f5f3ff); display: flex; gap: 24px; justify-content: space-between; }
+.settlement-header-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
 .settlement-detail-header h1 { font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em; margin: 0; }
 .settlement-detail-header p { color: var(--muted); font-size: 15px; margin: 8px 0 0; }
 .settlement-title-row { align-items: center; display: flex; flex-wrap: wrap; gap: 16px; }
 .settlement-page-section .section-heading { margin-bottom: 20px; }
 .settlement-page-section h2 { margin: 0; }
 
-.settlement-summary-grid--primary { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.settlement-summary-grid--primary .settlement-summary-item { min-height: 116px; padding: 20px; }
-.settlement-summary-grid--primary .settlement-summary-item strong { font-size: clamp(18px, 1.6vw, 26px); }
+.settlement-key-amounts-table { border-collapse: collapse; width: 100%; }
+.settlement-key-amounts-table th,
+.settlement-key-amounts-table td { border-bottom: 1px solid var(--border); padding: 12px 4px; }
+.settlement-key-amounts-table tr:last-child th,
+.settlement-key-amounts-table tr:last-child td { border-bottom: 0; }
+.settlement-key-amounts-table th { color: var(--muted); font-size: 13px; text-align: left; }
+.settlement-key-amounts-table td { font-size: 16px; font-variant-numeric: tabular-nums; font-weight: 900; text-align: right; }
 .settlement-summary-item--emphasis { background: #eef2ff; border-color: #a5b4fc; }
 .settlement-summary-item--emphasis strong { color: var(--primary); }
 
@@ -1444,12 +1449,24 @@
 #progress { order: 15; }
 #product-settlement { order: 20; }
 #additional-costs { order: 30; }
-#calculation-detail { order: 40; }
-#settlement-documents { order: 50; }
-#evidence { order: 60; }
+#settlement-documents { order: 40; }
+#evidence { order: 50; }
 #evidence + .settlement-page-section { order: 70; }
-#payment-history { order: 80; }
+#calculation-detail { order: 80; }
+#payment-history { order: 85; }
 .settlement-detail-page > .preview-drawer__actions { order: 90; }
+
+.settlement-collapsible { padding: 0; }
+.settlement-collapsible > summary { align-items: center; cursor: pointer; display: flex; gap: 24px; justify-content: space-between; list-style: none; padding: clamp(20px, 2.4vw, 28px); }
+.settlement-collapsible > summary::-webkit-details-marker { display: none; }
+.settlement-collapsible > summary h2 { font-size: 20px; }
+.settlement-collapsible > summary p { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+.settlement-collapse-label { color: var(--primary); flex: 0 0 auto; font-size: 13px; font-weight: 900; }
+.settlement-collapse-label::after { content: ' ▼'; }
+.settlement-collapsible[open] .settlement-collapse-label { font-size: 0; }
+.settlement-collapsible[open] .settlement-collapse-label::before { content: '접기'; font-size: 13px; }
+.settlement-collapsible[open] .settlement-collapse-label::after { content: ' ▲'; font-size: 13px; }
+.settlement-collapsible__content { border-top: 1px solid var(--border); display: grid; gap: 20px; padding: clamp(20px, 2.4vw, 28px); }
 
 .settlement-evidence-list { display: grid; gap: 14px; margin-top: 20px; }
 .settlement-evidence-list article { align-items: center; border: 1px solid var(--border); border-radius: 12px; display: grid; gap: 18px; grid-template-columns: 140px minmax(0, 1fr) auto; padding: 16px; }
@@ -1605,6 +1622,7 @@
 .seller-document-actions {
   justify-content: flex-end;
 }
+.document-action-bar { align-items: center; display: flex; gap: 16px; justify-content: space-between; }
 
 .seller-document-shell {
   background: #f3f4f6;
@@ -3401,6 +3419,10 @@
   .settlement-detail-page { gap: 14px; }
   .settlement-detail-header,
   .settlement-page-section { border-radius: 12px; padding: 18px; }
+  .settlement-detail-header { align-items: stretch; flex-direction: column; }
+  .settlement-header-actions { justify-content: stretch; }
+  .settlement-header-actions button { flex: 1 1 180px; }
+  .settlement-collapsible { padding: 0; }
   .settlement-title-row { align-items: flex-start; flex-direction: column; }
   .settlement-stepper { gap: 10px; grid-template-columns: 1fr; }
   .settlement-stepper li { align-items: center; flex-direction: row; text-align: left; }
@@ -4058,8 +4080,6 @@
 .readiness-card dl div { display: flex; justify-content: space-between; gap: 20px; padding-top: 8px; border-top: 1px solid #edf0f4; }
 .readiness-card dt { color: #64748b; }
 .readiness-card dd { margin: 0; font-weight: 700; text-align: right; }
-.recipient-payment-action,
-.manager-payment-request-action { align-items: center; display: flex; gap: 12px; justify-content: space-between; margin-top: 16px; }
 .payment-recipient-status { background: #eaf4df; border: 1px solid #c7d9b8; border-radius: 999px; color: #31572c; font-size: 12px; font-weight: 900; padding: 6px 10px; }
 .manager-settlement-sheet { background: #fff; border: 1px solid #cbd5e1; grid-column: 1 / -1; padding: 20px; }
 .manager-settlement-sheet__header { align-items: center; display: flex; gap: 20px; justify-content: space-between; margin-bottom: 14px; }
@@ -4083,7 +4103,6 @@
 .manager-settlement-deduction td { background: #fce8df; }
 .manager-settlement-final th,
 .manager-settlement-final td { background: #fff59d; font-size: 16px; font-weight: 900; }
-.manager-payment-request-action { border-top: 1px solid #e2e8f0; justify-content: flex-end; padding-top: 16px; }
 .payment-request-modal { max-width: 620px; }
 .payment-request-field { display: grid; gap: 8px; }
 .payment-request-field > span { color: #334155; font-size: 13px; font-weight: 900; }
@@ -4215,8 +4234,7 @@
   .manager-settlement-sheet { padding: 14px; }
   .manager-settlement-info-table th { width: auto; }
   .manager-settlement-sheet__header,
-  .recipient-payment-action,
-  .manager-payment-request-action { align-items: stretch; flex-direction: column; }
+  .document-action-bar { align-items: stretch; flex-direction: column; }
   .evidence-card { grid-template-columns: 1fr; }
   .tax-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .manager-payment-columns, .campaign-payment-cards { grid-template-columns: 1fr; }
