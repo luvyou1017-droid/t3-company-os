@@ -408,7 +408,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
       : Math.max(productSubtotal.commissionAmount - settlement.currentCalculation.sellerDeductionTotal, 0)
     const period = `${salesImport?.salesStartDate || campaign?.startDate || '-'} ~ ${salesImport?.salesEndDate || campaign?.endDate || '-'}`
     const evidenceRequest = sellerRule?.businessType === 'freelancer' ? '원천세 등록을 위해 필요한 정보를 확인해주세요.' : sellerRule?.businessType === 'simplified_business' ? '현금영수증 발행 부탁드립니다.' : sellerRule ? '세금계산서 발행 부탁드립니다.' : '필요 증빙 정보를 확인해주세요.'
-    const message = `안녕하세요, ${campaign?.sellerName || '셀러'}님.\n${campaign?.campaignName || settlement.campaignId || '공동구매'} 정산서 전달드립니다.\n\n공구기간: ${period}\n총매출: ${money(productSubtotal.salesAmount)}\n최종 정산금: ${money(finalDeposit)}\n필요 증빙: ${evidenceName}\n증빙 마감일: ${formatKoreanDocumentDate(schedule.evidenceDeadline)}\n입금 예정일: ${formatKoreanDocumentDate(schedule.paymentDate)}\n\n${evidenceRequest}\n정산 내용 확인 부탁드립니다.\n\n금요일까지 필요한 증빙자료 전달 및 발행이 완료된 경우,\n기재된 입금 예정일에 입금됩니다.\n입금 예정일이 휴일인 경우 다음 영업일에 지급됩니다.\n\n감사합니다.`
+    const message = `안녕하세요, ${campaign?.sellerName || '셀러'}님.\n${campaign?.campaignName || settlement.campaignId || '공동구매'} 정산서 전달드립니다.\n\n공구기간: ${period}\n총매출: ${money(productSubtotal.salesAmount)}\n최종 입금액: ${money(finalDeposit)}\n필요 증빙: ${evidenceName}\n증빙 마감일: ${formatKoreanDocumentDate(schedule.evidenceDeadline)}\n입금 예정일: ${formatKoreanDocumentDate(schedule.paymentDate)}\n\n${evidenceRequest}\n정산 내용 확인 부탁드립니다.\n\n금요일까지 필요한 증빙자료 전달 및 발행이 완료된 경우,\n기재된 입금 예정일에 입금됩니다.\n입금 예정일이 휴일인 경우 다음 영업일에 지급됩니다.\n\n감사합니다.`
     await navigator.clipboard?.writeText(message)
     setDocumentNotice('전달 문구를 클립보드에 복사했습니다.')
   }
@@ -854,6 +854,7 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
   const currentBusinessType = sellerRule?.businessType === 'corporation' || sellerRule?.businessType === 'general_business' ? 'corporation' : sellerRule?.businessType
   const currentBusinessAmount = businessAmounts.find((item) => item.type === currentBusinessType)
   const sellerBusinessLabel = currentBusinessAmount?.label ?? '사업자 유형 등록 정보 없음'
+  const settlementAmount = businessAmounts[0].finalSellerPaymentAmount
 
   return (
     <div className="seller-document-shell">
@@ -898,10 +899,10 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
           <tr><th>총 판매수량</th><td className="amount-cell">{productSubtotal.quantity.toLocaleString('ko-KR')}개</td><th>총매출</th><td className="amount-cell">{money(productSubtotal.salesAmount)}</td></tr>
           <tr><th>셀러 수수료</th><td className="amount-cell">{money(productSubtotal.commissionAmount)}</td>{sellerDeductions > 0 ? <><th>추가 차감</th><td className="amount-cell seller-cost-deduction-cell">- {money(sellerDeductions)}</td></> : <><th>추가 지급</th><td className="amount-cell seller-positive-amount">{additionalPayments ? `+ ${money(additionalPayments)}` : '-'}</td></>}</tr>
           {sellerDeductions > 0 && additionalPayments > 0 && <tr><th>추가 지급</th><td className="amount-cell seller-positive-amount">+ {money(additionalPayments)}</td><td colSpan={2}></td></tr>}
-          <tr className="seller-summary-total"><th colSpan={3}>최종 정산금</th><td className="amount-cell">{money(currentBusinessAmount?.finalSellerPaymentAmount ?? productSubtotal.commissionAmount - sellerDeductions + additionalPayments)}</td></tr>
+          <tr className="seller-summary-total"><th colSpan={3}>정산금액 <small>(부가세 포함)</small></th><td className="amount-cell">{money(settlementAmount)}</td></tr>
         </tbody></table></section>
 
-        <section className="seller-document__section seller-document__tax seller-business-payment"><h3>사업자 유형별 지급금액</h3><table className="seller-document__table"><thead><tr><th>구분</th><th>증빙 / 지급 기준</th><th>지급금액</th><th>적용</th></tr></thead><tbody>
+        <section className="seller-document__section seller-document__tax seller-business-payment"><h3>사업자 유형별 최종 입금액</h3><table className="seller-document__table"><thead><tr><th>구분</th><th>증빙 / 지급 기준</th><th>최종 입금액</th><th>적용</th></tr></thead><tbody>
           {businessAmounts.map((item) => <tr className={`seller-business-payment__${item.type} ${item.type === currentBusinessType ? 'is-current' : ''}`} key={item.type}><td>{item.label}</td><td>{item.evidence}</td><td className="amount-cell">{money(item.finalSellerPaymentAmount)}</td><td>{item.type === currentBusinessType ? '현재 적용' : '참고'}</td></tr>)}
         </tbody></table>{!currentBusinessAmount && <p className="seller-business-unregistered">현재 셀러 사업자 유형: 등록 정보 없음</p>}</section>
 

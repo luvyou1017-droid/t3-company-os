@@ -1918,8 +1918,9 @@
 .seller-subtotal-row th,
 .seller-subtotal-row td { background: #eef5fa; font-weight: 900; }
 .seller-summary-total th,
-.seller-summary-total td { background: #fff59d !important; font-size: 16px !important; font-weight: 900; }
-.seller-summary-total .amount-cell { color: #d32f2f !important; font-size: 19px !important; }
+.seller-summary-total td { background: #fff59d !important; font-size: 14px !important; font-weight: 900; }
+.seller-summary-total th small { color: #374151; font-size: 10px; font-weight: 700; }
+.seller-summary-total .amount-cell { color: #d32f2f !important; font-size: 16px !important; }
 .seller-statement .seller-document__costs,
 .seller-statement .seller-document__tax,
 .seller-statement .seller-document__account,
@@ -4571,7 +4572,7 @@
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(8) { width: 12%; }
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(9) { width: 7%; }
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(10) { width: 12%; }
-.settlement-document-column:not(.is-expanded) .seller-summary-total .amount-cell { color: #d32f2f !important; font-size: 14px !important; }
+.settlement-document-column:not(.is-expanded) .seller-summary-total .amount-cell { color: #d32f2f !important; font-size: 13px !important; }
 
 @media (max-width: 1200px) {
   .settlement-document-comparison { grid-template-columns: minmax(0, 1fr); }
