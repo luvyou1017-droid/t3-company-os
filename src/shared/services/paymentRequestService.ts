@@ -26,6 +26,8 @@ export type PaymentRequestValidationInput = {
   sourceVersion?: number
 }
 
+type CreatePaymentRequestOptions = { allowEvidencePending?: boolean; memo?: string }
+
 function validate(input: PaymentRequestValidationInput) {
   const settlement = settlementService.getSettlementById(input.settlementId)
   const withholding = withholdingTaxService.getBySettlementOwner(input.settlementId, input.ownerType, input.ownerId)
@@ -124,7 +126,7 @@ export const paymentRequestService = {
   },
   canCreatePaymentRequest(input: PaymentRequestValidationInput) { return validate(input).valid },
   getPaymentRequestBlockReasons(input: PaymentRequestValidationInput) { return validate(input).reasons },
-  createPaymentRequest(settlementId: string, requestedBy: string) {
+  createPaymentRequest(settlementId: string, requestedBy: string, options: CreatePaymentRequestOptions = {}) {
     const document = sellerSettlementService.getDocumentBySettlementId(settlementId) ?? sellerSettlementService.createSellerDocument(settlementId)
     const rule = sellerSettlementService.getSellerSettlementRule(document.campaignId)
     if (!rule) throw new Error('셀러 정산 규칙이 없습니다.')
@@ -138,7 +140,10 @@ export const paymentRequestService = {
       calculationCompleted: true, calculationErrors: validation.errors, amountConfirmed: true,
       sourceVersion: settlementService.getSettlementById(settlementId)?.settlementVersion,
     })
-    if (!requestValidation.valid) throw new Error(requestValidation.reasons.join('\n'))
+    const blockingReasons = options.allowEvidencePending
+      ? requestValidation.reasons.filter((reason) => reason !== '증빙 검수가 완료되지 않았습니다.')
+      : requestValidation.reasons
+    if (blockingReasons.length) throw new Error(blockingReasons.join('\n'))
     const c = document.calculation
     const withholding = calculateWithholding(c.sellerGrossSettlementAmount, c.sellerDeductions)
     const request = save({
@@ -155,9 +160,9 @@ export const paymentRequestService = {
       incomeTaxAmount: rule.businessType === 'freelancer' ? withholding.incomeTaxAmount : 0,
       localIncomeTaxAmount: rule.businessType === 'freelancer' ? withholding.localIncomeTaxAmount : 0,
       deductions: c.sellerDeductions, finalPaymentAmount: c.finalSellerPaymentAmount,
-      sellerRemittanceToCompany: c.sellerRemittanceToCompany, evidenceStatus: 'confirmed', accountConfirmed: true,
+      sellerRemittanceToCompany: c.sellerRemittanceToCompany, evidenceStatus: options.allowEvidencePending ? 'pending' : 'confirmed', accountConfirmed: true,
       requestedBy, requestedAt: now(), dueDate: document.dueDate,
-      status: document.salesChannelType === 'seller_checkout' ? 'request_ready' : 'approval_pending', memo: '',
+      status: options.allowEvidencePending ? 'evidence_pending' : document.salesChannelType === 'seller_checkout' ? 'request_ready' : 'approval_pending', memo: options.memo?.trim() ?? '',
     })
     paymentEvidenceService.linkToPaymentRequest(settlementId, 'seller', request.id)
     const taxItem = withholdingTaxService.getBySettlementOwner(settlementId, 'seller', document.sellerId)
@@ -169,7 +174,7 @@ export const paymentRequestService = {
     }
     return request
   },
-  createManagerPaymentRequest(settlementId: string, requestedBy = '허수정', businessType: SellerBusinessType = 'simplified_business', batchRequestId?: string) {
+  createManagerPaymentRequest(settlementId: string, requestedBy = '허수정', businessType: SellerBusinessType = 'simplified_business', batchRequestId?: string, options: CreatePaymentRequestOptions = {}) {
     const settlement = settlementService.getSettlementById(settlementId)
     if (!settlement) throw new Error('정산을 찾을 수 없습니다.')
     const campaign = campaignService.getCampaignById(settlement.campaignId)
@@ -183,7 +188,10 @@ export const paymentRequestService = {
       calculationCompleted: true, calculationErrors: [], amountConfirmed: settlement.currentCalculation.managerAmount >= 0,
       sourceVersion: settlement.settlementVersion,
     })
-    if (!validation.valid) throw new Error(validation.reasons.join('\n'))
+    const blockingReasons = options.allowEvidencePending
+      ? validation.reasons.filter((reason) => reason !== '증빙 검수가 완료되지 않았습니다.')
+      : validation.reasons
+    if (blockingReasons.length) throw new Error(blockingReasons.join('\n'))
     const deductions = settlement.currentCalculation.managerDeductionTotal
     const gross = settlement.currentCalculation.managerAmount + deductions
     const tax = calculateWithholding(gross, deductions)
@@ -202,9 +210,9 @@ export const paymentRequestService = {
       withholdingTaxAmount: businessType === 'freelancer' ? tax.totalWithholdingTaxAmount : 0,
       incomeTaxAmount: businessType === 'freelancer' ? tax.incomeTaxAmount : 0,
       localIncomeTaxAmount: businessType === 'freelancer' ? tax.localIncomeTaxAmount : 0,
-      deductions, finalPaymentAmount, sellerRemittanceToCompany: 0, evidenceStatus: 'confirmed',
+      deductions, finalPaymentAmount, sellerRemittanceToCompany: 0, evidenceStatus: options.allowEvidencePending ? 'pending' : 'confirmed',
       accountConfirmed: settlement.accountConfirmed, requestedBy, requestedAt: now(), dueDate: settlement.paymentDueDate,
-      status: 'approval_pending', memo: '매니저 지급 요청',
+      status: options.allowEvidencePending ? 'evidence_pending' : 'approval_pending', memo: options.memo?.trim() || '매니저 지급 요청',
     })
     paymentEvidenceService.linkToPaymentRequest(settlementId, 'manager', request.id)
     const taxItem = withholdingTaxService.getBySettlementOwner(settlementId, 'manager', managerId)
