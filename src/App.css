@@ -1844,14 +1844,17 @@
   vertical-align: middle;
 }
 .seller-statement .seller-document__table th { background: #e5e7eb; color: #111827; }
+.seller-statement .seller-document__products thead th,
+.seller-statement .seller-document__meta-table th { background: #eaf2f8; }
 .seller-statement .seller-document__table .amount-cell { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .seller-document__meta-table th { text-align: center; width: 150px; }
 .seller-document__meta-table td { font-weight: 700; }
 .seller-statement .seller-document__vat-notice { color: #374151; margin: 0 0 2px; }
 .seller-subtotal-row th,
-.seller-subtotal-row td,
+.seller-subtotal-row td { background: #eef5fa; font-weight: 900; }
 .seller-summary-total th,
-.seller-summary-total td { background: #f3f4f6; font-weight: 900; }
+.seller-summary-total td { background: #fff59d !important; font-size: 16px !important; font-weight: 900; }
+.seller-summary-total .amount-cell { font-size: 18px !important; }
 .seller-statement .seller-document__costs,
 .seller-statement .seller-document__tax,
 .seller-statement .seller-document__account,
@@ -1863,11 +1866,18 @@
 }
 .seller-document__empty { border: 1px solid #111827; color: #4b5563; font-size: 12px; margin: 0; padding: 12px; }
 .seller-positive-amount { color: #047857 !important; font-weight: 900; }
-.seller-business-name { font-size: 16px; margin: 2px 0 4px; }
-.seller-business-name strong { font-size: 18px; }
+.seller-cost-deduction th,
+.seller-cost-deduction td { background: #fce8df !important; }
+.seller-business-name { align-items: flex-start; display: flex; flex-direction: column; font-size: 16px; gap: 5px; margin: 2px 0 4px; }
+.seller-business-name span { font-weight: 900; }
+.seller-business-name strong { color: #92400e; font-size: 14px; }
+.seller-business-name strong.is-registered { background: #eaf4df; border: 1px solid #b9d49e; color: #264d20; font-size: 18px; padding: 7px 10px; }
 .seller-current-business { display: block !important; }
 .seller-final-payment th,
-.seller-final-payment td { background: #fff2a8 !important; font-size: 16px !important; font-weight: 900 !important; }
+.seller-final-payment td { background: #fff59d !important; font-size: 17px !important; font-weight: 900 !important; }
+.seller-final-payment .amount-cell { color: #b42318; font-size: 20px !important; }
+.seller-payment-date th,
+.seller-payment-date td { background: #eaf4df !important; font-size: 14px !important; font-weight: 900 !important; }
 .seller-company-table th { width: 145px; }
 .seller-company-table a { color: #1d4ed8; }
 .seller-document__notice { border: 1px solid #111827; border-top: 0; padding: 10px 12px; }
@@ -1889,6 +1899,8 @@
 .manager-final-row td { background: #e5e7eb !important; font-size: 14px !important; font-weight: 900 !important; }
 
 @media print {
+  .seller-statement,
+  .seller-statement * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   .seller-export-timestamp { display: block !important; }
   .seller-statement .seller-document__table { display: table !important; overflow: visible !important; }
   .seller-statement .seller-document__section { break-inside: avoid; }

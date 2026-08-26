@@ -685,7 +685,7 @@ function getSellerCostRows(campaign: ReturnType<typeof getCampaign>, deductions:
 function SellerAdditionalCosts({ rows }: { rows: SellerCostRow[] }) {
   if (!rows.length) return <section className="seller-document__section seller-document__costs"><h3>추가 비용 및 차감</h3><p className="seller-document__empty">반영된 추가 비용 및 차감 내역이 없습니다.</p></section>
   return <section className="seller-document__section seller-document__costs"><h3>추가 비용 및 차감</h3><table className="seller-document__table"><thead><tr><th>항목</th><th>금액</th><th>부담 주체</th><th>비고</th></tr></thead><tbody>
-    {rows.map((row) => <tr key={row.id}><td>{row.label}</td><td className={`amount-cell ${row.direction === 'payment' ? 'seller-positive-amount' : ''}`}>{row.amount === undefined ? '등록 정보 없음' : `${row.direction === 'payment' ? '+' : '-'} ${money(row.amount)}`}</td><td>{row.owner}</td><td>{row.memo}</td></tr>)}
+    {rows.map((row) => <tr className={row.direction === 'deduction' && row.amount !== undefined && row.amount > 0 ? 'seller-cost-deduction' : undefined} key={row.id}><td>{row.label}</td><td className={`amount-cell ${row.direction === 'payment' ? 'seller-positive-amount' : ''}`}>{row.amount === undefined ? '등록 정보 없음' : `${row.direction === 'payment' ? '+' : '-'} ${money(row.amount)}`}</td><td>{row.owner}</td><td>{row.memo}</td></tr>)}
   </tbody></table></section>
 }
 
@@ -829,19 +829,19 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
         <section className="seller-document__section seller-document__totals"><h3>판매 소계 / 정산금액</h3><table className="seller-document__table"><tbody>
           <tr><th>총 판매수량</th><td className="amount-cell">{totalQuantity.toLocaleString('ko-KR')}개</td><th>총매출</th><td className="amount-cell">{money(settlement.currentCalculation.grossSales)}</td></tr>
           <tr><th>총수수료</th><td className="amount-cell">{money(settlement.currentCalculation.grossCommission)}</td><th>셀러 수수료</th><td className="amount-cell">{money(settlement.currentCalculation.sellerCommissionAmount)}</td></tr>
-          <tr><th>추가 차감</th><td className="amount-cell">- {money(sellerDeductions)}</td><th>추가 지급</th><td className="amount-cell seller-positive-amount">{additionalPayments ? `+ ${money(additionalPayments)}` : '-'}</td></tr>
+          <tr className={sellerDeductions > 0 ? 'seller-cost-deduction' : undefined}><th>추가 차감</th><td className="amount-cell">- {money(sellerDeductions)}</td><th>추가 지급</th><td className="amount-cell seller-positive-amount">{additionalPayments ? `+ ${money(additionalPayments)}` : '-'}</td></tr>
           <tr className="seller-summary-total"><th colSpan={3}>최종 정산금</th><td className="amount-cell">{money(settlement.currentCalculation.finalSellerPaymentAmount)}</td></tr>
         </tbody></table></section>
 
         <section className="seller-document__section seller-document__tax">
           <h3>사업자 유형 / 최종 입금액</h3>
-          <p className="seller-business-name">{campaign?.sellerName ?? '-'} <strong>({sellerBusinessLabel})</strong></p>
+          <p className="seller-business-name"><span>{campaign?.sellerName ?? '-'}</span><strong className={currentBusinessAmount ? 'is-registered' : undefined}>{sellerBusinessLabel}</strong></p>
           {currentBusinessAmount ? <CurrentBusinessAmount item={currentBusinessAmount} /> : <p>사업자 유형 데이터 미연결</p>}
         </section>
 
         <section className="seller-document__section seller-document__account"><h3>지급 계좌</h3><table className="seller-document__table"><tbody><tr><th>셀러 지급 계좌</th><td className="seller-document__warning">등록 정보 없음</td></tr></tbody></table></section>
 
-        <section className="seller-document__section seller-document__schedule"><h3>증빙 및 입금 일정</h3><table className="seller-document__table"><tbody><tr><th>일정 기준</th><td>정산서 작성일 기준 예상 일정</td></tr><tr><th>필요한 증빙</th><td>{evidenceName}</td></tr><tr><th>증빙 마감일</th><td>{evidenceDeadline} (금)</td></tr><tr><th>입금 예정일</th><td>{calculatedPaymentDate} (월) · 예상</td></tr><tr><th>휴일 처리</th><td>{schedule.holidayDataConnected ? schedule.adjustedForHoliday ? '월요일 휴일로 다음 영업일 지급' : '공휴일 확인 완료' : '공휴일 데이터 미연결 · 월요일이 휴일이면 다음 영업일 지급'}</td></tr></tbody></table></section>
+        <section className="seller-document__section seller-document__schedule"><h3>증빙 및 입금 일정</h3><table className="seller-document__table"><tbody><tr><th>일정 기준</th><td>정산서 작성일 기준 예상 일정</td></tr><tr><th>필요한 증빙</th><td>{evidenceName}</td></tr><tr><th>증빙 마감일</th><td>{evidenceDeadline} (금)</td></tr><tr className="seller-payment-date"><th>입금 예정일</th><td>{calculatedPaymentDate} (월) · 예상</td></tr><tr><th>휴일 처리</th><td>{schedule.holidayDataConnected ? schedule.adjustedForHoliday ? '월요일 휴일로 다음 영업일 지급' : '공휴일 확인 완료' : '공휴일 데이터 미연결 · 월요일이 휴일이면 다음 영업일 지급'}</td></tr></tbody></table></section>
 
         <footer className="seller-document__section seller-document__footer">
           <h3>회사 정보 / 정산 안내</h3>
