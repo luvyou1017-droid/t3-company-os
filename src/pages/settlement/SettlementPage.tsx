@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent, type RefObject } from 'react'
 import { flushSync } from 'react-dom'
 import { toBlob } from 'html-to-image'
 import { campaignService } from '../../shared/services/campaignService'
 import { salesDataService } from '../../shared/services/salesDataService'
 import { settlementService } from '../../shared/services/settlementService'
 import { paymentEvidenceService } from '../../shared/services/paymentEvidenceService'
-import { paymentEvidenceStorageService } from '../../shared/services/paymentEvidenceStorageService'
+import { PAYMENT_EVIDENCE_ALLOWED_TYPES, paymentEvidenceStorageService } from '../../shared/services/paymentEvidenceStorageService'
 import { managerPaymentService } from '../../shared/services/managerPaymentService'
 import { sellerSettlementService } from '../../shared/services/sellerSettlementService'
 import { withholdingTaxService } from '../../shared/services/withholdingTaxService'
@@ -23,10 +23,13 @@ import { paymentRequestService } from '../../shared/services/paymentRequestServi
 import { getCampaignEventTypeLabel } from '../../shared/services/campaignCreationService'
 import { calculateManagerProductRow, calculateSellerProductRow, calculateSellerProductSubtotal, formatKoreanDocumentDate, formatKoreanExportTime, getSellerSettlementSchedule } from '../../shared/utils/settlementDocument'
 import type { EvidenceOwnerType } from '../../shared/types/paymentEvidence'
-import type { PaymentRequestStatus, SellerBusinessType } from '../../shared/types/sellerSettlement'
+import type { PaymentRequest, PaymentRequestStatus, SellerBusinessType } from '../../shared/types/sellerSettlement'
 import type { CampaignEvent } from '../../shared/types/campaignCreation'
+import type { WithholdingTaxItem } from '../../shared/types/withholdingTax'
 
 type DocumentMode = '내부 검토용' | '셀러 전달용' | '매니저 정산서'
+const evidenceAllowedTypes = new Set<string>(PAYMENT_EVIDENCE_ALLOWED_TYPES)
+const evidenceImageTypes = new Set<string>(PAYMENT_EVIDENCE_ALLOWED_TYPES.filter((type) => type.startsWith('image/')))
 const statusTone: Record<SettlementStatus, string> = {
   draft: 'muted',
   calculating: 'progress',
@@ -218,8 +221,24 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   const [expandedDocument, setExpandedDocument] = useState<'seller' | 'manager' | null>(null)
   const [printingDocument, setPrintingDocument] = useState<'seller' | 'manager' | null>(null)
   const [paymentRequestTarget, setPaymentRequestTarget] = useState<EvidenceOwnerType | null>(null)
+  const [, setPaymentAutomationRevision] = useState(0)
   const sellerDocumentRef = useRef<HTMLDivElement | null>(null)
   const managerDocumentRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!expandedDocument) return
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setExpandedDocument(null) }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [expandedDocument])
+  useEffect(() => {
+    if (!settlement) return
+    const targetCampaign = getCampaign(settlement)
+    const sellerBusinessType = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)?.businessType ?? 'general_business'
+    const targetManagerBusinessType = managerPaymentService.getBusinessType(targetCampaign?.managerName ?? '')
+    const before = withholdingTaxService.getItems().length
+    withholdingTaxService.syncSettlementRecipients(settlement.id, sellerBusinessType, targetManagerBusinessType)
+    if (withholdingTaxService.getItems().length !== before) queueMicrotask(() => setPaymentAutomationRevision((value) => value + 1))
+  }, [settlement])
   if (!settlement) return <section className="settlement-detail-page"><button className="settlement-back-button" onClick={onBack} type="button">← 정산 관리로 돌아가기</button><div className="empty-state"><strong>정산을 찾을 수 없습니다.</strong><span>삭제되었거나 접근할 수 없는 정산입니다.</span></div></section>
 
   const campaign = getCampaign(settlement)
@@ -237,6 +256,23 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   const managerBusinessType = managerPaymentService.getBusinessType(campaign?.managerName ?? '')
   const sellerPaymentRequest = campaign ? paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'seller', campaign.sellerId, settlement.settlementVersion) : undefined
   const managerPaymentRequest = campaign ? paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'manager', campaign.managerId, settlement.settlementVersion) : undefined
+  const sellerWithholding = campaign ? withholdingTaxService.getBySettlementOwner(settlement.id, 'seller', campaign.sellerId).find((item) => item.sourceVersion === settlement.settlementVersion) : undefined
+  const managerWithholding = campaign ? withholdingTaxService.getBySettlementOwner(settlement.id, 'manager', campaign.managerId).find((item) => item.sourceVersion === settlement.settlementVersion) : undefined
+  const sellerRequestReasons = campaign && sellerRule ? paymentRequestService.validateSellerPaymentRequest({
+    settlementId: settlement.id, ownerId: campaign.sellerId, businessType: sellerRule.businessType,
+    evidenceTypeConfirmed: sellerRule.evidenceConfirmed && Boolean(sellerRule.confirmedEvidenceType), accountConfirmed: settlement.accountConfirmed,
+    calculationCompleted: true, calculationErrors: validation.errors, amountConfirmed: true, sourceVersion: settlement.settlementVersion,
+  }).reasons : ['셀러 사업자 유형이 등록되지 않았습니다.']
+  const managerRequestReasons = campaign ? paymentRequestService.validateManagerPaymentRequest({
+    settlementId: settlement.id, ownerId: campaign.managerId, businessType: managerBusinessType,
+    evidenceTypeConfirmed: true, accountConfirmed: settlement.accountConfirmed, calculationCompleted: true,
+    calculationErrors: [], amountConfirmed: settlement.currentCalculation.managerAmount >= 0, sourceVersion: settlement.settlementVersion,
+  }).reasons : ['담당 매니저 정보가 없습니다.']
+  const evidenceModalReasons = ['세금계산서 캡처본이 없습니다.', '현금영수증 캡처본이 없습니다.', '증빙 검수가 완료되지 않았습니다.']
+  const sellerButtonBlockReasons = sellerPaymentRequest || settlement.sellerPaymentCompleted ? ['이미 지급요청되었거나 지급 완료된 건입니다.'] : sellerRequestReasons.filter((reason) => !evidenceModalReasons.includes(reason))
+  const managerButtonBlockReasons = managerPaymentRequest || settlement.managerPaymentCompleted ? ['이미 지급요청되었거나 지급 완료된 건입니다.'] : managerRequestReasons.filter((reason) => !evidenceModalReasons.includes(reason))
+  const sellerActionReasons = sellerButtonBlockReasons.length ? sellerButtonBlockReasons : sellerRequestReasons.filter((reason) => evidenceModalReasons.includes(reason))
+  const managerActionReasons = managerButtonBlockReasons.length ? managerButtonBlockReasons : managerRequestReasons.filter((reason) => evidenceModalReasons.includes(reason))
   const checklist = settlement.reviewChecklist
   const settlementPreparationWarnings = [
     (!salesDataConfirmed || !checklist.salesMatches) && '판매 데이터 확정이 필요합니다.',
@@ -256,15 +292,40 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
     setSettlement(settlementService.getSettlementById(settlement.id) ?? null)
   }
 
+  const completeWithholdingUpload = (ownerType: EvidenceOwnerType) => {
+    if (!campaign) return
+    const isSeller = ownerType === 'seller'
+    const item = isSeller ? sellerWithholding : managerWithholding
+    const existingRequest = isSeller ? sellerPaymentRequest : managerPaymentRequest
+    const blockingReasons = (isSeller ? sellerRequestReasons : managerRequestReasons)
+      .filter((reason) => reason !== '이미 지급요청된 건입니다.' && reason !== '원천세 리스트에 등록되지 않았습니다.')
+    if (!item) { setDocumentNotice('원천세 리스트 등록 정보를 찾을 수 없습니다.'); return }
+    if (!existingRequest && blockingReasons.length) { setDocumentNotice(`지급 요청을 생성할 수 없습니다: ${blockingReasons.join(' / ')}`); return }
+    try {
+      withholdingTaxService.updateStatus(item.id, 'uploaded')
+      if (!existingRequest) {
+        if (isSeller) paymentRequestService.createPaymentRequest(settlement.id, '허수정', { memo: '원천세 올리기 완료 · 자동 지급 요청' })
+        else paymentRequestService.createManagerPaymentRequest(settlement.id, '허수정', managerBusinessType, undefined, { memo: '원천세 올리기 완료 · 자동 지급 요청' })
+      }
+      setPaymentAutomationRevision((value) => value + 1)
+      setSettlement(settlementService.getSettlementById(settlement.id) ?? null)
+      setDocumentNotice(existingRequest ? `${isSeller ? '셀러' : '매니저'} 원천세 등록 완료 상태를 저장하고 기존 지급 요청을 유지했습니다.` : `${isSeller ? '셀러' : '매니저'} 원천세 등록 완료 상태를 저장하고 지급 요청을 생성했습니다.`)
+    } catch (error) {
+      setDocumentNotice(error instanceof Error ? error.message : '원천세 완료 상태를 저장하지 못했습니다.')
+    }
+  }
+
   const copySellerMessage = async () => {
     const schedule = getSellerSettlementSchedule(settlement.createdAt)
     const evidenceName = sellerRule?.businessType === 'freelancer' ? '원천세 리스트 등록' : sellerRule?.businessType === 'simplified_business' ? '현금영수증 발행' : sellerRule ? '세금계산서 발행' : '데이터 미연결'
     const businessType = sellerRule?.businessType === 'corporation' || sellerRule?.businessType === 'general_business' ? 'general_business' : sellerRule?.businessType
+    const productSubtotal = calculateSellerProductSubtotal(salesRows, settlement.currentCalculation.sellerCommissionRate)
     const finalDeposit = businessType
-      ? calculateFinalSellerPayment(settlement.currentCalculation.sellerCommissionAmount, businessType, settlement.currentCalculation.sellerDeductionTotal).finalSellerPaymentAmount
-      : settlement.currentCalculation.finalSellerPaymentAmount
+      ? calculateFinalSellerPayment(productSubtotal.commissionAmount, businessType, settlement.currentCalculation.sellerDeductionTotal).finalSellerPaymentAmount
+      : Math.max(productSubtotal.commissionAmount - settlement.currentCalculation.sellerDeductionTotal, 0)
     const period = `${salesImport?.salesStartDate || campaign?.startDate || '-'} ~ ${salesImport?.salesEndDate || campaign?.endDate || '-'}`
-    const message = `안녕하세요, ${campaign?.sellerName ?? '셀러'}님.\n${campaign?.campaignName ?? settlement.campaignId} 공동구매 정산서 전달드립니다.\n\n* 공구기간: ${period}\n* 총매출: ${money(settlement.currentCalculation.grossSales)}\n* 최종 정산금: ${money(settlement.currentCalculation.finalSellerPaymentAmount)}\n* 최종 입금액: ${money(finalDeposit)}\n* 필요 증빙: ${evidenceName}\n* 증빙 마감일: ${formatKoreanDocumentDate(schedule.evidenceDeadline)}\n* 입금 예정일: ${formatKoreanDocumentDate(schedule.paymentDate)}\n\n정산 내용 확인 부탁드립니다.\n감사합니다.`
+    const evidenceRequest = sellerRule?.businessType === 'freelancer' ? '원천세 등록을 위해 필요한 정보를 확인해주세요.' : sellerRule?.businessType === 'simplified_business' ? '현금영수증 발행 부탁드립니다.' : sellerRule ? '세금계산서 발행 부탁드립니다.' : '필요 증빙 정보를 확인해주세요.'
+    const message = `안녕하세요, ${campaign?.sellerName || '셀러'}님.\n${campaign?.campaignName || settlement.campaignId || '공동구매'} 정산서 전달드립니다.\n\n공구기간: ${period}\n총매출: ${money(productSubtotal.salesAmount)}\n최종 정산금: ${money(finalDeposit)}\n필요 증빙: ${evidenceName}\n증빙 마감일: ${formatKoreanDocumentDate(schedule.evidenceDeadline)}\n입금 예정일: ${formatKoreanDocumentDate(schedule.paymentDate)}\n\n${evidenceRequest}\n정산 내용 확인 부탁드립니다.\n\n금요일까지 필요한 증빙자료 전달 및 발행이 완료된 경우,\n기재된 입금 예정일에 입금됩니다.\n입금 예정일이 휴일인 경우 다음 영업일에 지급됩니다.\n\n감사합니다.`
     await navigator.clipboard?.writeText(message)
     setDocumentNotice('전달 문구를 클립보드에 복사했습니다.')
   }
@@ -417,16 +478,18 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
           ) : (
             <div className={`settlement-document-comparison ${printingDocument ? `is-printing-${printingDocument}` : ''}`}>
               <article className={`settlement-document-column ${expandedDocument === 'seller' ? 'is-expanded' : ''}`} id="seller-settlement-document">
-                <div className="settlement-document-column__heading"><h3>셀러 정산서</h3>{expandedDocument === 'seller' && <button className="secondary-button no-print" onClick={() => setExpandedDocument(null)} type="button">확대 보기 닫기</button>}</div>
-                <SettlementDocumentActions onCopyText={copySellerDocumentText} onCopyImage={copySellerDocumentImage} onCopyMessage={copySellerMessage} onPreview={() => setExpandedDocument('seller')} onPrint={() => printDocument('seller', setSellerExportGeneratedAt)} onRequestPayment={() => setPaymentRequestTarget('seller')} onSaveImage={saveSellerDocumentImage} paymentDisabled={Boolean(sellerPaymentRequest) || settlement.sellerPaymentCompleted} paymentStatus={sellerPaymentRequest ? paymentStatusLabels[sellerPaymentRequest.status] : settlement.sellerPaymentCompleted ? '지급 완료' : '지급 대기'} />
+                <div className="settlement-document-column__heading"><h3>셀러 정산서</h3>{expandedDocument === 'seller' && <button aria-label="닫기" className="settlement-expanded-close no-print" onClick={() => setExpandedDocument(null)} type="button">×</button>}</div>
+                <SettlementDocumentActions automaticWithholding={sellerRule?.businessType === 'freelancer'} blockReasons={sellerActionReasons} onCopyText={copySellerDocumentText} onCopyImage={copySellerDocumentImage} onCopyMessage={copySellerMessage} onPreview={() => setExpandedDocument('seller')} onPrint={() => printDocument('seller', setSellerExportGeneratedAt)} onRequestPayment={() => setPaymentRequestTarget('seller')} onSaveImage={saveSellerDocumentImage} paymentDisabled={sellerButtonBlockReasons.length > 0} paymentStatus={sellerPaymentRequest ? paymentStatusLabels[sellerPaymentRequest.status] : settlement.sellerPaymentCompleted ? '지급 완료' : '지급 대기'} />
+                {sellerRule?.businessType === 'freelancer' && <WithholdingPayoutFlow blockReasons={sellerButtonBlockReasons} item={sellerWithholding} onComplete={() => completeWithholdingUpload('seller')} paymentRequest={sellerPaymentRequest} />}
                 <SellerSettlementDocument exportGeneratedAt={sellerExportGeneratedAt} rows={salesRows} sellerDocumentRef={sellerDocumentRef} settlement={settlement} />
               </article>
               {canAccessManagerDocument && <article className={`settlement-document-column ${expandedDocument === 'manager' ? 'is-expanded' : ''}`} id="manager-settlement-document">
-                <div className="settlement-document-column__heading"><h3>매니저 정산서</h3>{expandedDocument === 'manager' && <button className="secondary-button no-print" onClick={() => setExpandedDocument(null)} type="button">확대 보기 닫기</button>}</div>
-                <ManagerDocumentActions onCopy={copyManagerDocumentImage} onPreview={() => setExpandedDocument('manager')} onPrint={() => printDocument('manager', setManagerExportGeneratedAt)} onRequestPayment={() => setPaymentRequestTarget('manager')} onSave={saveManagerDocumentImage} paymentDisabled={Boolean(managerPaymentRequest) || settlement.managerPaymentCompleted} paymentStatus={managerPaymentRequest ? paymentStatusLabels[managerPaymentRequest.status] : settlement.managerPaymentCompleted ? '지급 완료' : '지급 대기'} />
+                <div className="settlement-document-column__heading"><h3>매니저 정산서</h3>{expandedDocument === 'manager' && <button aria-label="닫기" className="settlement-expanded-close no-print" onClick={() => setExpandedDocument(null)} type="button">×</button>}</div>
+                <ManagerDocumentActions automaticWithholding={managerBusinessType === 'freelancer'} blockReasons={managerActionReasons} onCopy={copyManagerDocumentImage} onPreview={() => setExpandedDocument('manager')} onPrint={() => printDocument('manager', setManagerExportGeneratedAt)} onRequestPayment={() => setPaymentRequestTarget('manager')} onSave={saveManagerDocumentImage} paymentDisabled={managerButtonBlockReasons.length > 0} paymentStatus={managerPaymentRequest ? paymentStatusLabels[managerPaymentRequest.status] : settlement.managerPaymentCompleted ? '지급 완료' : '지급 대기'} />
+                {managerBusinessType === 'freelancer' && <WithholdingPayoutFlow blockReasons={managerButtonBlockReasons} item={managerWithholding} onComplete={() => completeWithholdingUpload('manager')} paymentRequest={managerPaymentRequest} />}
                 <ManagerSettlementDocument documentRef={managerDocumentRef} exportGeneratedAt={managerExportGeneratedAt} rows={salesRows} settlement={settlement} />
               </article>}
-              {expandedDocument && <button aria-label="확대 보기 닫기" className="settlement-document-expanded-backdrop no-print" onClick={() => setExpandedDocument(null)} type="button" />}
+              {expandedDocument && <button aria-label="닫기" className="settlement-document-expanded-backdrop no-print" onClick={() => setExpandedDocument(null)} type="button" />}
               {documentNotice && <p className="mock-notice settlement-document-comparison__notice">{documentNotice}</p>}
             </div>
           )}
@@ -646,8 +709,25 @@ function ManagerSettlementDocument({ documentRef, exportGeneratedAt, rows, settl
   </div></div>
 }
 
-function ManagerDocumentActions({ onCopy, onPreview, onPrint, onRequestPayment, onSave, paymentDisabled, paymentStatus }: { onCopy: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSave: () => void; paymentDisabled: boolean; paymentStatus: string }) {
-  return <div className="document-action-bar no-print"><span className="payment-recipient-status">{paymentStatus}</span><div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview}>확대 보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="text-button" onClick={onPrint}>인쇄</button><button className="primary-button" disabled={paymentDisabled} onClick={onRequestPayment} type="button">매니저 지급 요청</button></div></div>
+function PaymentBlockReasons({ reasons }: { reasons: string[] }) {
+  if (!reasons.length) return null
+  return <div className="payment-action-blockers"><strong>지급 요청을 위해 다음 정보가 필요합니다.</strong><ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>
+}
+
+function WithholdingPayoutFlow({ blockReasons, item, onComplete, paymentRequest }: { blockReasons: string[]; item?: WithholdingTaxItem; onComplete: () => void; paymentRequest?: PaymentRequest }) {
+  const uploaded = Boolean(item && ['uploaded', 'reported', 'paid'].includes(item.status))
+  const actionableBlockReasons = blockReasons.filter((reason) => !reason.includes('이미 지급요청'))
+  return <div className="withholding-payout-flow no-print">
+    <div><span>원천세 리스트</span><strong>{item ? '등록 완료' : '등록 대기'}</strong></div>
+    <label><input checked={uploaded} disabled={!item || uploaded || actionableBlockReasons.length > 0} onChange={(event) => { if (event.target.checked) onComplete() }} type="checkbox" /> 원천세 올리기 완료</label>
+    <div><span>지급 요청</span><strong>{paymentRequest ? '자동 생성 완료' : '생성 대기'}</strong></div>
+    <div><span>대표 승인</span><strong>{paymentRequest?.status === 'approved' || paymentRequest?.status === 'payment_completed' ? '승인 완료' : paymentRequest ? '대기' : '-'}</strong></div>
+    {actionableBlockReasons.length > 0 && <PaymentBlockReasons reasons={actionableBlockReasons} />}
+  </div>
+}
+
+function ManagerDocumentActions({ automaticWithholding, blockReasons, onCopy, onPreview, onPrint, onRequestPayment, onSave, paymentDisabled, paymentStatus }: { automaticWithholding: boolean; blockReasons: string[]; onCopy: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSave: () => void; paymentDisabled: boolean; paymentStatus: string }) {
+  return <div className="document-action-bar no-print"><span className="payment-recipient-status">{paymentStatus}</span><div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview}>확대 보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="text-button" onClick={onPrint}>인쇄</button>{!automaticWithholding && <button className="primary-button" disabled={paymentDisabled} onClick={onRequestPayment} type="button">매니저 지급 요청</button>}</div>{!automaticWithholding && blockReasons.length > 0 && <PaymentBlockReasons reasons={blockReasons} />}</div>
 }
 
 function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, settlement }: { exportGeneratedAt: string; rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
@@ -744,11 +824,12 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
   )
 }
 
-function SettlementDocumentActions({ onCopyImage, onCopyMessage, onCopyText, onPreview, onPrint, onRequestPayment, onSaveImage, paymentDisabled, paymentStatus }: { onCopyImage: () => void; onCopyMessage: () => void; onCopyText: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSaveImage: () => void; paymentDisabled: boolean; paymentStatus: string }) {
+function SettlementDocumentActions({ automaticWithholding, blockReasons, onCopyImage, onCopyMessage, onCopyText, onPreview, onPrint, onRequestPayment, onSaveImage, paymentDisabled, paymentStatus }: { automaticWithholding: boolean; blockReasons: string[]; onCopyImage: () => void; onCopyMessage: () => void; onCopyText: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSaveImage: () => void; paymentDisabled: boolean; paymentStatus: string }) {
   return (
     <div className="document-action-bar no-print">
       <span className="payment-recipient-status">{paymentStatus}</span>
-      <div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview} type="button">확대 보기</button><button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button><button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button><button className="secondary-button" onClick={onCopyText} type="button">정산 내용 복사</button><button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button><button className="text-button" onClick={onPrint} type="button">인쇄</button><button className="primary-button" disabled={paymentDisabled} onClick={onRequestPayment} type="button">셀러 지급 요청</button></div>
+      <div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview} type="button">확대 보기</button><button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button><button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button><button className="secondary-button" onClick={onCopyText} type="button">정산 내용 복사</button><button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button><button className="text-button" onClick={onPrint} type="button">인쇄</button>{!automaticWithholding && <button className="primary-button" disabled={paymentDisabled} onClick={onRequestPayment} type="button">셀러 지급 요청</button>}</div>
+      {!automaticWithholding && blockReasons.length > 0 && <PaymentBlockReasons reasons={blockReasons} />}
     </div>
   )
 }
@@ -800,6 +881,8 @@ function PaymentRequestEvidenceModal({ campaign, managerBusinessType, onClose, o
   const [memo, setMemo] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const previewUrlRef = useRef('')
   const isSeller = ownerType === 'seller'
   const businessType = isSeller ? sellerBusinessType : managerBusinessType
   const ownerId = isSeller ? campaign.sellerId : campaign.managerId
@@ -807,6 +890,33 @@ function PaymentRequestEvidenceModal({ campaign, managerBusinessType, onClose, o
   const evidenceType = paymentEvidenceService.getRecommendedEvidenceType(businessType) ?? 'withholding_entry'
   const evidenceName = evidenceType === 'tax_invoice' ? '세금계산서' : evidenceType === 'cash_receipt' ? '현금영수증' : '원천세 리스트'
   const amount = isSeller ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount
+  useEffect(() => () => { if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current) }, [])
+
+  const selectEvidenceFile = (nextFile?: File | null) => {
+    if (!nextFile) return
+    if (!evidenceAllowedTypes.has(nextFile.type)) { setError('PNG, JPEG, WebP 또는 PDF 파일만 첨부할 수 있습니다.'); return }
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    const nextPreviewUrl = evidenceImageTypes.has(nextFile.type) ? URL.createObjectURL(nextFile) : ''
+    previewUrlRef.current = nextPreviewUrl
+    setPreviewUrl(nextPreviewUrl)
+    setError('')
+    setFile(nextFile)
+  }
+
+  const clearEvidenceFile = () => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    previewUrlRef.current = ''
+    setPreviewUrl('')
+    setFile(null)
+  }
+
+  const pasteEvidence = (event: ClipboardEvent<HTMLElement>) => {
+    const image = Array.from(event.clipboardData.files).find((item) => evidenceImageTypes.has(item.type))
+    if (!image) return
+    event.preventDefault()
+    const extension = image.type === 'image/jpeg' ? 'jpg' : image.type.split('/')[1]
+    selectEvidenceFile(new File([image], `pasted-evidence-${Date.now()}.${extension}`, { type: image.type }))
+  }
 
   const submit = async () => {
     setSubmitting(true)
@@ -839,7 +949,7 @@ function PaymentRequestEvidenceModal({ campaign, managerBusinessType, onClose, o
     <section aria-labelledby="payment-request-modal-title" aria-modal="true" className="settlement-modal payment-request-modal" role="dialog">
       <div className="preview-drawer__header"><div><p className="page-eyebrow">Payment Request</p><h2 id="payment-request-modal-title">{isSeller ? '셀러' : '매니저'} 지급 요청</h2></div><button aria-label="닫기" className="icon-button" onClick={onClose} type="button">×</button></div>
       <table className="payment-request-summary-table"><tbody><tr><th>지급 대상</th><td>{ownerName}</td></tr><tr><th>지급 예정 금액</th><td className="amount-cell">{money(amount)}</td></tr><tr><th>사업자 유형</th><td>{businessTypeLabels[businessType]}</td></tr><tr><th>필요한 증빙 유형</th><td>{evidenceName}</td></tr></tbody></table>
-      <label className="payment-request-field"><span>증빙자료 업로드</span><input accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => setFile(event.target.files?.[0] ?? null)} type="file" /><small>PNG, JPEG, WebP 또는 PDF · 최대 10MB</small></label>
+      <div className="payment-request-field"><span>증빙자료 업로드</span><div className="payment-evidence-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); selectEvidenceFile(event.dataTransfer.files[0]) }} onPaste={pasteEvidence} tabIndex={0}><label><input accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => selectEvidenceFile(event.target.files?.[0])} type="file" /><strong>파일 선택</strong></label><p>파일을 끌어놓거나 이미지를 여기에 붙여넣으세요.</p><small>Ctrl+V / Cmd+V · PNG, JPEG, WebP 또는 PDF · 최대 10MB</small></div>{file && <div className="payment-evidence-preview">{previewUrl ? <img alt="첨부 이미지 미리보기" src={previewUrl} /> : <span>{file.name}</span>}<button className="text-button" onClick={clearEvidenceFile} type="button">삭제</button></div>}</div>
       <label className="payment-request-field"><span>메모</span><textarea onChange={(event) => setMemo(event.target.value)} placeholder="지급 요청 검토에 필요한 내용을 입력해주세요." rows={3} value={memo} /></label>
       {error && <p className="payment-request-error">{error}</p>}
       <div className="button-row"><button className="secondary-button" disabled={submitting} onClick={onClose} type="button">취소</button><button className="primary-button" disabled={submitting} onClick={submit} type="button">{submitting ? '요청 저장 중…' : '요청'}</button></div>

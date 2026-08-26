@@ -1,5 +1,6 @@
 import type { EvidenceOwnerType } from '../types/paymentEvidence'
 import type { WithholdingTaxItem, WithholdingTaxStatus } from '../types/withholdingTax'
+import type { SellerBusinessType } from '../types/sellerSettlement'
 import { calculateWithholding } from '../utils/withholdingTax'
 import { getManagerBusinessType } from '../utils/managerPayment'
 import { campaignService } from './campaignService'
@@ -64,24 +65,41 @@ export const withholdingTaxService = {
       memo: exact?.memo,
     })
   },
+  syncSettlementRecipients(settlementId: string, sellerBusinessType: SellerBusinessType, managerBusinessType: SellerBusinessType) {
+    const settlement = settlementService.getSettlementById(settlementId)
+    if (!settlement || !['approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) return []
+    const campaign = campaignService.getCampaignById(settlement.campaignId)
+    if (!campaign) return []
+    const synced: WithholdingTaxItem[] = []
+    if (sellerBusinessType === 'freelancer') synced.push(this.upsert({
+      settlementId, ownerType: 'seller', ownerId: campaign.sellerId, ownerName: campaign.sellerName,
+      grossSettlementAmount: settlement.currentCalculation.sellerCommissionAmount,
+      deductions: settlement.currentCalculation.sellerDeductionTotal, sourceVersion: settlement.settlementVersion,
+    }))
+    if (managerBusinessType === 'freelancer') synced.push(this.upsert({
+      settlementId, ownerType: 'manager', ownerId: campaign.managerId, ownerName: campaign.managerName,
+      grossSettlementAmount: settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal,
+      deductions: settlement.currentCalculation.managerDeductionTotal, sourceVersion: settlement.settlementVersion,
+    }))
+    return synced
+  },
   syncFromConfirmedSettlements() {
-    const service = this
     settlementService.getSettlements().forEach((settlement) => {
       if (!['approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) return
       const campaign = campaignService.getCampaignById(settlement.campaignId)
       if (!campaign) return
-      if (settlement.campaignId === 'SCH-009') service.upsert({
+      if (settlement.campaignId === 'SCH-009') withholdingTaxService.upsert({
         settlementId: settlement.id, ownerType: 'seller', ownerId: campaign.sellerId, ownerName: campaign.sellerName,
         grossSettlementAmount: settlement.currentCalculation.sellerCommissionAmount,
         deductions: settlement.currentCalculation.sellerDeductionTotal, sourceVersion: settlement.settlementVersion,
       })
-      if (getManagerBusinessType(campaign.managerName) === 'freelancer') service.upsert({
+      if (getManagerBusinessType(campaign.managerName) === 'freelancer') withholdingTaxService.upsert({
         settlementId: settlement.id, ownerType: 'manager', ownerId: campaign.managerId, ownerName: campaign.managerName,
         grossSettlementAmount: settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal,
         deductions: settlement.currentCalculation.managerDeductionTotal, sourceVersion: settlement.settlementVersion,
       })
     })
-    return service.getItems()
+    return withholdingTaxService.getItems()
   },
   updateStatus(id: string, status: WithholdingTaxStatus, updatedBy = '허수정') {
     const item = this.getItems().find((candidate) => candidate.id === id)

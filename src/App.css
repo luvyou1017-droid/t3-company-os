@@ -1668,6 +1668,8 @@
 
 .settlement-document-column.is-expanded .seller-document-shell { justify-items: center; overflow: visible; }
 .settlement-document-column.is-expanded .seller-statement { min-width: 980px; }
+.settlement-expanded-close { align-items: center; background: #fff; border: 1px solid #cbd5e1; border-radius: 999px; color: #334155; cursor: pointer; display: inline-flex; font-size: 24px; height: 40px; justify-content: center; line-height: 1; position: sticky; right: 0; top: 0; width: 40px; z-index: 2; }
+.settlement-expanded-close:hover { background: #fee2e2; border-color: #ef4444; color: #b91c1c; }
 
 .seller-document-shell {
   background: #f3f4f6;
@@ -1917,7 +1919,7 @@
 .seller-subtotal-row td { background: #eef5fa; font-weight: 900; }
 .seller-summary-total th,
 .seller-summary-total td { background: #fff59d !important; font-size: 16px !important; font-weight: 900; }
-.seller-summary-total .amount-cell { font-size: 18px !important; }
+.seller-summary-total .amount-cell { color: #d32f2f !important; font-size: 19px !important; }
 .seller-statement .seller-document__costs,
 .seller-statement .seller-document__tax,
 .seller-statement .seller-document__account,
@@ -1959,9 +1961,9 @@
 .seller-business-payment__corporation > * { background: #fff7b8 !important; }
 .seller-business-payment__simplified_business > * { background: #eaf2f8 !important; }
 .seller-business-payment__freelancer > * { background: #eaf4df !important; }
-.seller-business-payment tr.is-current > * { border-bottom: 2px solid #dc2626 !important; border-top: 2px solid #dc2626 !important; font-weight: 900; }
-.seller-business-payment tr.is-current > *:first-child { border-left: 2px solid #dc2626 !important; }
-.seller-business-payment tr.is-current > *:last-child { border-right: 2px solid #dc2626 !important; }
+.seller-business-payment tr.is-current > * { border-bottom: 3px solid #e53935 !important; border-top: 3px solid #e53935 !important; font-weight: 900; }
+.seller-business-payment tr.is-current > *:first-child { border-left: 3px solid #e53935 !important; }
+.seller-business-payment tr.is-current > *:last-child { border-right: 3px solid #e53935 !important; }
 .seller-business-payment tr.is-current td:nth-child(3),
 .seller-business-payment tr.is-current td:nth-child(4) { background: #fff59d !important; }
 .seller-business-payment .amount-cell { font-size: 13px !important; font-weight: 900; }
@@ -4207,6 +4209,24 @@
 .payment-request-field input,
 .payment-request-field textarea { background: #fff; border: 1px solid #cbd5e1; border-radius: 7px; color: #111827; font: inherit; padding: 10px 12px; }
 .payment-request-field small { color: #64748b; font-size: 11px; }
+.payment-evidence-dropzone { align-items: center; background: #f8fafc; border: 1px dashed #94a3b8; border-radius: 9px; display: grid; gap: 5px; justify-items: center; padding: 18px; text-align: center; }
+.payment-evidence-dropzone:focus-within, .payment-evidence-dropzone:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgb(37 99 235 / 12%); outline: 0; }
+.payment-evidence-dropzone label { cursor: pointer; }
+.payment-evidence-dropzone input { height: 1px; opacity: 0; padding: 0; position: absolute; width: 1px; }
+.payment-evidence-dropzone strong { color: #1d4ed8; text-decoration: underline; }
+.payment-evidence-dropzone p { color: #475569; font-size: 12px; margin: 0; }
+.payment-evidence-preview { align-items: center; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 9px; display: flex; gap: 12px; justify-content: space-between; padding: 8px; }
+.payment-evidence-preview img { border-radius: 6px; height: 88px; object-fit: contain; width: 120px; }
+.payment-evidence-preview span { font-size: 12px; overflow-wrap: anywhere; }
+.payment-action-blockers { background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px; color: #b42318; font-size: 11px; padding: 8px 10px; width: 100%; }
+.payment-action-blockers strong { font-size: 11px; }
+.payment-action-blockers ul { margin: 5px 0 0; padding-left: 18px; }
+.withholding-payout-flow { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; display: grid; gap: 6px; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 9px; }
+.withholding-payout-flow > div:not(.payment-action-blockers) { display: grid; gap: 2px; }
+.withholding-payout-flow span { color: #64748b; font-size: 10px; }
+.withholding-payout-flow strong, .withholding-payout-flow label { font-size: 11px; font-weight: 800; }
+.withholding-payout-flow .payment-action-blockers { grid-column: 1 / -1; }
+@media (max-width: 800px) { .withholding-payout-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .payment-request-error { background: #fff1ed; border: 1px solid #fdc7b8; color: #b42318; font-size: 13px; margin: 0; padding: 10px 12px; white-space: pre-line; }
 .block-reasons { margin: 16px 0; border-radius: 12px; background: #fff7ed; color: #9a3412; padding: 15px; }
 .block-reasons p { margin: 6px 0; font-weight: 700; }
@@ -4539,6 +4559,7 @@
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(8) { width: 12%; }
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(9) { width: 7%; }
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(10) { width: 12%; }
+.settlement-document-column:not(.is-expanded) .seller-summary-total .amount-cell { color: #d32f2f !important; font-size: 14px !important; }
 
 @media (max-width: 1200px) {
   .settlement-document-comparison { grid-template-columns: minmax(0, 1fr); }
