@@ -4219,7 +4219,16 @@
 .payment-evidence-preview span { font-size: 12px; overflow-wrap: anywhere; }
 .payment-action-blockers { background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px; color: #b42318; font-size: 11px; padding: 8px 10px; width: 100%; }
 .payment-action-blockers strong { font-size: 11px; }
-.payment-action-blockers ul { margin: 5px 0 0; padding-left: 18px; }
+.payment-action-blockers__heading { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
+.payment-action-blockers__heading > span { background: #fff; border: 1px solid #fda4af; border-radius: 999px; flex: 0 0 auto; font-weight: 800; padding: 2px 7px; }
+.payment-action-blockers ul { display: grid; gap: 6px; list-style: none; margin: 7px 0 0; padding: 0; }
+.payment-action-blockers li { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
+.payment-action-blockers li > span { line-height: 1.35; }
+.payment-action-blockers li .secondary-button { background: #fff; border-color: #fda4af; color: #9f1239; flex: 0 0 auto; font-size: 11px; min-height: 28px; padding: 5px 8px; }
+@media (max-width: 640px) {
+  .payment-action-blockers__heading, .payment-action-blockers li { align-items: stretch; flex-direction: column; }
+  .payment-action-blockers li .secondary-button { width: 100%; }
+}
 .withholding-payout-flow { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; display: grid; gap: 6px; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 9px; }
 .withholding-payout-flow > div:not(.payment-action-blockers) { display: grid; gap: 2px; }
 .withholding-payout-flow span { color: #64748b; font-size: 10px; }

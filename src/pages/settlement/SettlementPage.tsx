@@ -33,6 +33,7 @@ type DocumentMode = '내부 검토용' | '셀러 전달용' | '매니저 정산�
 type ReadinessModal = 'commission' | 'costs' | 'share' | 'business' | 'account' | 'manager-account'
 type ReadinessSeverity = 'blocking' | 'non-blocking'
 type ReadinessWarning = { id: string; message: string; actionLabel: string; severity: ReadinessSeverity; action: () => void }
+type PaymentWarningAction = { reason: string; actionLabel: string; action: () => void }
 const evidenceAllowedTypes = new Set<string>(PAYMENT_EVIDENCE_ALLOWED_TYPES)
 const evidenceImageTypes = new Set<string>(PAYMENT_EVIDENCE_ALLOWED_TYPES.filter((type) => type.startsWith('image/')))
 const statusTone: Record<SettlementStatus, string> = {
@@ -310,8 +311,8 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const evidenceModalReasons = ['세금계산서 캡처본이 없습니다.', '현금영수증 캡처본이 없습니다.', '증빙 검수가 완료되지 않았습니다.']
   const sellerButtonBlockReasons = sellerPaymentRequest || settlement.sellerPaymentCompleted ? ['이미 지급요청되었거나 지급 완료된 건입니다.'] : sellerRequestReasons.filter((reason) => !evidenceModalReasons.includes(reason))
   const managerButtonBlockReasons = managerPaymentRequest || settlement.managerPaymentCompleted ? ['이미 지급요청되었거나 지급 완료된 건입니다.'] : managerRequestReasons.filter((reason) => !evidenceModalReasons.includes(reason))
-  const sellerActionReasons = sellerButtonBlockReasons.length ? sellerButtonBlockReasons : sellerRequestReasons.filter((reason) => evidenceModalReasons.includes(reason))
-  const managerActionReasons = managerButtonBlockReasons.length ? managerButtonBlockReasons : managerRequestReasons.filter((reason) => evidenceModalReasons.includes(reason))
+  const sellerActionReasons = sellerPaymentRequest || settlement.sellerPaymentCompleted ? sellerButtonBlockReasons : sellerRequestReasons
+  const managerActionReasons = managerPaymentRequest || settlement.managerPaymentCompleted ? managerButtonBlockReasons : managerRequestReasons
   const checklist = settlement.reviewChecklist
   const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
   const actualCosts = deductions.filter((item) => item.amount > 0)
@@ -514,6 +515,41 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     target.scrollIntoView({ behavior: 'smooth' })
   }
 
+  const openSellerBusinessType = () => {
+    setBusinessNameDraft(sellerProfile?.businessName ?? '')
+    setBusinessTypeDraft(effectiveSellerBusinessType ?? 'general_business')
+    setReadinessModal('business')
+  }
+
+  const openSellerAccount = () => {
+    setAccountDraft({ bankName: sellerProfile?.bankName ?? '', accountNumber: sellerProfile?.accountNumber ?? '', accountHolder: sellerProfile?.accountHolder ?? '' })
+    setReadinessModal('account')
+  }
+
+  const openManagerAccount = () => {
+    setManagerAccountDraft({ bankName: managerProfile?.bankName ?? '', accountNumber: managerProfile?.accountNumber ?? '', accountHolder: managerProfile?.accountHolder ?? '' })
+    setReadinessModal('manager-account')
+  }
+
+  const focusManagerCalculation = () => {
+    setExpandedDocument('manager')
+    requestAnimationFrame(() => document.querySelector('#manager-settlement-document .manager-calculation-table')?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+  }
+
+  const makePaymentWarningAction = (owner: EvidenceOwnerType, reason: string): PaymentWarningAction => {
+    if (owner === 'seller' && (reason.includes('사업자 유형') || reason.includes('증빙 유형'))) return { reason, actionLabel: '사업자 유형 등록', action: openSellerBusinessType }
+    if (reason.includes('지급 계좌')) return { reason, actionLabel: '계좌 등록', action: owner === 'seller' ? openSellerAccount : openManagerAccount }
+    if (reason.includes('원천세')) return { reason, actionLabel: '원천세 확인', action: () => setPaymentRequestTarget(owner) }
+    if (reason.includes('세금계산서') || reason.includes('현금영수증') || reason.includes('증빙')) return { reason, actionLabel: reason.includes('캡처본') ? '증빙 업로드' : '증빙 확인', action: () => setPaymentRequestTarget(owner) }
+    if (reason.includes('정산금액') || reason.includes('최종 지급액') || reason.includes('계산') || reason.includes('정산서가 확정')) return { reason, actionLabel: owner === 'manager' ? '매니저 정산 확인' : '정산 확인', action: owner === 'manager' ? focusManagerCalculation : () => openDetailSection('calculation-detail') }
+    if (reason.includes('이미 지급요청') || reason.includes('지급 완료')) return { reason, actionLabel: '지급 요청 상태', action: () => openDetailSection('payment-history') }
+    if (owner === 'manager' && reason.includes('담당 매니저')) return { reason, actionLabel: '매니저 정보 확인', action: () => campaign && openCampaignDetail(campaign.id, 'overview') }
+    return { reason, actionLabel: '확인', action: owner === 'manager' ? focusManagerCalculation : () => openDetailSection('calculation-detail') }
+  }
+
+  const sellerWarningActions = sellerActionReasons.map((reason) => makePaymentWarningAction('seller', reason))
+  const managerWarningActions = managerActionReasons.map((reason) => makePaymentWarningAction('manager', reason))
+
   return (
     <section className="settlement-detail-page">
         <button className="settlement-back-button" onClick={onBack} type="button">← 정산 관리로 돌아가기</button>
@@ -566,12 +602,12 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
             <div className={`settlement-document-comparison ${printingDocument ? `is-printing-${printingDocument}` : ''}`}>
               <article className={`settlement-document-column ${expandedDocument === 'seller' ? 'is-expanded' : ''}`} id="seller-settlement-document">
                 <div className="settlement-document-column__heading"><h3>셀러 정산서</h3>{expandedDocument === 'seller' && <button aria-label="닫기" className="settlement-expanded-close no-print" onClick={() => setExpandedDocument(null)} type="button">×</button>}</div>
-                <SettlementDocumentActions blockReasons={sellerActionReasons} onCopyText={copySellerDocumentText} onCopyImage={copySellerDocumentImage} onCopyMessage={copySellerMessage} onPreview={() => setExpandedDocument('seller')} onPrint={() => printDocument('seller', setSellerExportGeneratedAt)} onRequestPayment={() => setPaymentRequestTarget('seller')} onSaveImage={saveSellerDocumentImage} paymentDisabled={sellerButtonBlockReasons.length > 0} paymentStatus={sellerPaymentRequest ? paymentStatusLabels[sellerPaymentRequest.status] : settlement.sellerPaymentCompleted ? '지급 완료' : '지급 대기'} />
+                <SettlementDocumentActions warnings={sellerWarningActions} onCopyText={copySellerDocumentText} onCopyImage={copySellerDocumentImage} onCopyMessage={copySellerMessage} onPreview={() => setExpandedDocument('seller')} onPrint={() => printDocument('seller', setSellerExportGeneratedAt)} onRequestPayment={() => setPaymentRequestTarget('seller')} onSaveImage={saveSellerDocumentImage} paymentDisabled={sellerButtonBlockReasons.length > 0} paymentStatus={sellerPaymentRequest ? paymentStatusLabels[sellerPaymentRequest.status] : settlement.sellerPaymentCompleted ? '지급 완료' : '지급 대기'} />
                 <SellerSettlementDocument exportGeneratedAt={sellerExportGeneratedAt} rows={salesRows} sellerDocumentRef={sellerDocumentRef} settlement={settlement} />
               </article>
               {canAccessManagerDocument && <article className={`settlement-document-column ${expandedDocument === 'manager' ? 'is-expanded' : ''}`} id="manager-settlement-document">
                 <div className="settlement-document-column__heading"><h3>매니저 정산서</h3>{expandedDocument === 'manager' && <button aria-label="닫기" className="settlement-expanded-close no-print" onClick={() => setExpandedDocument(null)} type="button">×</button>}</div>
-                <ManagerDocumentActions blockReasons={managerActionReasons} onAccount={() => { setManagerAccountDraft({ bankName: managerProfile?.bankName ?? '', accountNumber: managerProfile?.accountNumber ?? '', accountHolder: managerProfile?.accountHolder ?? '' }); setReadinessModal('manager-account') }} onCopy={copyManagerDocumentImage} onPreview={() => setExpandedDocument('manager')} onPrint={() => printDocument('manager', setManagerExportGeneratedAt)} onRequestPayment={() => setPaymentRequestTarget('manager')} onSave={saveManagerDocumentImage} paymentDisabled={managerButtonBlockReasons.length > 0} paymentStatus={managerPaymentRequest ? paymentStatusLabels[managerPaymentRequest.status] : settlement.managerPaymentCompleted ? '지급 완료' : '지급 대기'} />
+                <ManagerDocumentActions warnings={managerWarningActions} onAccount={openManagerAccount} onCopy={copyManagerDocumentImage} onPreview={() => setExpandedDocument('manager')} onPrint={() => printDocument('manager', setManagerExportGeneratedAt)} onRequestPayment={() => setPaymentRequestTarget('manager')} onSave={saveManagerDocumentImage} paymentDisabled={managerButtonBlockReasons.length > 0} paymentStatus={managerPaymentRequest ? paymentStatusLabels[managerPaymentRequest.status] : settlement.managerPaymentCompleted ? '지급 완료' : '지급 대기'} />
                 <ManagerSettlementDocument documentRef={managerDocumentRef} exportGeneratedAt={managerExportGeneratedAt} rows={salesRows} settlement={settlement} />
               </article>}
               {expandedDocument && <button aria-label="닫기" className="settlement-document-expanded-backdrop no-print" onClick={() => setExpandedDocument(null)} type="button" />}
@@ -806,13 +842,13 @@ function ManagerSettlementDocument({ documentRef, exportGeneratedAt, rows, settl
   </div></div>
 }
 
-function PaymentBlockReasons({ reasons }: { reasons: string[] }) {
-  if (!reasons.length) return null
-  return <div className="payment-action-blockers"><strong>지급 요청을 위해 다음 정보가 필요합니다.</strong><ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>
+function PaymentBlockReasons({ ownerLabel, warnings }: { ownerLabel: string; warnings: PaymentWarningAction[] }) {
+  if (!warnings.length) return null
+  return <div className="payment-action-blockers"><div className="payment-action-blockers__heading"><strong>{ownerLabel} 지급 요청을 위해 다음 정보가 필요합니다.</strong><span>{warnings.length}개 미완료</span></div><ul>{warnings.map((warning) => <li key={warning.reason}><span>{warning.reason}</span><button className="secondary-button" onClick={warning.action} type="button">{warning.actionLabel}</button></li>)}</ul></div>
 }
 
-function ManagerDocumentActions({ blockReasons, onAccount, onCopy, onPreview, onPrint, onRequestPayment, onSave, paymentDisabled, paymentStatus }: { blockReasons: string[]; onAccount: () => void; onCopy: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSave: () => void; paymentDisabled: boolean; paymentStatus: string }) {
-  return <div className="document-action-bar no-print"><span className="payment-recipient-status">{paymentStatus}</span><div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview}>확대 보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="secondary-button" onClick={onAccount}>계좌 등록</button><button className="text-button" onClick={onPrint}>인쇄</button><button className="primary-button" disabled={paymentDisabled} onClick={onRequestPayment} type="button">매니저 지급 요청</button></div>{blockReasons.length > 0 && <PaymentBlockReasons reasons={blockReasons} />}</div>
+function ManagerDocumentActions({ warnings, onAccount, onCopy, onPreview, onPrint, onRequestPayment, onSave, paymentDisabled, paymentStatus }: { warnings: PaymentWarningAction[]; onAccount: () => void; onCopy: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSave: () => void; paymentDisabled: boolean; paymentStatus: string }) {
+  return <div className="document-action-bar no-print"><span className="payment-recipient-status">{paymentStatus}</span><div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview}>확대 보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="secondary-button" onClick={onAccount}>계좌 등록</button><button className="text-button" onClick={onPrint}>인쇄</button><button className="primary-button" disabled={paymentDisabled} onClick={onRequestPayment} type="button">매니저 지급 요청</button></div><PaymentBlockReasons ownerLabel="매니저" warnings={warnings} /></div>
 }
 
 function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, settlement }: { exportGeneratedAt: string; rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
@@ -912,12 +948,12 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
   )
 }
 
-function SettlementDocumentActions({ blockReasons, onCopyImage, onCopyMessage, onCopyText, onPreview, onPrint, onRequestPayment, onSaveImage, paymentDisabled, paymentStatus }: { blockReasons: string[]; onCopyImage: () => void; onCopyMessage: () => void; onCopyText: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSaveImage: () => void; paymentDisabled: boolean; paymentStatus: string }) {
+function SettlementDocumentActions({ warnings, onCopyImage, onCopyMessage, onCopyText, onPreview, onPrint, onRequestPayment, onSaveImage, paymentDisabled, paymentStatus }: { warnings: PaymentWarningAction[]; onCopyImage: () => void; onCopyMessage: () => void; onCopyText: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSaveImage: () => void; paymentDisabled: boolean; paymentStatus: string }) {
   return (
     <div className="document-action-bar no-print">
       <span className="payment-recipient-status">{paymentStatus}</span>
       <div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview} type="button">확대 보기</button><button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button><button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button><button className="secondary-button" onClick={onCopyText} type="button">정산 내용 복사</button><button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button><button className="text-button" onClick={onPrint} type="button">인쇄</button><button className="primary-button" disabled={paymentDisabled} onClick={onRequestPayment} type="button">셀러 지급 요청</button></div>
-      {blockReasons.length > 0 && <PaymentBlockReasons reasons={blockReasons} />}
+      <PaymentBlockReasons ownerLabel="셀러" warnings={warnings} />
     </div>
   )
 }
