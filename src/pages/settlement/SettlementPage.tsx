@@ -21,7 +21,7 @@ import { canViewManagerSettlement } from '../../shared/utils/managerSettlementPe
 import { getUserById } from '../../shared/data/users'
 import { paymentRequestService } from '../../shared/services/paymentRequestService'
 import { getCampaignEventTypeLabel } from '../../shared/services/campaignCreationService'
-import { calculateManagerProductRow, calculateSellerProductRow, calculateSellerProductSubtotal, calculateSellerSupplyPrice, calculateSellerSupplyTotal, formatKoreanDocumentDate, formatKoreanExportTime, getSellerSettlementSchedule } from '../../shared/utils/settlementDocument'
+import { calculateManagerProductRow, calculateSellerProductRow, calculateSellerProductSubtotal, formatKoreanDocumentDate, formatKoreanExportTime, getSellerSettlementSchedule } from '../../shared/utils/settlementDocument'
 import type { EvidenceOwnerType } from '../../shared/types/paymentEvidence'
 import type { PaymentRequestStatus, SellerBusinessType } from '../../shared/types/sellerSettlement'
 import type { CampaignEvent } from '../../shared/types/campaignCreation'
@@ -225,7 +225,6 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   const campaign = getCampaign(settlement)
   const currentUser = getUserById('u-001')
   const canAccessManagerDocument = Boolean(currentUser && canViewManagerSettlement(currentUser, campaign?.managerId))
-  const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
   const versions = settlementService.getSettlementVersionsBySettlementId(settlement.id)
   const logs = settlementService.getActivityLogsBySettlementId(settlement.id)
   const validation = validateSettlement(settlement)
@@ -406,12 +405,6 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
 
         <SettlementProgress settlement={settlement} />
 
-        <ProductSettlementTable rows={salesRows} settlement={settlement} productName={campaign?.productName} />
-
-        <AdditionalCosts deductions={deductions} />
-
-        <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="calculation-detail"><summary><div><h2>정산 계산 상세</h2><p>정산 금액의 계산식과 계산 근거를 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><CalculationTable settlement={settlement} /><details className="settlement-internal-validation"><summary>내부 검증 항목 관리</summary><div className="settlement-checklist">{Object.entries(checklistLabels).map(([key, label]) => <label className="checklist-item" key={key}><input checked={settlement.reviewChecklist[key as keyof typeof settlement.reviewChecklist]} onChange={(event) => { settlementService.updateReviewChecklist(settlement.id, { ...settlement.reviewChecklist, [key]: event.target.checked }); setSettlement(settlementService.getSettlementById(settlement.id) ?? null) }} type="checkbox" />{label}</label>)}</div></details></div></details>
-
         {settlementPreparationWarnings.length > 0 && <section className="settlement-preparation-warning" id="settlement-preparation"><div><span aria-hidden="true">!</span><h2>정산 준비 필요</h2></div><ul>{settlementPreparationWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></section>}
 
         {settlementPreparationWarnings.length === 0 && <section className="detail-card settlement-card settlement-document-tab settlement-page-section" id="settlement-documents">
@@ -441,6 +434,8 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
             </div>
           )}
         </section>}
+
+        <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="calculation-detail"><summary><div><h2>정산 계산 상세</h2><p>정산 금액의 계산식과 계산 근거를 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><CalculationTable settlement={settlement} /><details className="settlement-internal-validation"><summary>내부 검증 항목 관리</summary><div className="settlement-checklist">{Object.entries(checklistLabels).map(([key, label]) => <label className="checklist-item" key={key}><input checked={settlement.reviewChecklist[key as keyof typeof settlement.reviewChecklist]} onChange={(event) => { settlementService.updateReviewChecklist(settlement.id, { ...settlement.reviewChecklist, [key]: event.target.checked }); setSettlement(settlementService.getSettlementById(settlement.id) ?? null) }} type="checkbox" />{label}</label>)}</div></details></div></details>
 
         <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="payment-history"><summary><div><h2>지급 요청 및 승인 이력</h2><p>계산, 상태 변경, 승인, 지급 및 버전 이력을 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><HistoryContent logs={logs} settlement={settlement} />
           <div className="checklist-head">
@@ -477,41 +472,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
   )
 }
 
-function ProductSettlementTable({ productName, rows, settlement }: { productName?: string; rows: SalesDataRow[]; settlement: Settlement }) {
-  const totalQuantity = rows.reduce((sum, row) => sum + row.netQuantity, 0)
-  const sellerRate = settlement.currentCalculation.sellerCommissionRate
-  const totalSellerSupply = rows.reduce((sum, row) => sum + calculateSellerSupplyTotal(row.unitPrice, sellerRate, row.netQuantity), 0)
-  return (
-    <section className="detail-card settlement-card settlement-page-section" id="product-settlement">
-      <div className="section-heading"><div><p className="page-eyebrow">2. 상품/SKU별 정산 내역</p><h2>상품/SKU별 정산 내역</h2></div></div>
-      {rows.length ? <>
-        <div className="settlement-work-table-wrap"><table className="settlement-work-table">
-          <thead><tr><th>상품명</th><th>구분/SKU</th><th>판매수량</th><th>공구가(VAT 포함)</th><th>셀러 공급가</th><th>공급가 합계</th><th>매출액(VAT 포함)</th><th>수수료율(VAT 포함)</th><th>수수료</th><th>비고</th></tr></thead>
-          <tbody>{rows.map((row) => { const supplyPrice = calculateSellerSupplyPrice(row.unitPrice, sellerRate); return <tr key={row.id}><td>{productName ?? '-'}</td><td>{row.optionName}</td><td className="amount-cell">{row.netQuantity.toLocaleString('ko-KR')}</td><td className="amount-cell">{money(row.unitPrice)}</td><td className="amount-cell">{money(supplyPrice)}<small>{money(row.unitPrice)} × (1 - {sellerRate}%)</small></td><td className="amount-cell">{money(supplyPrice * row.netQuantity)}</td><td className="amount-cell">{money(row.netSales)}</td><td className="amount-cell">{sellerRate}%</td><td className="amount-cell">{money(Math.round(row.netSales * sellerRate / 100))}</td><td>{row.validationStatus === 'valid' ? '' : row.validationMessage}</td></tr> })}</tbody>
-          <tfoot><tr><th colSpan={2}>판매 소계</th><td className="amount-cell">{totalQuantity.toLocaleString('ko-KR')}</td><td></td><td></td><td className="amount-cell">{money(totalSellerSupply)}</td><td className="amount-cell">{money(settlement.currentCalculation.grossSales)}</td><td></td><td className="amount-cell">{money(settlement.currentCalculation.sellerCommissionAmount)}</td><td></td></tr></tfoot>
-        </table></div>
-      </> : <p className="settlement-empty-data">SKU별 판매 데이터가 아직 연결되지 않았습니다.</p>}
-    </section>
-  )
-}
-
-const deductionTypeLabel: Record<string, string> = { purchase: '개인구매비용', event: '이벤트비용', other: '기타 차감', promotion: '기타 추가 지급' }
 const costOwnerLabel: Record<string, string> = { seller: '셀러', company: '회사', brand: '벤더', manager: '매니저', undecided: '미정' }
-
-function AdditionalCosts({ deductions }: { deductions: SettlementDeduction[] }) {
-  const categories = ['purchase', 'event', 'other', 'promotion'].map((type) => {
-    const items = deductions.filter((item) => item.type === type)
-    return { type, items, amount: items.reduce((sum, item) => sum + item.amount, 0) }
-  })
-  return (
-    <section className="detail-card settlement-card settlement-page-section" id="additional-costs">
-      <div className="section-heading"><div><p className="page-eyebrow">3. 추가 비용 및 차감</p><h2>추가 비용 및 차감</h2><p>배송비는 판매 수수료 계산 대상에서 제외하는 기존 정책을 유지합니다.</p></div></div>
-      <div className="settlement-work-table-wrap"><table className="settlement-work-table"><thead><tr><th>항목</th><th>금액</th><th>부담 주체</th><th>메모</th><th>최종 정산 반영</th></tr></thead><tbody>
-        {categories.map(({ amount, items, type }) => <tr key={type}><td>{deductionTypeLabel[type]}</td><td className="amount-cell">{money(amount)}</td><td>{items.length ? [...new Set(items.map((item) => costOwnerLabel[item.costOwner] ?? item.costOwner))].join(', ') : '없음'}</td><td>{items.map((item) => item.memo).filter(Boolean).join(' / ') || '없음'}</td><td>{items.some((item) => item.reflected) ? '반영' : '미반영'}</td></tr>)}
-      </tbody></table></div>
-    </section>
-  )
-}
 
 function formatKoreanDateTime(value: string) {
   const date = new Date(value)
