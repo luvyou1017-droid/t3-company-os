@@ -1944,6 +1944,37 @@
 .seller-company-table a { color: #1d4ed8; }
 .seller-document__notice { border: 1px solid #111827; border-top: 0; padding: 10px 12px; }
 .seller-document__notice p { color: #111827; font-size: 11px; line-height: 1.6; margin: 0; }
+.seller-statement:not(.manager-statement) { gap: 10px; padding: 24px; }
+.seller-statement:not(.manager-statement) .seller-document__header { padding-bottom: 9px; }
+.seller-statement:not(.manager-statement) .seller-document__header h2 { font-size: 21px; }
+.seller-statement:not(.manager-statement) .seller-document__table th,
+.seller-statement:not(.manager-statement) .seller-document__table td { font-size: 11px; padding: 5px 7px; }
+.seller-statement:not(.manager-statement) .seller-document__section { gap: 4px; }
+.seller-statement:not(.manager-statement) .seller-document__section h3 { font-size: 13px; }
+.seller-statement:not(.manager-statement) .seller-document__vat-notice { font-size: 10px; }
+.seller-statement:not(.manager-statement) .seller-document__costs { margin-top: -6px; }
+.seller-statement:not(.manager-statement) .seller-document__costs .seller-document__table { width: 62%; }
+.seller-compact-settlement .seller-cost-deduction-cell { background: #fce8df !important; color: #9a3412; font-weight: 900; }
+.seller-business-payment__corporation > * { background: #fff7b8 !important; }
+.seller-business-payment__simplified_business > * { background: #eaf2f8 !important; }
+.seller-business-payment__freelancer > * { background: #eaf4df !important; }
+.seller-business-payment tr.is-current > * { border-bottom: 2px solid #111827 !important; border-top: 2px solid #111827 !important; font-weight: 900; }
+.seller-business-payment tr.is-current td:nth-child(3),
+.seller-business-payment tr.is-current td:nth-child(4) { background: #fff59d !important; }
+.seller-business-payment .amount-cell { font-size: 13px !important; font-weight: 900; }
+.seller-business-unregistered { background: #f3f4f6; color: #6b7280; font-size: 11px; margin: 0; padding: 6px 8px; }
+.seller-compact-schedule__dates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.seller-compact-schedule__dates p { border: 1px solid #111827; border-right: 0; display: grid; gap: 2px; margin: 0; padding: 6px 8px; }
+.seller-compact-schedule__dates p:last-child { background: #eaf4df; border-right: 1px solid #111827; }
+.seller-compact-schedule__dates span { color: #4b5563; font-size: 10px; font-weight: 800; }
+.seller-compact-schedule__dates strong { font-size: 11px; }
+.seller-compact-schedule__notice { color: #4b5563 !important; font-size: 10px !important; line-height: 1.45; margin: 0; }
+.seller-compact-account { border: 1px solid #111827 !important; display: grid !important; grid-template-columns: 130px 1fr; padding: 6px 8px !important; }
+.seller-compact-account h3 { align-self: center; }
+.seller-compact-account p { font-size: 11px; margin: 0; }
+.seller-statement:not(.manager-statement) .seller-company-table th { width: 118px; }
+.seller-statement:not(.manager-statement) .seller-document__notice { padding: 5px 7px; }
+.seller-statement:not(.manager-statement) .seller-document__notice p { font-size: 10px; }
 .seller-document--exporting,
 .seller-document--exporting * { overflow: visible !important; }
 .seller-document--exporting details { display: block !important; }
