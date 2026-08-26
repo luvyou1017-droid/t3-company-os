@@ -1,9 +1,10 @@
-import { calculateSellerProductSubtotal, calculateSellerSupplyPrice, calculateSellerSupplyTotal, formatKoreanExportTime, getSellerSettlementSchedule } from '../src/shared/utils/settlementDocument.ts'
+import { calculateManagerProductRow, calculateSellerProductSubtotal, calculateSellerSupplyPrice, calculateSellerSupplyTotal, formatKoreanExportTime, getSellerSettlementSchedule } from '../src/shared/utils/settlementDocument.ts'
 
 const schedule = getSellerSettlementSchedule('2026-08-26T01:00:00.000Z')
 const holidaySchedule = getSellerSettlementSchedule('2026-08-26T01:00:00.000Z', { isHoliday: (date) => date.toISOString().startsWith('2026-08-31') })
 const exampleSubtotal = calculateSellerProductSubtotal([{ unitPrice: 38_000, netQuantity: 232 }], 17)
 const multiSkuSubtotal = calculateSellerProductSubtotal([{ unitPrice: 38_000, netQuantity: 200 }, { unitPrice: 40_000, netQuantity: 32 }], 17)
+const managerProduct = calculateManagerProductRow({ unitPrice: 14_000, netQuantity: 154 }, 29)
 const checks = [
   ['셀러 공급가 원화 반올림', calculateSellerSupplyPrice(14_000, 29) === 9_940],
   ['SKU 공급가 합계', calculateSellerSupplyTotal(14_000, 29, 25) === 248_500],
@@ -14,6 +15,7 @@ const checks = [
   ['상품행 기준 판매 소계', exampleSubtotal.quantity === 232 && exampleSubtotal.supplyTotal === 7_317_280 && exampleSubtotal.salesAmount === 8_816_000 && exampleSubtotal.commissionAmount === 1_498_720],
   ['다중 SKU 행 합계', multiSkuSubtotal.quantity === 232 && multiSkuSubtotal.salesAmount === 8_880_000 && multiSkuSubtotal.commissionAmount === 1_509_600],
   ['비용/배송비 비혼입', !('shippingAmount' in exampleSubtotal) && !('deductions' in exampleSubtotal)],
+  ['매니저 공급가 총수수료율 기준', managerProduct.supplyPrice === 9_940 && managerProduct.unitCommission === 4_060 && managerProduct.salesCommission === 625_240],
 ]
 
 checks.forEach(([label, passed]) => console.log(`${passed ? 'PASS' : 'FAIL'} ${label}`))

@@ -57,6 +57,21 @@ export function calculateSellerProductSubtotal(rows: SellerProductSubtotalRow[],
   }, { quantity: 0, supplyTotal: 0, salesAmount: 0, commissionAmount: 0 })
 }
 
+export function calculateManagerProductRow(row: SellerProductSubtotalRow, totalCommissionRate: number) {
+  if (!Number.isFinite(totalCommissionRate) || totalCommissionRate < 0 || totalCommissionRate > 100) throw new Error('총수수료율은 0 이상 100 이하의 유한한 숫자여야 합니다.')
+  if (!Number.isFinite(row.netQuantity) || row.netQuantity < 0) throw new Error('판매수량은 0 이상의 유한한 숫자여야 합니다.')
+  if (!Number.isFinite(row.unitPrice) || row.unitPrice < 0) throw new Error('공구가는 0 이상의 유한한 숫자여야 합니다.')
+  const quantity = Math.round(row.netQuantity)
+  const supplyPrice = Math.round(row.unitPrice * (1 - totalCommissionRate / 100))
+  const unitCommission = row.unitPrice - supplyPrice
+  return {
+    quantity,
+    supplyPrice,
+    unitCommission,
+    salesCommission: unitCommission * quantity,
+  }
+}
+
 export function formatKoreanDocumentDate(value: string | Date) {
   const parts = koreaParts(typeof value === 'string' ? new Date(value) : value)
   return `${parts.year}.${parts.month}.${parts.day}`
