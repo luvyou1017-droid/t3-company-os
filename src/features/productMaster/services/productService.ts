@@ -9,7 +9,10 @@ const repository: ProductRepository = getDataProviderMode() === 'supabase' && su
   ? new SupabaseProductRepository(supabase)
   : new LocalProductRepository()
 
-export function validateProductPolicy(product: Pick<ProductMaster, 'defaultSalesChannelType' | 'wiseShopAvailable' | 'sellerCheckoutAvailable' | 'brandPgSupportAvailable' | 'brandPgSupportRate'>) {
+export function validateProductPolicy(product: Pick<ProductMaster, 'defaultSalesChannelType' | 'supplierLinkAvailable' | 'supplierLinkPgPolicy' | 'supplierLinkPgDeductionRate' | 'wiseShopAvailable' | 'sellerCheckoutAvailable' | 'brandPgSupportAvailable' | 'brandPgSupportRate'>) {
+  if (product.defaultSalesChannelType === 'supplier_link' && product.supplierLinkAvailable === false) return '업체링크를 기본 링크로 선택하려면 사용 가능 상태여야 합니다.'
+  if (product.supplierLinkAvailable && !product.supplierLinkPgPolicy) return '업체링크 PG 비용 처리 정책을 선택해주세요.'
+  if (product.supplierLinkPgPolicy === 'deduct_from_commission_rate' && !(product.supplierLinkPgDeductionRate && product.supplierLinkPgDeductionRate > 0)) return '총 수수료율에서 차감할 %p를 입력해주세요.'
   if (product.defaultSalesChannelType === 'wise_shop_link' && !product.wiseShopAvailable) return '와이즈샵을 기본 링크로 선택하려면 사용 가능 상태여야 합니다.'
   if (product.defaultSalesChannelType === 'seller_checkout' && !product.sellerCheckoutAvailable) return '셀러 결제창을 기본 링크로 선택하려면 사용 가능 상태여야 합니다.'
   if (product.brandPgSupportAvailable && !product.brandPgSupportRate) return '브랜드 PG 지원율을 선택해주세요.'
@@ -27,15 +30,23 @@ function validateSkuPolicies(product: ProductMaster) {
 
 export function createCampaignProductSnapshot(product: ProductMaster, sku?: ProductSku): CampaignProductMasterSnapshot {
   const policy = resolveProductPolicy(undefined, undefined, product, sku)
+  const actualSalesChannel = policy.defaultSalesChannelType.value!
+  const supplierLinkPgDeductionRate = product.supplierLinkPgPolicy === 'deduct_from_commission_rate' ? product.supplierLinkPgDeductionRate : undefined
+  const actualCommissionRate = actualSalesChannel === 'supplier_link' ? Math.max(Number(policy.totalCommissionRate.value) - (supplierLinkPgDeductionRate ?? 0), 0) : Number(policy.totalCommissionRate.value)
   return {
     productMasterId: product.id, skuId: sku?.id, skuCode: sku?.skuCode,
     productMasterVersion: product.version, capturedAt: new Date().toISOString(),
     regularPrice: Number(policy.regularPrice.value), salePrice: Number(policy.groupBuyPrice.value), supplyPrice: Number(policy.supplyPrice.value),
     shippingFee: Number(policy.shippingFee.value), freeShippingThreshold: policy.freeShippingThreshold?.value,
     totalCommissionRate: Number(policy.totalCommissionRate.value), sellerCommissionRate: Number(policy.sellerCommissionRate.value),
-    defaultSalesChannelType: policy.defaultSalesChannelType.value!, wiseShopAvailable: Boolean(policy.wiseShopAvailable.value),
+    defaultSalesChannelType: actualSalesChannel, supplierLinkAvailable: product.supplierLinkAvailable ?? true,
+    supplierLinkPgPolicy: product.supplierLinkPgPolicy ?? 'manual', supplierLinkPgDeductionRate,
+    wiseShopAvailable: Boolean(policy.wiseShopAvailable.value), wiseSrookPgRate: product.wiseSrookPgRate,
     sellerCheckoutAvailable: Boolean(policy.sellerCheckoutAvailable.value), brandPgSupportAvailable: Boolean(policy.brandPgSupportAvailable.value),
-    brandPgSupportRate: policy.brandPgSupportRate?.value,
+    brandPgSupportRate: policy.brandPgSupportRate?.value, actualSalesChannel, actualCommissionRate,
+    actualSellerCommissionRate: Number(policy.sellerCommissionRate.value), actualPgCost: undefined,
+    actualPgSupport: actualSalesChannel === 'seller_checkout' ? policy.brandPgSupportRate?.value : undefined,
+    salesChannelOverridden: false,
     shippingPolicy: {
       courierName: policy.courierName?.value, jejuExtraFee: product.jejuExtraFee, islandExtraFee: product.islandExtraFee,
       bundleShippingAvailable: product.bundleShippingAvailable, orderDeadlineTime: policy.orderDeadlineTime?.value,
@@ -48,6 +59,7 @@ export function createCampaignProductSnapshot(product: ProductMaster, sku?: Prod
 const policyKeys: Array<keyof ProductPolicy> = [
   'regularPrice', 'groupBuyPrice', 'supplyPrice', 'shippingFee', 'freeShippingThreshold',
   'totalCommissionRate', 'sellerCommissionRate', 'defaultSalesChannelType', 'wiseShopAvailable',
+  'supplierLinkAvailable', 'supplierLinkPgPolicy', 'supplierLinkPgDeductionRate', 'wiseSrookPgRate',
   'sellerCheckoutAvailable', 'brandPgSupportAvailable', 'brandPgSupportRate', 'courierName', 'orderDeadlineTime',
 ]
 
@@ -57,6 +69,8 @@ export function resolveProductPolicy(vendor: VendorMaster | undefined, brand: Br
     shippingFee: product.shippingFee, freeShippingThreshold: product.freeShippingThreshold,
     totalCommissionRate: product.totalCommissionRate, sellerCommissionRate: product.sellerCommissionRate,
     defaultSalesChannelType: product.defaultSalesChannelType, wiseShopAvailable: product.wiseShopAvailable,
+    supplierLinkAvailable: product.supplierLinkAvailable, supplierLinkPgPolicy: product.supplierLinkPgPolicy,
+    supplierLinkPgDeductionRate: product.supplierLinkPgDeductionRate, wiseSrookPgRate: product.wiseSrookPgRate,
     sellerCheckoutAvailable: product.sellerCheckoutAvailable, brandPgSupportAvailable: product.brandPgSupportAvailable,
     brandPgSupportRate: product.brandPgSupportRate, courierName: product.courierName, orderDeadlineTime: product.orderDeadlineTime,
   }

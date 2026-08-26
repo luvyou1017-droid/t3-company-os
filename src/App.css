@@ -1767,6 +1767,15 @@
 .manager-settlement-basis dt, .manager-settlement-basis dd { font-size: 12px; margin: 0; }
 .manager-event-cost { background: var(--surface-subtle); display: grid; font-size: 12px; gap: 6px; margin-top: 10px; padding: 12px; }
 .muted-note { color: var(--muted); font-size: 12px; }
+.manager-document { color: #111827; }
+.manager-document__section { border-top: 1px solid #9ca3af; padding-top: 20px; }
+.manager-document__section h3 { font-size: 16px; margin: 0 0 12px; }
+.manager-document__section > p { color: #64748b; font-size: 12px; }
+.manager-document__section td small { color: #64748b; display: block; font-size: 11px; margin-top: 3px; }
+.manager-document__calculation dl, .manager-document__payment dl { display: grid; gap: 0; margin: 0; }
+.manager-document__calculation dl div, .manager-document__payment dl div { border-bottom: 1px solid #e5e7eb; display: grid; grid-template-columns: 1fr auto; padding: 9px 0; }
+.manager-document__calculation dt, .manager-document__payment dt { color: #4b5563; font-size: 13px; font-weight: 700; }
+.manager-document__calculation dd, .manager-document__payment dd { font-size: 13px; font-weight: 800; margin: 0; }
 
 .seller-document__totals { border-bottom: 1px solid #9ca3af; border-top: 1px solid #9ca3af; padding: 18px 0; }
 .seller-document__totals h3 { font-size: 16px; margin: 0 0 10px; }

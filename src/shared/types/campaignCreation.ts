@@ -1,4 +1,5 @@
 import type { CampaignSalesChannelType } from './campaign'
+import type { SupplierLinkPgPolicy } from '../../features/productMaster/types'
 
 export type CampaignCreationBusinessType = 'general_business' | 'simplified_business' | 'freelancer'
 export type EventPayer = 'vendor' | 'seller' | 'company_support' | 'manager' | 'shared'
@@ -16,6 +17,10 @@ export interface ProductSalesLinkPolicy {
   sellerCheckoutAvailable: boolean
   brandPgSupportAvailable: boolean
   brandPgSupportRate?: 1 | 2 | 3 | 4 | 5
+  supplierLinkAvailable?: boolean
+  supplierLinkPgPolicy?: SupplierLinkPgPolicy
+  supplierLinkPgDeductionRate?: number
+  wiseSrookPgRate?: number
 }
 
 export interface ProductMaster extends Partial<ProductSalesLinkPolicy> {
@@ -60,6 +65,19 @@ export interface CampaignProductProposalSnapshot {
   brandPgSupportAvailable: boolean
   brandPgSupportRate?: number
   selectedSalesChannelType?: CampaignSalesChannelType
+  actualSalesChannel: CampaignSalesChannelType
+  supplierLinkAvailable: boolean
+  supplierLinkPgPolicy: SupplierLinkPgPolicy
+  supplierLinkPgDeductionRate?: number
+  wiseSrookLinkAvailable: boolean
+  wiseSrookPgRate?: number
+  sellerCheckoutPgSupportRate?: number
+  actualCommissionRate: number
+  actualSellerCommissionRate: number
+  actualPgCost?: number
+  actualPgSupport?: number
+  salesChannelOverridden: boolean
+  salesChannelOverrideReason?: string
   effectiveSellerCommissionRate: number
   companyCommissionRate: number
   notes: string

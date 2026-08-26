@@ -17,6 +17,7 @@ const one = [selection('prd-lock-001', 0)]
 const sameDefaults = [selection('prd-lock-001', 0), selection('prd-lock-002', 1)]
 const mixedDefaults = [selection('prd-lock-001', 0), selection('prd-lock-003', 1)]
 const snapshot = captureProposalSnapshots(one, 2, 'seller_checkout')[0]
+const supplierSnapshot = captureProposalSnapshots([selection('prd-lock-003', 0)], 0, 'supplier_link')[0]
 const seller = sellerMasterService.getDefaults('seller-kim-minji')
 const base = {
   sellerId: seller.id, sellerName: seller.name, businessType: seller.businessType,
@@ -42,6 +43,8 @@ const checks = [
   ['브랜드 4%와 셀러 추가 2% 분리', snapshot.brandPgSupportRate === 4 && snapshot.sellerExtraPgRate === 2],
   ['최종 셀러 수수료 계산', snapshot.effectiveSellerCommissionRate === snapshot.sellerCommissionRate + 2],
   ['배송비 snapshot 유지', snapshot.shippingAmount === 0],
+  ['업체링크 %p 차감 snapshot', supplierSnapshot.supplierLinkPgDeductionRate === 5 && supplierSnapshot.actualCommissionRate === supplierSnapshot.totalCommissionRate - 5],
+  ['업체링크 스룩페이 비용 미생성', supplierSnapshot.actualSalesChannel === 'supplier_link' && supplierSnapshot.actualPgCost === undefined],
   ['자동 적용 출처와 override draft 복원', restored?.salesChannelSource === 'manual' && restored.salesChannelManuallyOverridden && restored.sellerExtraPgRate === 2],
   ['이벤트 필수값 규칙', getCampaignEventErrors({ id: 'e', payer: 'vendor', eventType: 'first_come', rewardUnitPrice: 0, plannedQuantity: 0, estimatedTotalAmount: 0 }).length === 3],
 ]

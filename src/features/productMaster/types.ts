@@ -1,6 +1,7 @@
 import type { CampaignSalesChannelType } from '../../shared/types/campaign'
 
 export type ProductPgSupportRate = 1 | 2 | 3 | 4 | 5
+export type SupplierLinkPgPolicy = 'supplier_bears_pg' | 'deduct_from_commission_rate' | 'manual'
 export type PolicySource = 'vendor' | 'brand' | 'product' | 'sku'
 export type SellerPortalStatus = 'available' | 'coming_soon' | 'paused' | 'sold_out' | 'closed'
 export type ProductBadge = 'new' | 'popular' | 'recommended' | 'recently_successful'
@@ -15,7 +16,11 @@ export interface ProductPolicy {
   totalCommissionRate: number
   sellerCommissionRate: number
   defaultSalesChannelType: CampaignSalesChannelType
+  supplierLinkAvailable?: boolean
+  supplierLinkPgPolicy?: SupplierLinkPgPolicy
+  supplierLinkPgDeductionRate?: number
   wiseShopAvailable: boolean
+  wiseSrookPgRate?: number
   sellerCheckoutAvailable: boolean
   brandPgSupportAvailable: boolean
   brandPgSupportRate?: ProductPgSupportRate
@@ -106,7 +111,11 @@ export interface ProductMaster {
   sellerCommissionRate: number
   companyCommissionRate: number
   defaultSalesChannelType: CampaignSalesChannelType
+  supplierLinkAvailable?: boolean
+  supplierLinkPgPolicy?: SupplierLinkPgPolicy
+  supplierLinkPgDeductionRate?: number
   wiseShopAvailable: boolean
+  wiseSrookPgRate?: number
   sellerCheckoutAvailable: boolean
   brandPgSupportAvailable: boolean
   brandPgSupportRate?: ProductPgSupportRate
@@ -183,10 +192,21 @@ export interface CampaignProductMasterSnapshot {
   totalCommissionRate: number
   sellerCommissionRate: number
   defaultSalesChannelType: CampaignSalesChannelType
+  supplierLinkAvailable: boolean
+  supplierLinkPgPolicy: SupplierLinkPgPolicy
+  supplierLinkPgDeductionRate?: number
   wiseShopAvailable: boolean
+  wiseSrookPgRate?: number
   sellerCheckoutAvailable: boolean
   brandPgSupportAvailable: boolean
   brandPgSupportRate?: ProductPgSupportRate
+  actualSalesChannel: CampaignSalesChannelType
+  actualCommissionRate: number
+  actualSellerCommissionRate: number
+  actualPgCost?: number
+  actualPgSupport?: number
+  salesChannelOverridden: boolean
+  salesChannelOverrideReason?: string
   shippingPolicy: Pick<ProductMaster, 'courierName' | 'jejuExtraFee' | 'islandExtraFee' | 'bundleShippingAvailable' | 'orderDeadlineTime'>
   sampleSupportType?: string
   policySources?: Partial<Record<keyof ProductPolicy, PolicySource>>

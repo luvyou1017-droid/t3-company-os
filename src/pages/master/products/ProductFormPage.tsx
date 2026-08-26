@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { productService, validateProductPolicy } from '../../../features/productMaster/services/productService'
-import type { ProductMasterInput, ProductPgSupportRate, ProductSku, SellerPortalStatus } from '../../../features/productMaster/types'
+import type { ProductMasterInput, ProductPgSupportRate, ProductSku, SellerPortalStatus, SupplierLinkPgPolicy } from '../../../features/productMaster/types'
 import type { ProductMasterPermission } from '../../../features/productMaster/permissions'
 
 type Errors = Record<string, string>
-const channelLabels = { supplier_link: '공급사 링크', wise_shop_link: '와이즈샵 링크', seller_checkout: '셀러 결제창' }
+const channelLabels = { supplier_link: '업체링크', wise_shop_link: '와이즈 스룩링크', seller_checkout: '셀러 자체 결제창' }
 const sectionFields: Record<string, string[]> = {
   basic: ['brandName', 'productName'], price: ['regularPrice', 'salePrice', 'supplyPrice', 'shippingFee'],
   commission: ['totalCommissionRate', 'sellerCommissionRate'], link: ['defaultSalesChannelType', 'wiseShopAvailable', 'sellerCheckoutAvailable'],
@@ -13,7 +13,8 @@ const initial: ProductMasterInput = {
   productCode: '', vendorId: '', vendorName: '', brandId: '', brandName: '', productName: '', category: '', subCategory: '', imageUrl: '', representativeImageUrl: '', additionalImageUrls: [], internalDescription: '', sellerDescription: '', memo: '',
   regularPrice: 0, salePrice: 0, supplyPrice: 0, shippingFee: 0, freeShippingThreshold: undefined,
   totalCommissionRate: 0, sellerCommissionRate: 0, companyCommissionRate: 0,
-  defaultSalesChannelType: 'supplier_link', wiseShopAvailable: false, sellerCheckoutAvailable: false,
+  defaultSalesChannelType: 'supplier_link', supplierLinkAvailable: true, supplierLinkPgPolicy: 'supplier_bears_pg', supplierLinkPgDeductionRate: undefined,
+  wiseShopAvailable: false, wiseSrookPgRate: undefined, sellerCheckoutAvailable: false,
   brandPgSupportAvailable: false, courierName: '', jejuExtraFee: 0, islandExtraFee: 0,
   bundleShippingAvailable: false, orderDeadlineTime: '', sampleSupportType: '', manufactureInfo: '',
   shelfLifeInfo: '', orderMemo: '', settlementMemo: '', internalMemo: '', skus: [], sellerPortalVisible: false,
@@ -117,11 +118,15 @@ export function ProductFormPage({ productId, onBack, permission }: { productId?:
     </div>{commissionConflict && <p className="policy-note policy-note--warning">저장된 직접 입력값이 계산값과 달라 현재 계산값으로 정정됩니다.</p>}<p className="policy-note">회사 수수료율 = 총 수수료율 - 셀러 기본 수수료율. 브랜드 PG 지원율은 Campaign의 실제 셀러 추가 지급률과 별도입니다.</p></section>
     <section className="product-form-section">{sectionTitle('4. 판매 링크 정책', 'link')}<div className="product-form-grid">
       <label className={fieldClass('defaultSalesChannelType')} data-field="defaultSalesChannelType"><span>기본 판매 링크 *</span><select value={form.defaultSalesChannelType} onChange={(e) => patch('defaultSalesChannelType', e.target.value as ProductMasterInput['defaultSalesChannelType'])}>{Object.entries(channelLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>{errors.defaultSalesChannelType && <small>{errors.defaultSalesChannelType}</small>}</label>
-      <BooleanSelect label="와이즈샵 사용 가능 *" value={form.wiseShopAvailable} onChange={(value) => patch('wiseShopAvailable', value)} />
+      <BooleanSelect label="업체링크 사용 가능 *" value={form.supplierLinkAvailable ?? true} onChange={(value) => patch('supplierLinkAvailable', value)} />
+      {form.supplierLinkAvailable && <label className="product-field"><span>업체링크 PG 비용 처리</span><select value={form.supplierLinkPgPolicy ?? 'manual'} onChange={(e) => patch('supplierLinkPgPolicy', e.target.value as SupplierLinkPgPolicy)}><option value="supplier_bears_pg">업체가 전액 부담</option><option value="deduct_from_commission_rate">총 수수료율에서 차감</option><option value="manual">기타/수기</option></select></label>}
+      {form.supplierLinkAvailable && form.supplierLinkPgPolicy === 'deduct_from_commission_rate' && <label className="product-field"><span>총 수수료율 차감 (%p)</span><input min="0" max="100" step="0.1" type="number" value={form.supplierLinkPgDeductionRate ?? ''} onChange={(e) => patch('supplierLinkPgDeductionRate', number(e.target.value))} /><small>{form.totalCommissionRate}% - {form.supplierLinkPgDeductionRate ?? 0}%p = {Math.max(form.totalCommissionRate - (form.supplierLinkPgDeductionRate ?? 0), 0)}%</small></label>}
+      <BooleanSelect label="와이즈 스룩링크 사용 가능 *" value={form.wiseShopAvailable} onChange={(value) => patch('wiseShopAvailable', value)} />
+      {form.wiseShopAvailable && <label className="product-field"><span>기본 스룩페이 PG 수수료율 (%)</span><input min="0" step="0.1" type="number" value={form.wiseSrookPgRate ?? ''} onChange={(e) => patch('wiseSrookPgRate', number(e.target.value))} /></label>}
       <BooleanSelect label="셀러 결제창 사용 가능 *" value={form.sellerCheckoutAvailable} onChange={(value) => patch('sellerCheckoutAvailable', value)} />
       <BooleanSelect label="브랜드 PG 수수료 지원" value={form.brandPgSupportAvailable} onChange={(value) => patch('brandPgSupportAvailable', value)} />
       {form.brandPgSupportAvailable && <label className="product-field"><span>브랜드 PG 지원율 *</span><select value={form.brandPgSupportRate ?? ''} onChange={(e) => patch('brandPgSupportRate', Number(e.target.value) as ProductPgSupportRate)}><option value="">선택</option>{[1,2,3,4,5].map((rate) => <option key={rate} value={rate}>{rate}%</option>)}</select></label>}
-    </div></section>
+    </div><p className="policy-note">{form.supplierLinkAvailable && form.supplierLinkPgPolicy === 'supplier_bears_pg' ? '업체링크 추천 · PG 비용을 업체가 전액 부담합니다.' : form.supplierLinkAvailable && (form.supplierLinkPgDeductionRate ?? 0) <= 5 ? '업체링크 우선 검토 · 차감은 총 수수료율 기준 %p입니다.' : form.wiseShopAvailable ? '와이즈 스룩링크 사용 가능' : 'Campaign 생성 시 실제 링크를 확인해주세요.'}</p></section>
     <section className="product-form-section"><h2>5. 배송 정책</h2><div className="product-form-grid">
       <label className="product-field"><span>택배사</span><input value={form.courierName} onChange={(e) => patch('courierName', e.target.value)} /></label>
       <div className="calculated-card"><span>기본 배송비 (가격 정보 기준)</span><strong>{money(form.shippingFee)}</strong></div>

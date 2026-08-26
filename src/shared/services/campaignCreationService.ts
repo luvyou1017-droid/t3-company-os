@@ -71,6 +71,9 @@ export function captureProposalSnapshots(selections: CampaignProductSelection[],
     if (!product || !campaignProductCatalogService.hasCompletePolicy(selection.productId)) throw new Error(`선택한 상품에 수수료 정책이 등록되지 않았습니다. 상품 정보를 먼저 완성해주세요. (${selection.productName})`)
     const seller = product.sellerCommissionRate!
     const extra = sellerExtraPgRate
+    const actualSalesChannel = selectedSalesChannelType ?? product.defaultSalesChannelType ?? 'supplier_link'
+    const supplierLinkPgDeductionRate = actualSalesChannel === 'supplier_link' && product.supplierLinkPgPolicy === 'deduct_from_commission_rate' ? product.supplierLinkPgDeductionRate : undefined
+    const actualCommissionRate = Math.max(product.totalCommissionRate! - (supplierLinkPgDeductionRate ?? 0), 0)
     return {
       productId: product.id, regularPrice: product.regularPrice, salePrice: product.salePrice,
       shippingAmount: product.shippingAmount, supplyPrice: product.supplyPrice,
@@ -83,6 +86,14 @@ export function captureProposalSnapshots(selections: CampaignProductSelection[],
       brandPgSupportAvailable: Boolean(product.brandPgSupportAvailable),
       brandPgSupportRate: product.brandPgSupportAvailable ? product.brandPgSupportRate : undefined,
       selectedSalesChannelType,
+      actualSalesChannel, supplierLinkAvailable: product.supplierLinkAvailable ?? true,
+      supplierLinkPgPolicy: product.supplierLinkPgPolicy ?? 'manual', supplierLinkPgDeductionRate,
+      wiseSrookLinkAvailable: Boolean(product.wiseShopAvailable), wiseSrookPgRate: product.wiseSrookPgRate,
+      sellerCheckoutPgSupportRate: actualSalesChannel === 'seller_checkout' && product.brandPgSupportAvailable ? product.brandPgSupportRate : undefined,
+      actualCommissionRate, actualSellerCommissionRate: seller + extra, actualPgCost: undefined,
+      actualPgSupport: actualSalesChannel === 'seller_checkout' ? extra : undefined,
+      salesChannelOverridden: Boolean(selectedSalesChannelType && selectedSalesChannelType !== product.defaultSalesChannelType),
+      salesChannelOverrideReason: selectedSalesChannelType && selectedSalesChannelType !== product.defaultSalesChannelType ? 'Campaign 생성 시 담당자 선택' : undefined,
       capturedAt: new Date().toISOString(), sourceVersion: product.version,
     }
   })
