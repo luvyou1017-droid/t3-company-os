@@ -1964,8 +1964,6 @@
 .seller-business-payment tr.is-current > * { border-bottom: 3px solid #e53935 !important; border-top: 3px solid #e53935 !important; font-weight: 900; }
 .seller-business-payment tr.is-current > *:first-child { border-left: 3px solid #e53935 !important; }
 .seller-business-payment tr.is-current > *:last-child { border-right: 3px solid #e53935 !important; }
-.seller-business-payment tr.is-current td:nth-child(3),
-.seller-business-payment tr.is-current td:nth-child(4) { background: #fff59d !important; }
 .seller-business-payment .amount-cell { font-size: 13px !important; font-weight: 900; }
 .seller-business-unregistered { background: #f3f4f6; color: #6b7280; font-size: 11px; margin: 0; padding: 6px 8px; }
 .seller-compact-schedule__dates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
