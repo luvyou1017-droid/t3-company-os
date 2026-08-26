@@ -21,7 +21,7 @@ import { canViewManagerSettlement } from '../../shared/utils/managerSettlementPe
 import { getUserById } from '../../shared/data/users'
 import { paymentRequestService } from '../../shared/services/paymentRequestService'
 import { getCampaignEventTypeLabel } from '../../shared/services/campaignCreationService'
-import { calculateSellerSupplyPrice, calculateSellerSupplyTotal, formatKoreanDocumentDate, formatKoreanExportTime, getSellerSettlementSchedule } from '../../shared/utils/settlementDocument'
+import { calculateSellerProductRow, calculateSellerProductSubtotal, calculateSellerSupplyPrice, calculateSellerSupplyTotal, formatKoreanDocumentDate, formatKoreanExportTime, getSellerSettlementSchedule } from '../../shared/utils/settlementDocument'
 import { EvidencePreviewModal } from '../payment-request/components/EvidencePreviewModal'
 import type { PaymentEvidence } from '../../shared/types/paymentEvidence'
 import type { EvidenceOwnerType } from '../../shared/types/paymentEvidence'
@@ -787,12 +787,11 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
   const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
   const sellerRule = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)
-  const totalQuantity = rows.reduce((total, row) => total + row.netQuantity, 0)
   const sellerDeductions = settlement.currentCalculation.sellerDeductionTotal
   const costRows = getSellerCostRows(campaign, deductions)
   const additionalPayments = costRows.filter((item) => item.direction === 'payment' && item.amount !== undefined).reduce((sum, item) => sum + item.amount!, 0)
   const sellerRate = settlement.currentCalculation.sellerCommissionRate
-  const totalSellerSupply = rows.reduce((sum, row) => sum + calculateSellerSupplyTotal(row.unitPrice, sellerRate, row.netQuantity), 0)
+  const productSubtotal = calculateSellerProductSubtotal(rows, sellerRate)
   const businessAmounts = [
     { type: 'corporation', label: '법인/개인사업자', evidence: '세금계산서 발행금액', ...calculateFinalSellerPayment(settlement.currentCalculation.sellerCommissionAmount, 'general_business', sellerDeductions) },
     { type: 'simplified_business', label: '간이사업자', evidence: '현금영수증 발행금액', ...calculateFinalSellerPayment(settlement.currentCalculation.sellerCommissionAmount, 'simplified_business', sellerDeductions) },
@@ -826,27 +825,28 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
         <table className="seller-document__table">
           <thead><tr><th>상품명</th><th>구분</th><th>판매수량</th><th>셀러 공급가</th><th>공구가</th><th>매출액</th><th>수수료율</th><th>수수료</th><th>비고</th></tr></thead>
           <tbody>
-            {rows.length ? rows.map((row, index) => (
-              <tr key={row.id}>
+            {rows.length ? rows.map((row, index) => {
+              const productAmount = calculateSellerProductRow(row, sellerRate)
+              return <tr key={row.id}>
                 <td>{index === 0 ? campaign?.productName ?? '-' : ''}</td>
                 <td>{row.optionName}</td>
-                <td className="amount-cell">{row.netQuantity.toLocaleString('ko-KR')}</td>
-                <td className="amount-cell">{money(calculateSellerSupplyPrice(row.unitPrice, sellerRate))}</td>
+                <td className="amount-cell">{productAmount.quantity.toLocaleString('ko-KR')}</td>
+                <td className="amount-cell">{money(productAmount.supplyPrice)}</td>
                 <td className="amount-cell">{money(row.unitPrice)}</td>
-                <td className="amount-cell">{money(row.netSales)}</td>
+                <td className="amount-cell">{money(productAmount.salesAmount)}</td>
                 <td className="amount-cell">{settlement.currentCalculation.sellerCommissionRate}%</td>
-                <td className="amount-cell">{money(Math.round(row.netSales * (settlement.currentCalculation.sellerCommissionRate / 100)))}</td>
+                <td className="amount-cell">{money(productAmount.commissionAmount)}</td>
                 <td>{row.validationStatus === 'valid' ? '' : row.validationMessage}</td>
               </tr>
-            )) : <tr><td colSpan={9}>SKU별 판매 데이터가 아직 연결되지 않았습니다.</td></tr>}
+            }) : <tr><td colSpan={9}>SKU별 판매 데이터가 아직 연결되지 않았습니다.</td></tr>}
           </tbody>
-          <tfoot><tr className="seller-subtotal-row"><th colSpan={2}>판매 소계</th><td className="amount-cell">{totalQuantity.toLocaleString('ko-KR')}개</td><td className="amount-cell">{money(totalSellerSupply)}</td><td></td><td className="amount-cell">{money(settlement.currentCalculation.grossSales)}</td><td></td><td className="amount-cell">{money(settlement.currentCalculation.sellerCommissionAmount)}</td><td></td></tr></tfoot>
+          <tfoot><tr className="seller-subtotal-row"><th colSpan={2}>판매 소계</th><td className="amount-cell">{productSubtotal.quantity.toLocaleString('ko-KR')}개</td><td className="amount-cell">{money(productSubtotal.supplyTotal)}</td><td></td><td className="amount-cell">{money(productSubtotal.salesAmount)}</td><td></td><td className="amount-cell">{money(productSubtotal.commissionAmount)}</td><td></td></tr></tfoot>
         </table></section>
 
         <SellerAdditionalCosts rows={costRows} />
 
         <section className="seller-document__section seller-document__totals"><h3>판매 소계 / 정산금액</h3><table className="seller-document__table"><tbody>
-          <tr><th>총 판매수량</th><td className="amount-cell">{totalQuantity.toLocaleString('ko-KR')}개</td><th>총매출</th><td className="amount-cell">{money(settlement.currentCalculation.grossSales)}</td></tr>
+          <tr><th>총 판매수량</th><td className="amount-cell">{productSubtotal.quantity.toLocaleString('ko-KR')}개</td><th>총매출</th><td className="amount-cell">{money(settlement.currentCalculation.grossSales)}</td></tr>
           <tr><th>총수수료</th><td className="amount-cell">{money(settlement.currentCalculation.grossCommission)}</td><th>셀러 수수료</th><td className="amount-cell">{money(settlement.currentCalculation.sellerCommissionAmount)}</td></tr>
           <tr className={sellerDeductions > 0 ? 'seller-cost-deduction' : undefined}><th>추가 차감</th><td className="amount-cell">- {money(sellerDeductions)}</td><th>추가 지급</th><td className="amount-cell seller-positive-amount">{additionalPayments ? `+ ${money(additionalPayments)}` : '-'}</td></tr>
           <tr className="seller-summary-total"><th colSpan={3}>최종 정산금</th><td className="amount-cell">{money(settlement.currentCalculation.finalSellerPaymentAmount)}</td></tr>

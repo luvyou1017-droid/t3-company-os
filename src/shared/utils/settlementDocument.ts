@@ -29,6 +29,34 @@ export function calculateSellerSupplyTotal(groupBuyPrice: number, sellerCommissi
   return calculateSellerSupplyPrice(groupBuyPrice, sellerCommissionRate) * Math.round(quantity)
 }
 
+export type SellerProductSubtotalRow = { unitPrice: number; netQuantity: number }
+
+export function calculateSellerProductRow(row: SellerProductSubtotalRow, sellerCommissionRate: number) {
+  if (!Number.isFinite(row.netQuantity) || row.netQuantity < 0) throw new Error('판매수량은 0 이상의 유한한 숫자여야 합니다.')
+  if (!Number.isFinite(row.unitPrice) || row.unitPrice < 0) throw new Error('공구가는 0 이상의 유한한 숫자여야 합니다.')
+  const quantity = Math.round(row.netQuantity)
+  const salesAmount = quantity * row.unitPrice
+  return {
+    quantity,
+    supplyPrice: calculateSellerSupplyPrice(row.unitPrice, sellerCommissionRate),
+    supplyTotal: calculateSellerSupplyTotal(row.unitPrice, sellerCommissionRate, quantity),
+    salesAmount,
+    commissionAmount: Math.round(salesAmount * sellerCommissionRate / 100),
+  }
+}
+
+export function calculateSellerProductSubtotal(rows: SellerProductSubtotalRow[], sellerCommissionRate: number) {
+  return rows.reduce((subtotal, row) => {
+    const item = calculateSellerProductRow(row, sellerCommissionRate)
+    return {
+      quantity: subtotal.quantity + item.quantity,
+      supplyTotal: subtotal.supplyTotal + item.supplyTotal,
+      salesAmount: subtotal.salesAmount + item.salesAmount,
+      commissionAmount: subtotal.commissionAmount + item.commissionAmount,
+    }
+  }, { quantity: 0, supplyTotal: 0, salesAmount: 0, commissionAmount: 0 })
+}
+
 export function formatKoreanDocumentDate(value: string | Date) {
   const parts = koreaParts(typeof value === 'string' ? new Date(value) : value)
   return `${parts.year}.${parts.month}.${parts.day}`
