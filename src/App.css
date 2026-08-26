@@ -1446,7 +1446,7 @@
 .settlement-next-action strong { font-size: 15px; }
 
 #basic-info, #key-amounts { order: 10; }
-#progress { order: 15; }
+#progress { order: 45; }
 #product-settlement { order: 20; }
 #additional-costs { order: 30; }
 #settlement-documents { order: 40; }
@@ -1491,6 +1491,7 @@
   gap: 10px;
   grid-template-columns: repeat(7, minmax(0, 1fr));
 }
+.settlement-top-meta .amount-cell { font-size: 17px; font-variant-numeric: tabular-nums; }
 
 .settlement-warning {
   background: var(--warning-soft);
@@ -1958,7 +1959,9 @@
 .seller-business-payment__corporation > * { background: #fff7b8 !important; }
 .seller-business-payment__simplified_business > * { background: #eaf2f8 !important; }
 .seller-business-payment__freelancer > * { background: #eaf4df !important; }
-.seller-business-payment tr.is-current > * { border-bottom: 2px solid #111827 !important; border-top: 2px solid #111827 !important; font-weight: 900; }
+.seller-business-payment tr.is-current > * { border-bottom: 2px solid #dc2626 !important; border-top: 2px solid #dc2626 !important; font-weight: 900; }
+.seller-business-payment tr.is-current > *:first-child { border-left: 2px solid #dc2626 !important; }
+.seller-business-payment tr.is-current > *:last-child { border-right: 2px solid #dc2626 !important; }
 .seller-business-payment tr.is-current td:nth-child(3),
 .seller-business-payment tr.is-current td:nth-child(4) { background: #fff59d !important; }
 .seller-business-payment .amount-cell { font-size: 13px !important; font-weight: 900; }
@@ -1996,8 +1999,11 @@
 .manager-calculation-deduction td { background: #fce8df !important; color: #9a3412; }
 .manager-distributable-row th,
 .manager-distributable-row td { background: #fff7b8 !important; font-size: 15px !important; font-weight: 900 !important; }
-.manager-company-row th,
-.manager-company-row td { background: #eaf4df !important; font-weight: 900 !important; }
+.manager-company-reference th,
+.manager-company-reference td { background: #f8fafc !important; font-weight: 600 !important; }
+.manager-payment-account { border: 1px solid #9ca3af !important; grid-template-columns: 120px 1fr; padding: 8px 10px !important; }
+.manager-payment-account h3 { align-self: center; }
+.manager-payment-account p { font-size: 11px; margin: 0; }
 .manager-product-table { min-width: 1040px; }
 
 @media (max-width: 1100px) {

@@ -375,7 +375,7 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
             <div className="settlement-title-row"><h1>{campaign?.campaignName ?? settlement.campaignId}</h1><Badge label={statusLabel(settlement.status)} tone={statusTone[settlement.status]} /></div>
             <p>{campaign?.sellerName ?? '-'} · {campaign?.brandName ?? '-'}</p>
             <p>{salesImport?.salesStartDate || '-'} ~ {salesImport?.salesEndDate || '-'}</p>
-            <p>정산 담당자 {settlement.assigneeName} · v{settlement.settlementVersion}</p>
+            <p>담당 매니저 {campaign?.managerName ?? '-'} · v{settlement.settlementVersion}</p>
           </div>
           <div className="settlement-header-actions"><button className="secondary-button" onClick={() => showDocument('셀러 전달용')} type="button">셀러 정산서 바로보기</button>{canAccessManagerDocument && <button className="secondary-button" onClick={() => showDocument('매니저 정산서')} type="button">매니저 정산서 바로보기</button>}</div>
         </div>
@@ -398,12 +398,9 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
           <Summary label="브랜드" value={campaign?.brandName ?? '-'} />
           <Summary label="판매 기간" value={`${salesImport?.salesStartDate || '-'} ~ ${salesImport?.salesEndDate || '-'}`} />
           <Summary label="버전" value={`v${settlement.settlementVersion}`} />
-          <Summary label="정산 담당자" value={settlement.assigneeName} />
+          <Summary label="담당 매니저" value={campaign?.managerName ?? '-'} />
+          <Summary label="총매출" value={money(settlement.currentCalculation.grossSales)} amount />
         </div></section>
-
-        <section className="settlement-page-section" id="key-amounts"><div className="section-heading"><div><h3>핵심 금액</h3></div></div><table className="settlement-key-amounts-table"><tbody><tr><th>총매출</th><td>{money(settlement.currentCalculation.grossSales)}</td></tr><tr><th>셀러 지급 예정액</th><td>{money(settlement.currentCalculation.finalSellerPaymentAmount)}</td></tr><tr><th>매니저 지급 예정액</th><td>{money(settlement.currentCalculation.managerAmount)}</td></tr><tr><th>회사 귀속액</th><td>{money(settlement.currentCalculation.companyAmount)}</td></tr></tbody></table></section>
-
-        <SettlementProgress settlement={settlement} />
 
         {settlementPreparationWarnings.length > 0 && <section className="settlement-preparation-warning" id="settlement-preparation"><div><span aria-hidden="true">!</span><h2>정산 준비 필요</h2></div><ul>{settlementPreparationWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></section>}
 
@@ -434,6 +431,8 @@ export function SettlementDetailPage({ settlementId, onBack }: { settlementId: s
             </div>
           )}
         </section>}
+
+        <SettlementProgress settlement={settlement} />
 
         <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="calculation-detail"><summary><div><h2>정산 계산 상세</h2><p>정산 금액의 계산식과 계산 근거를 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><CalculationTable settlement={settlement} /><details className="settlement-internal-validation"><summary>내부 검증 항목 관리</summary><div className="settlement-checklist">{Object.entries(checklistLabels).map(([key, label]) => <label className="checklist-item" key={key}><input checked={settlement.reviewChecklist[key as keyof typeof settlement.reviewChecklist]} onChange={(event) => { settlementService.updateReviewChecklist(settlement.id, { ...settlement.reviewChecklist, [key]: event.target.checked }); setSettlement(settlementService.getSettlementById(settlement.id) ?? null) }} type="checkbox" />{label}</label>)}</div></details></div></details>
 
@@ -640,8 +639,9 @@ function ManagerSettlementDocument({ documentRef, exportGeneratedAt, rows, settl
       {isSrookPayCampaign && <tr className={srookPayAmount && srookPayAmount > 0 ? 'manager-calculation-deduction' : undefined}><th>- 스룩페이 수수료</th><td className="amount-cell">{srookPayAmount === undefined ? '실제 비용 데이터 미연결' : `- ${money(srookPayAmount)}`}</td></tr>}
       <tr className="manager-distributable-row"><th>최종 배분 대상 수수료</th><td className="amount-cell">{money(settlement.currentCalculation.distributableVendorCommission)}</td></tr>
     </tbody></table></section>
-    <section className="manager-document__section"><h3>수수료 배분</h3><table className="seller-document__table manager-allocation-table"><tbody><tr><th>최종 배분 대상 수수료</th><td className="amount-cell">{money(settlement.currentCalculation.distributableVendorCommission)}</td></tr><tr><th>매니저 배분율</th><td className="amount-cell">{settlement.currentCalculation.managerShareRate}%</td></tr><tr><th>매니저 배분액</th><td className="amount-cell">{money(report.managerBaseShare)}</td></tr><tr><th>회사 배분율</th><td className="amount-cell">{settlement.currentCalculation.companyShareRate}%</td></tr><tr className="manager-company-row"><th>회사 귀속액</th><td className="amount-cell">{money(report.companyFinalContribution)}</td></tr></tbody></table></section>
+    <section className="manager-document__section"><h3>수수료 배분</h3><table className="seller-document__table manager-allocation-table"><tbody><tr><th>최종 배분 대상 수수료</th><td className="amount-cell">{money(settlement.currentCalculation.distributableVendorCommission)}</td></tr><tr><th>매니저 배분율</th><td className="amount-cell">{settlement.currentCalculation.managerShareRate}%</td></tr><tr><th>매니저 배분액</th><td className="amount-cell">{money(report.managerBaseShare)}</td></tr><tr className="manager-company-reference"><th>회사 배분율</th><td className="amount-cell">{settlement.currentCalculation.companyShareRate}%</td></tr><tr className="manager-company-reference"><th>회사 귀속액</th><td className="amount-cell">{money(report.companyFinalContribution)}</td></tr></tbody></table></section>
     <section className="manager-document__section"><h3>매니저 최종 지급</h3><table className="seller-document__table"><tbody><tr><th>매니저 기본 배분액</th><td className="amount-cell">{money(report.managerBaseShare)}</td></tr>{report.managerDeductions.map((item) => <tr key={item.id}><th>{managerCostLabel(item)}</th><td className="amount-cell">- {money(item.amount)}</td></tr>)}<tr className="manager-final-row"><th>매니저 최종 정산금</th><td className="amount-cell">{money(report.managerFinalSettlement)}</td></tr><tr><th>증빙 유형 / 상태</th><td>{evidenceLabel} · {evidence.some((item) => item.reviewStatus === 'approved') ? '승인' : evidence.some((item) => item.reviewStatus === 'rejected') ? '반려' : evidence.length ? '검수 중' : '업로드 대기'}</td></tr>{tax && <tr><th>원천징수</th><td className="amount-cell">- {money(tax.totalWithholdingTaxAmount)}</td></tr>}<tr className="manager-final-row"><th>최종 입금액</th><td className="amount-cell">{money(request?.finalPaymentAmount ?? tax?.finalPaymentAmount ?? report.managerFinalSettlement)}</td></tr><tr><th>입금 예정일</th><td>{settlement.paymentDueDate}</td></tr></tbody></table></section>
+    <section className="manager-document__section manager-payment-account"><h3>지급 계좌</h3><p className="seller-document__warning">지급 계좌 미등록</p></section>
     {exportGeneratedAt && <p className="seller-export-timestamp">이미지 생성: {exportGeneratedAt} (Asia/Seoul)</p>}
   </div></div>
 }
