@@ -108,6 +108,8 @@ export type SettlementActivityAction =
   | 'manager_review_requested'
   | 'manager_review_completed'
   | 'revision_requested'
+  | 'settlement_confirmed'
+  | 'settlement_confirmation_released'
   | 'approval_requested'
   | 'approved'
   | 'payment_ready'
@@ -165,6 +167,13 @@ export type Settlement = {
   managerPaymentRequestStatus?: import('./sellerSettlement').PaymentRequestStatus
   sellerPaymentCompletedAt?: string
   managerPaymentCompletedAt?: string
+  settlementConfirmed?: boolean
+  settlementConfirmedAt?: string
+  settlementConfirmedBy?: string
+  settlementConfirmedVersion?: number
+  settlementConfirmationReleasedAt?: string
+  settlementConfirmationReleasedBy?: string
+  settlementConfirmationReleaseReason?: string
   reviewChecklist: SettlementReviewChecklist
   calculationSnapshot?: SettlementCalculationSnapshot
   originalSnapshot?: SettlementCalculationSnapshot

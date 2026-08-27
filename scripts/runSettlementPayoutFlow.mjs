@@ -69,6 +69,9 @@ const revisionLog = settlementService.getActivityLogsBySettlementId(premiumSettl
 const approvedSettlements = settlementService.getSettlements().map((item) => ({ ...item, status: 'approved', accountConfirmed: true }))
 storageService.setItem(STORAGE_KEYS.settlements, approvedSettlements)
 const approvedHealth = settlementService.getSettlementById(healthSettlement.id)
+const releasedHealth = settlementService.releaseSettlementConfirmation(approvedHealth.id, '확정 흐름 테스트', '허수정')
+const reconfirmedHealth = settlementService.confirmSettlement(approvedHealth.id, '허수정')
+const healthConfirmationLogs = settlementService.getActivityLogsBySettlementId(approvedHealth.id)
 const healthProductSubtotal = salesDataService.getRowsByImportId(approvedHealth.salesDataImportId).reduce((total, row) => {
   const calculated = calculateManagerProductRow(row, approvedHealth.currentCalculation.totalCommissionRate)
   return { quantity: total.quantity + calculated.quantity, salesAmount: total.salesAmount + row.unitPrice * calculated.quantity, salesCommission: total.salesCommission + calculated.salesCommission }
@@ -126,6 +129,7 @@ const checks = [
   ['수정 요청 이력 및 현재 버전 보존', revisionRequested?.status === 'revision_required' && revisionRequested.settlementVersion === premiumVersionBeforeRevision && revisionRequested.currentCalculation.finalPaymentAmount === premiumCalculationBeforeRevision.finalPaymentAmount && revisionRequested.currentCalculation.managerAmount === premiumCalculationBeforeRevision.managerAmount && revisionRequested.currentCalculation.companyAmount === premiumCalculationBeforeRevision.companyAmount && revisionLog?.actor === '테스트 요청자' && revisionLog.version === premiumVersionBeforeRevision],
   ['회사 귀속 계산 데이터 유지', Number.isFinite(premiumCompanyAmountBeforeRequest) && settlementService.getSettlementById(premiumSettlement.id).currentCalculation.companyAmount === premiumCompanyAmountBeforeRequest],
   ['건강식품 VAT 포함 배분금액', healthTax.grossSettlementAmount === 69_440],
+  ['정산서 확정 해제·재확정 이력', releasedHealth.settlementConfirmed === false && reconfirmedHealth.settlementConfirmed === true && reconfirmedHealth.settlementConfirmedVersion === approvedHealth.settlementVersion && healthConfirmationLogs.some((item) => item.action === 'settlement_confirmation_released') && healthConfirmationLogs.some((item) => item.action === 'settlement_confirmed')],
   ['매니저 상품 판매 소계', healthProductSubtotal.quantity === 108 && healthProductSubtotal.salesAmount === 3_024_000 && healthProductSubtotal.salesCommission === 756_000],
   ['건강식품 원천세 계산', healthTax.withholdingBaseAmount === 63_127 && healthTax.incomeTaxAmount === 1_890 && healthTax.localIncomeTaxAmount === 180 && healthTax.finalPaymentAmount === 61_057],
   ['지급 요청 최종액 일치', request.finalPaymentAmount === healthTax.finalPaymentAmount],

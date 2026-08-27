@@ -11,7 +11,7 @@ import { sellerSettlementService } from '../../shared/services/sellerSettlementS
 import { withholdingTaxService } from '../../shared/services/withholdingTaxService'
 import type { SalesDataRow } from '../../shared/types/salesData'
 import type { Settlement, SettlementDeduction, SettlementStatus, SettlementVersion } from '../../shared/types/settlement'
-import { canMoveToReview, runSettlementAssertions, statusLabel, validateSettlement } from '../../shared/utils/settlement'
+import { runSettlementAssertions, statusLabel, validateSettlement } from '../../shared/utils/settlement'
 import { formatCurrency } from '../../shared/utils/salesData'
 import { openCampaignDetail } from '../../shared/utils/campaignNavigation'
 import { calculateFinalSellerPayment, getRecommendedEvidenceType, normalizeSellerBusinessType } from '../../shared/utils/sellerSettlement'
@@ -61,6 +61,8 @@ const actionLabels: Record<string, string> = {
   manager_review_requested: '매니저 검토 요청',
   manager_review_completed: '매니저 검토 완료',
   revision_requested: '수정 요청',
+  settlement_confirmed: '정산서 확정',
+  settlement_confirmation_released: '정산서 확정 해제',
   approval_requested: '대표 승인 요청',
   approved: '대표 승인',
   payment_ready: '지급 준비',
@@ -231,6 +233,8 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const [paymentStatusTarget, setPaymentStatusTarget] = useState<EvidenceOwnerType | null>(null)
   const [revisionRequestOpen, setRevisionRequestOpen] = useState(false)
   const [revisionReason, setRevisionReason] = useState('')
+  const [confirmationModal, setConfirmationModal] = useState<'confirm' | 'release' | null>(null)
+  const [confirmationReleaseReason, setConfirmationReleaseReason] = useState('')
   const [readinessModal, setReadinessModal] = useState<ReadinessModal | null>(null)
   const [businessTypeDraft, setBusinessTypeDraft] = useState<SellerBusinessType>('general_business')
   const [businessNameDraft, setBusinessNameDraft] = useState('')
@@ -299,7 +303,6 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
   const salesRows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
   const salesDataConfirmed = salesImport?.reviewStatus === '확정 완료'
-  const reviewReady = canMoveToReview(settlement, salesDataConfirmed)
   const sellerRule = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)
   const sellerProfile = campaign ? sellerMasterService.getSellerById(campaign.sellerId) : undefined
   const effectiveSellerBusinessType = normalizeSellerBusinessType(sellerProfile?.businessType ?? sellerRule?.businessType)
@@ -309,6 +312,8 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const managerBusinessType = managerPaymentService.getBusinessType(campaign?.managerName ?? '')
   const sellerPaymentRequest = campaign ? paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'seller', campaign.sellerId, settlement.settlementVersion) : undefined
   const managerPaymentRequest = campaign ? paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'manager', campaign.managerId, settlement.settlementVersion) : undefined
+  const settlementConfirmed = settlementService.isSettlementConfirmed(settlement)
+  const canReleaseConfirmation = currentUser?.role === '대표' || currentUser?.role === '정산 담당자'
   const sellerRequestEditable = Boolean(sellerPaymentRequest && paymentRequestService.canEditPaymentRequest(sellerPaymentRequest))
   const managerRequestEditable = Boolean(managerPaymentRequest && paymentRequestService.canEditPaymentRequest(managerPaymentRequest))
   const sellerRequestReasons = campaign && effectiveSellerBusinessType ? paymentRequestService.validateSellerPaymentRequest({
@@ -328,10 +333,11 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     if (request) return `지급 요청이 생성되었습니다. ${paymentStatusLabels[request.status]} 상태입니다.`
     return ''
   }
-  const sellerButtonBlockReasons = sellerPaymentRequest || settlement.sellerPaymentCompleted ? sellerRequestEditable ? [] : [paymentStateReason(sellerPaymentRequest, settlement.sellerPaymentCompleted)] : sellerRequestReasons
-  const managerButtonBlockReasons = managerPaymentRequest || settlement.managerPaymentCompleted ? managerRequestEditable ? [] : [paymentStateReason(managerPaymentRequest, settlement.managerPaymentCompleted)] : managerRequestReasons
-  const sellerActionReasons = sellerPaymentRequest || settlement.sellerPaymentCompleted ? [] : sellerRequestReasons
-  const managerActionReasons = managerPaymentRequest || settlement.managerPaymentCompleted ? [] : managerRequestReasons
+  const confirmationReason = '정산서를 먼저 확정해주세요.'
+  const sellerButtonBlockReasons = sellerPaymentRequest || settlement.sellerPaymentCompleted ? sellerRequestEditable ? [] : [paymentStateReason(sellerPaymentRequest, settlement.sellerPaymentCompleted)] : settlementConfirmed ? sellerRequestReasons : [confirmationReason]
+  const managerButtonBlockReasons = managerPaymentRequest || settlement.managerPaymentCompleted ? managerRequestEditable ? [] : [paymentStateReason(managerPaymentRequest, settlement.managerPaymentCompleted)] : settlementConfirmed ? managerRequestReasons : [confirmationReason]
+  const sellerActionReasons = sellerPaymentRequest || settlement.sellerPaymentCompleted ? [] : settlementConfirmed ? sellerRequestReasons : [confirmationReason]
+  const managerActionReasons = managerPaymentRequest || settlement.managerPaymentCompleted ? [] : settlementConfirmed ? managerRequestReasons : [confirmationReason]
   const payoutStatusNotice = (request: typeof sellerPaymentRequest, completed: boolean) => {
     if (completed || request?.status === 'payment_completed' || request?.status === 'remittance_confirmed') return { title: '지급이 완료되었습니다.', detail: '', tone: 'complete' as const }
     if (request?.status === 'rejected') return { title: '지급 요청이 반려되었습니다.', detail: '수정 후 다시 요청해주세요.' }
@@ -365,11 +371,6 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const blockingWarnings = settlementPreparationWarnings.filter((item) => item.severity === 'blocking')
   const nonBlockingWarnings = settlementPreparationWarnings.filter((item) => item.severity === 'non-blocking')
 
-  const syncAction = (action: () => unknown) => {
-    action()
-    setSettlement(settlementService.getSettlementById(settlement.id) ?? null)
-  }
-
   const confirmChecklist = (values: Partial<typeof checklist>) => {
     settlementService.updateReviewChecklist(settlement.id, { ...checklist, ...values })
     setSettlement(settlementService.getSettlementById(settlement.id) ?? null)
@@ -382,6 +383,32 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     setRevisionReason('')
     setRevisionRequestOpen(false)
     showClipboardToast('정산 수정 요청이 등록되었습니다.')
+  }
+
+  const confirmSettlementDocument = () => {
+    try {
+      if (blockingWarnings.length) throw new Error(`정산서를 확정할 수 없습니다. ${blockingWarnings.map((item) => item.message).join(' ')}`)
+      const next = settlementService.confirmSettlement(settlement.id, currentUser?.name ?? '허수정')
+      setSettlement({ ...next })
+      setConfirmationModal(null)
+      showClipboardToast('정산서가 확정되었습니다.')
+    } catch (error) {
+      showClipboardToast(error instanceof Error ? error.message : '정산서를 확정하지 못했습니다.', true)
+    }
+  }
+
+  const releaseSettlementDocument = () => {
+    try {
+      if (settlement.sellerPaymentCompleted || settlement.managerPaymentCompleted) throw new Error('지급 완료된 정산서는 직접 수정할 수 없습니다.')
+      if (sellerPaymentRequest || managerPaymentRequest) throw new Error('지급요청이 생성된 정산서입니다. 먼저 기존 지급요청을 취소하거나 정정해주세요.')
+      const next = settlementService.releaseSettlementConfirmation(settlement.id, confirmationReleaseReason, currentUser?.name ?? '허수정')
+      setSettlement({ ...next })
+      setConfirmationReleaseReason('')
+      setConfirmationModal(null)
+      showClipboardToast('정산서 확정이 해제되었습니다.')
+    } catch (error) {
+      showClipboardToast(error instanceof Error ? error.message : '확정을 해제하지 못했습니다.', true)
+    }
   }
 
   const saveSellerBusinessType = () => {
@@ -539,11 +566,6 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     } catch { showClipboardToast('복사하지 못했습니다. 다시 시도해주세요.', true) }
   }
 
-  const showDocument = (mode: DocumentMode) => {
-    setDocumentMode(mode)
-    requestAnimationFrame(() => (document.getElementById(mode === '매니저 정산서' ? 'manager-settlement-document' : 'seller-settlement-document') ?? document.getElementById('settlement-preparation'))?.scrollIntoView({ behavior: 'smooth' }))
-  }
-
   const openDetailSection = (id: string) => {
     const target = document.getElementById(id) as HTMLDetailsElement | null
     if (!target) return
@@ -595,8 +617,10 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
             <p>{formatKoreanDate(salesImport?.salesStartDate)} ~ {formatKoreanDate(salesImport?.salesEndDate)}</p>
             <p>담당 매니저 {campaign?.managerName ?? '-'} · v{settlement.settlementVersion}</p>
           </div>
-          <div className="settlement-header-actions"><button className="secondary-button" onClick={() => showDocument('셀러 전달용')} type="button">셀러 정산서 바로보기</button>{canAccessManagerDocument && <button className="secondary-button" onClick={() => showDocument('매니저 정산서')} type="button">매니저 정산서 바로보기</button>}</div>
+          <div className="settlement-header-actions"><button className="secondary-button" onClick={() => setRevisionRequestOpen(true)} type="button">정산서 수정요청</button>{!settlementConfirmed ? <button className="primary-button" disabled={settlement.status === 'revision_required'} onClick={() => setConfirmationModal('confirm')} type="button">정산서 확정하기</button> : canReleaseConfirmation && <button className="secondary-button" onClick={() => setConfirmationModal('release')} type="button">확정 해제</button>}</div>
         </div>
+
+        {settlementConfirmed ? <div className="settlement-confirmation-state is-confirmed"><strong>✓ 정산서 확정 완료</strong><span>확정일 {formatKoreanDateTime(settlement.settlementConfirmedAt ?? settlement.updatedAt)} · 확정자 {settlement.settlementConfirmedBy ?? settlement.assigneeName}</span></div> : settlement.status === 'revision_required' ? <div className="settlement-confirmation-state is-revision"><strong>⚠ 정산서 수정 요청</strong><span>{settlement.sourceChangeReason}</span><button className="secondary-button" onClick={() => openDetailSection('calculation-detail')} type="button">수정 요청 보기</button></div> : <div className="settlement-confirmation-state"><strong>정산서 검토 대기</strong><span>확정 후 셀러·매니저 지급 요청이 가능합니다.</span></div>}
 
         {settlement.hasSourceChanged && (
           <div className="inline-notice settlement-warning">
@@ -653,7 +677,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
 
         <SettlementProgress settlement={settlement} />
 
-        <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="calculation-detail"><summary><div><h2>정산 계산 상세</h2><p>정산 금액의 계산식과 계산 근거를 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><div className="calculation-detail-actions"><p>계산값에 확인이 필요하면 기존 데이터를 보존한 채 수정 요청을 등록합니다.</p><button className="secondary-button" onClick={() => setRevisionRequestOpen(true)} type="button">수정 요청</button></div><CalculationTable settlement={settlement} /><RevisionRequestHistory logs={logs} /><details className="settlement-internal-validation"><summary>내부 검증 항목 관리</summary><div className="settlement-checklist">{Object.entries(checklistLabels).map(([key, label]) => <label className="checklist-item" key={key}><input checked={settlement.reviewChecklist[key as keyof typeof settlement.reviewChecklist]} onChange={(event) => { settlementService.updateReviewChecklist(settlement.id, { ...settlement.reviewChecklist, [key]: event.target.checked }); setSettlement(settlementService.getSettlementById(settlement.id) ?? null) }} type="checkbox" />{label}</label>)}</div></details></div></details>
+        <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="calculation-detail"><summary><div><h2>정산 계산 상세</h2><p>정산 금액의 계산식과 계산 근거를 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><div className="calculation-detail-actions"><p>계산값에 확인이 필요하면 기존 데이터를 보존한 채 수정 요청을 등록합니다.</p><button className="secondary-button" onClick={() => setRevisionRequestOpen(true)} type="button">수정 요청</button></div><CalculationTable settlement={settlement} /><RevisionRequestHistory logs={logs} /><details className="settlement-internal-validation"><summary>내부 검증 항목 관리</summary><div className="settlement-checklist">{Object.entries(checklistLabels).map(([key, label]) => <label className="checklist-item" key={key}><input checked={settlement.reviewChecklist[key as keyof typeof settlement.reviewChecklist]} disabled={settlementConfirmed} onChange={(event) => { settlementService.updateReviewChecklist(settlement.id, { ...settlement.reviewChecklist, [key]: event.target.checked }); setSettlement(settlementService.getSettlementById(settlement.id) ?? null) }} type="checkbox" />{label}</label>)}</div></details></div></details>
 
         <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="payment-history"><summary><div><h2>지급 요청 및 승인 이력</h2><p>계산, 상태 변경, 승인, 지급 및 버전 이력을 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><HistoryContent logs={logs} settlement={settlement} />
           <div className="checklist-head">
@@ -672,19 +696,9 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
           </div>
         </div></details>
 
-        <div className="preview-drawer__actions">
-          <button className="secondary-button" onClick={() => openCampaignDetail(settlement.campaignId, 'settlement')} type="button">공동구매 상세 보기</button>
-          <SettlementStatusActions
-            onHistory={() => openDetailSection('payment-history')}
-            onSetDocument={() => (document.getElementById('settlement-documents') ?? document.getElementById('settlement-preparation'))?.scrollIntoView({ behavior: 'smooth' })}
-            reviewReady={reviewReady}
-            settlement={settlement}
-            syncAction={syncAction}
-          />
-        </div>
-
         {compareOpen && <VersionCompareModal versions={versions} onClose={() => setCompareOpen(false)} />}
         {revisionRequestOpen && <div className="settlement-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setRevisionRequestOpen(false) }}><section aria-modal="true" className="settlement-readiness-modal" role="dialog"><button aria-label="닫기" className="settlement-expanded-close" onClick={() => setRevisionRequestOpen(false)} type="button">×</button><h2>정산 수정 요청</h2><label className="form-field"><span>수정 사유</span><textarea autoFocus onChange={(event) => setRevisionReason(event.target.value)} placeholder="예: 판매수량 확인 필요, 수수료율 오류, 이벤트비 누락, 차감내역 확인 필요" rows={5} value={revisionReason} /></label><p>현재 v{settlement.settlementVersion} 계산 데이터는 삭제하지 않고, 수정 후 재계산 시 새 버전으로 관리합니다.</p><div className="modal-actions"><button className="secondary-button" onClick={() => setRevisionRequestOpen(false)} type="button">취소</button><button className="primary-button" disabled={!revisionReason.trim()} onClick={submitRevisionRequest} type="button">수정 요청</button></div></section></div>}
+        {confirmationModal && <div className="settlement-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setConfirmationModal(null) }}><section aria-modal="true" className="settlement-readiness-modal" role="dialog"><button aria-label="닫기" className="settlement-expanded-close" onClick={() => setConfirmationModal(null)} type="button">×</button>{confirmationModal === 'confirm' ? <><h2>정산서를 확정하시겠습니까?</h2><p>확정 후 셀러/매니저 지급 요청이 가능해집니다.</p><p>확정 이후 정산 내용을 수정하려면 권한자가 정산서 확정을 해제해야 합니다.</p><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirmationModal(null)} type="button">취소</button><button className="primary-button" onClick={confirmSettlementDocument} type="button">정산서 확정</button></div></> : <><h2>정산서 확정을 해제하시겠습니까?</h2><p>확정 해제 후 정산 내용을 수정하고 재확정해야 합니다.</p><label className="form-field"><span>확정 해제 사유</span><textarea autoFocus onChange={(event) => setConfirmationReleaseReason(event.target.value)} rows={4} value={confirmationReleaseReason} /></label><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirmationModal(null)} type="button">취소</button><button className="danger-button" disabled={!confirmationReleaseReason.trim()} onClick={releaseSettlementDocument} type="button">확정 해제</button></div></>}</section></div>}
         {paymentRequestTarget && campaign && <PaymentRequestEvidenceModal campaign={campaign} existingRequest={paymentRequestTarget === 'seller' ? sellerPaymentRequest : managerPaymentRequest} managerBusinessType={managerBusinessType} onClose={() => setPaymentRequestTarget(null)} onFailed={(message) => showClipboardToast(message, true)} onRequested={(message) => { setPaymentRequestTarget(null); setSettlement({ ...(settlementService.getSettlementById(settlement.id) ?? settlement) }); showClipboardToast(message) }} ownerType={paymentRequestTarget} sellerBusinessType={effectiveSellerBusinessType ?? 'general_business'} settlement={settlement} />}
         {paymentStatusTarget && campaign && <PaymentRequestStatusModal accountConfirmed={paymentStatusTarget === 'seller' ? hasSellerAccount : hasManagerAccount} campaign={campaign} completed={paymentStatusTarget === 'seller' ? settlement.sellerPaymentCompleted : settlement.managerPaymentCompleted} onClose={() => setPaymentStatusTarget(null)} ownerType={paymentStatusTarget} request={paymentStatusTarget === 'seller' ? sellerPaymentRequest : managerPaymentRequest} settlement={settlement} />}
         {clipboardToast && <div aria-live="polite" className={`clipboard-toast ${clipboardToast.error ? 'is-error' : ''}`}>{clipboardToast.error ? '!' : '✓'} {clipboardToast.message}</div>}
@@ -890,7 +904,7 @@ function ManagerSettlementDocument({ documentRef, exportGeneratedAt, rows, settl
       <tr className="manager-distributable-row"><th>최종 배분 대상 수수료</th><td className="amount-cell">{money(settlement.currentCalculation.distributableVendorCommission)}</td></tr>
     </tbody></table></section>
     <section className="manager-document__section"><h3>수수료 배분</h3><table className="seller-document__table manager-allocation-table"><tbody><tr><th>최종 배분 대상 수수료</th><td className="amount-cell">{money(settlement.currentCalculation.distributableVendorCommission)}</td></tr><tr><th>매니저 배분율</th><td className="amount-cell">{settlement.currentCalculation.managerShareRate}%</td></tr><tr><th>매니저 배분액</th><td className="amount-cell">{money(report.managerBaseShare)}</td></tr></tbody></table></section>
-    <section className="manager-document__section"><h3>매니저 최종 지급</h3><table className="seller-document__table"><tbody><tr><th>VAT 포함 매니저 배분금액</th><td className="amount-cell">{money(grossManagerAmount)}</td></tr><tr><th>사업자 유형</th><td>{businessTypeLabels[managerBusinessType]}</td></tr>{managerBusinessType === 'freelancer' && <><tr><th>원천세 신고금액</th><td className="amount-cell">{money(withholdingCalculation.withholdingBaseAmount)}</td></tr><tr><th>소득세 3%</th><td className="amount-cell">- {money(withholdingCalculation.incomeTaxAmount)}</td></tr><tr><th>지방소득세 0.3%</th><td className="amount-cell">- {money(withholdingCalculation.localIncomeTaxAmount)}</td></tr><tr><th>총 원천세</th><td className="amount-cell">- {money(withholdingCalculation.totalWithholdingTaxAmount)}</td></tr></>}{managerBusinessType !== 'freelancer' && report.managerDeductions.map((item) => <tr key={item.id}><th>{managerCostLabel(item)}</th><td className="amount-cell">- {money(item.amount)}</td></tr>)}<tr className="manager-final-row"><th>최종 매니저 정산금액</th><td className="amount-cell"><strong>{money(managerFinalPayment)}</strong></td></tr><tr><th>입금 예정일</th><td>{formatKoreanDate(settlement.paymentDueDate)}</td></tr></tbody></table></section>
+    <section className="manager-document__section"><h3>매니저 최종 지급</h3><table className="seller-document__table"><tbody><tr><th>VAT 포함 매니저 배분금액</th><td className="amount-cell">{money(grossManagerAmount)}</td></tr>{managerBusinessType === 'freelancer' && <><tr><th>원천세 신고금액</th><td className="amount-cell">{money(withholdingCalculation.withholdingBaseAmount)}</td></tr><tr><th>소득세 3%</th><td className="amount-cell">- {money(withholdingCalculation.incomeTaxAmount)}</td></tr><tr><th>지방소득세 0.3%</th><td className="amount-cell">- {money(withholdingCalculation.localIncomeTaxAmount)}</td></tr><tr><th>총 원천세</th><td className="amount-cell">- {money(withholdingCalculation.totalWithholdingTaxAmount)}</td></tr></>}{managerBusinessType !== 'freelancer' && report.managerDeductions.map((item) => <tr key={item.id}><th>{managerCostLabel(item)}</th><td className="amount-cell">- {money(item.amount)}</td></tr>)}<tr className="manager-final-row"><th>최종 매니저 정산금액</th><td className="amount-cell"><strong>{money(managerFinalPayment)}</strong></td></tr><tr><th>입금 예정일</th><td>{formatKoreanDate(settlement.paymentDueDate)}</td></tr></tbody></table></section>
     <section className="manager-document__section manager-payment-account"><h3>지급 계좌</h3><p><strong>{managerProfile?.bankName || '은행명 미등록'} / {managerProfile?.accountNumber || '계좌번호 미등록'} / {managerProfile?.accountHolder || '예금주명 미등록'}</strong></p></section>
     {exportGeneratedAt && <p className="seller-export-timestamp">이미지 생성: {exportGeneratedAt} (Asia/Seoul)</p>}
   </div></div>
@@ -1025,31 +1039,6 @@ function HistoryContent({ logs, settlement }: { logs: ReturnType<typeof settleme
       {logs.map((log) => <p key={log.id}>{formatKoreanDateTime(log.at)} · {actionLabels[log.action]} · {log.previousStatus ? statusLabel(log.previousStatus) : '-'} → {log.nextStatus ? statusLabel(log.nextStatus) : '-'} · v{log.version}</p>)}
     </div>
   )
-}
-
-function SettlementStatusActions({ onHistory, onSetDocument, reviewReady, settlement, syncAction }: { onHistory: () => void; onSetDocument: () => void; reviewReady: boolean; settlement: Settlement; syncAction: (action: () => unknown) => void }) {
-  if (settlement.status === 'draft') {
-    return <><button className="primary-button" onClick={() => syncAction(() => settlementService.recalculateSettlement(settlement.id))} type="button">계산 실행</button><button className="secondary-button" disabled={!reviewReady} onClick={() => syncAction(() => settlementService.requestReview(settlement.id))} type="button">저장</button></>
-  }
-  if (settlement.status === 'review_pending') {
-    return <button className="secondary-button" onClick={() => syncAction(() => settlementService.recalculateSettlement(settlement.id, '수정 요청'))} type="button">수정 요청</button>
-  }
-  if (settlement.status === 'manager_reviewed') {
-    return <><button className="secondary-button" onClick={() => syncAction(() => settlementService.updateEvidence(settlement.id, 'confirmed', true, true))} type="button">증빙·계좌 확인</button><button className="primary-button" onClick={() => syncAction(() => settlementService.requestApproval(settlement.id))} type="button">대표 승인 요청</button></>
-  }
-  if (settlement.status === 'approval_pending') {
-    return <><button className="secondary-button" onClick={() => syncAction(() => settlementService.recalculateSettlement(settlement.id, '반려'))} type="button">반려</button><button className="primary-button" onClick={() => syncAction(() => settlementService.approveSettlement(settlement.id))} type="button">대표 승인</button></>
-  }
-  if (settlement.status === 'approved') {
-    return <button className="primary-button" onClick={() => syncAction(() => settlementService.markPaymentReady(settlement.id))} type="button">지급 준비</button>
-  }
-  if (settlement.status === 'payment_ready' || settlement.status === 'partially_paid') {
-    return <><button className="secondary-button" onClick={() => syncAction(() => settlementService.markCompanySettlementCompleted(settlement.id))} type="button">업체 정산 완료</button><button className="primary-button" onClick={onHistory} type="button">지급 요청 상태 보기</button></>
-  }
-  if (settlement.status === 'completed') {
-    return <><button className="primary-button" onClick={onSetDocument} type="button">정산서 보기</button><button className="secondary-button" onClick={onHistory} type="button">이력 보기</button></>
-  }
-  return <button className="primary-button" onClick={() => syncAction(() => settlementService.recalculateSettlement(settlement.id))} type="button">계산 실행</button>
 }
 
 function PaymentRequestStatusModal({ accountConfirmed, campaign, completed, onClose, ownerType, request, settlement }: {

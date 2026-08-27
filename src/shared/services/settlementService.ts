@@ -467,6 +467,36 @@ export const settlementService = {
     createSettlementNotification(next, '정산 수정 요청', `${getCampaignText(next.campaignId).campaignName} · ${trimmedReason}`)
     return next
   },
+  isSettlementConfirmed(settlement: Settlement) {
+    if (settlement.status === 'revision_required') return false
+    if (settlement.settlementConfirmed !== undefined) return settlement.settlementConfirmed
+    return Boolean(settlement.calculationSnapshot)
+  },
+  confirmSettlement(settlementId: string, confirmedBy = '허수정') {
+    const settlement = this.getSettlementById(settlementId)
+    if (!settlement) throw new Error('정산서를 찾을 수 없습니다.')
+    if (settlement.status === 'revision_required') throw new Error('해결되지 않은 수정 요청을 먼저 처리해주세요.')
+    const validation = validateSettlement(settlement)
+    if (!validation.valid) throw new Error(`정산서를 확정할 수 없습니다.\n${validation.errors.join('\n')}`)
+    const confirmedAt = now()
+    const snapshot = settlement.currentCalculation
+    const next: Settlement = { ...settlement, settlementConfirmed: true, settlementConfirmedAt: confirmedAt, settlementConfirmedBy: confirmedBy, settlementConfirmedVersion: settlement.settlementVersion, calculationSnapshot: snapshot, originalSnapshot: settlement.originalSnapshot ?? snapshot, updatedAt: confirmedAt, hasSourceChanged: false, sourceChangeReason: undefined }
+    this.saveSettlements(this.getSettlements().map((item) => item.id === settlementId ? next : item))
+    this.createSettlementVersion(next, '정산서 확정', confirmedBy)
+    this.addActivity({ ...next, assigneeName: confirmedBy }, 'settlement_confirmed', settlement.status, next.status, '정산서 확정')
+    return next
+  },
+  releaseSettlementConfirmation(settlementId: string, reason: string, releasedBy = '허수정') {
+    const settlement = this.getSettlementById(settlementId)
+    const trimmedReason = reason.trim()
+    if (!settlement) throw new Error('정산서를 찾을 수 없습니다.')
+    if (!trimmedReason) throw new Error('확정 해제 사유를 입력해주세요.')
+    const releasedAt = now()
+    const next: Settlement = { ...settlement, settlementConfirmed: false, settlementConfirmationReleasedAt: releasedAt, settlementConfirmationReleasedBy: releasedBy, settlementConfirmationReleaseReason: trimmedReason, status: 'review_pending', updatedAt: releasedAt }
+    this.saveSettlements(this.getSettlements().map((item) => item.id === settlementId ? next : item))
+    this.addActivity({ ...next, assigneeName: releasedBy }, 'settlement_confirmation_released', settlement.status, next.status, trimmedReason)
+    return next
+  },
   createSettlementVersion(settlement: Settlement, reason: string, changedBy = '허수정') {
     const versions = this.getSettlementVersionsBySettlementId(settlement.id)
     const previous = versions[0]
