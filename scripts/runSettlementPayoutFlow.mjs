@@ -20,6 +20,12 @@ const { calculateWithholding } = await vite.ssrLoadModule('/src/shared/utils/wit
 const { calculateManagerProductRow } = await vite.ssrLoadModule('/src/shared/utils/settlementDocument.ts')
 const { getRecommendedEvidenceType, normalizeSellerBusinessType } = await vite.ssrLoadModule('/src/shared/utils/sellerSettlement.ts')
 const { STORAGE_KEYS, storageService } = await vite.ssrLoadModule('/src/shared/services/storageService.ts')
+const { sensitiveIdentityService } = await vite.ssrLoadModule('/src/shared/services/sensitiveIdentityService.ts')
+
+const transientResidentNumber = ['900101', '1', '234567'].join('')
+sensitiveIdentityService.stage('seller', 'seller-sensitive-test', transientResidentNumber)
+const maskedResidentNumber = sensitiveIdentityService.getMasked('seller', 'seller-sensitive-test')
+const persistedClientData = [...globalThis.localStorage.data.values()].join('')
 
 const sellerSaved = sellerMasterService.saveSellerProfile({
   id: 'seller-SCH-005', name: '헬시윤', businessName: '(주)헬시윤', businessType: 'simplified_business',
@@ -134,6 +140,7 @@ const completedPaymentBlocksRelease = (() => {
 })()
 
 const checks = [
+  ['주민등록번호 메모리 전용·마스킹 처리', maskedResidentNumber === '900101-1******' && !persistedClientData.includes(transientResidentNumber)],
   ['셀러명/사업자명 독립 저장', sellerSaved.name === '헬시윤' && sellerRead.businessName === '(주)헬시윤'],
   ['셀러 사업자 유형 저장', sellerRead.businessType === 'simplified_business'],
   ['프리미엄 침구 Master/정산 규칙 동기화', premiumBusinessType === 'general_business' && refreshedPremiumRule?.businessType === 'general_business'],

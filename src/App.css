@@ -1665,7 +1665,8 @@
 .settlement-document-column__heading { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
 .settlement-document-column__heading h3 { font-size: 17px; margin: 0; }
 .settlement-document-column .document-action-bar { align-items: flex-start; flex-direction: column; }
-.settlement-document-column .seller-document-actions { flex-wrap: wrap; justify-content: flex-start; }
+.settlement-document-column .seller-document-actions { flex-wrap: nowrap; gap: 5px; justify-content: flex-start; width: 100%; }
+.settlement-document-column .seller-document-actions button { flex: 0 1 auto; font-size: 11px; padding: 7px 8px; white-space: nowrap; }
 .settlement-document-column .seller-document-shell { justify-items: start; }
 .settlement-document-column .seller-statement { min-width: 860px; padding: 24px; }
 .settlement-document-comparison__notice { grid-column: 1 / -1; }
@@ -2117,7 +2118,7 @@
   justify-content: center;
   padding: 24px;
   position: fixed;
-  z-index: 40;
+  z-index: 1100;
 }
 
 .settlement-modal {

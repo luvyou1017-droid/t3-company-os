@@ -14,6 +14,7 @@ export interface ManagerMasterProfile {
   id: string
   name: string
   businessName?: string
+  realName?: string
   businessType: SellerBusinessType
   bankName?: string
   accountNumber?: string
