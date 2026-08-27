@@ -67,7 +67,7 @@ export const withholdingTaxService = {
   },
   syncSettlementRecipients(settlementId: string, sellerBusinessType: SellerBusinessType, managerBusinessType: SellerBusinessType) {
     const settlement = settlementService.getSettlementById(settlementId)
-    if (!settlement || !['approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) return []
+    if (!settlement || !['manager_reviewed', 'approval_pending', 'approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) return []
     const campaign = campaignService.getCampaignById(settlement.campaignId)
     if (!campaign) return []
     const synced: WithholdingTaxItem[] = []
@@ -85,7 +85,7 @@ export const withholdingTaxService = {
   },
   syncFromConfirmedSettlements() {
     settlementService.getSettlements().forEach((settlement) => {
-      if (!['approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) return
+      if (!['manager_reviewed', 'approval_pending', 'approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) return
       const campaign = campaignService.getCampaignById(settlement.campaignId)
       if (!campaign) return
       if (settlement.campaignId === 'SCH-009') withholdingTaxService.upsert({

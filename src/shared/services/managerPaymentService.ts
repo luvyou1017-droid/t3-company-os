@@ -98,7 +98,7 @@ export const managerPaymentService = {
   },
   ensureFreelancerTaxItems(managerId: string) {
     this.getScheduledItems(managerId).forEach(({ settlement, campaign, businessType }) => {
-      if (businessType !== 'freelancer' || !['approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) return
+      if (businessType !== 'freelancer' || !['manager_reviewed', 'approval_pending', 'approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) return
       withholdingTaxService.upsert({
         settlementId: settlement.id, ownerType: 'manager', ownerId: campaign.managerId, ownerName: campaign.managerName,
         grossSettlementAmount: settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal,

@@ -38,12 +38,18 @@ export function calculateWithholding(grossSettlementAmount: number, deductions =
 
 export function runWithholdingAssertions() {
   const calculation = calculateWithholding(533_120)
+  const healthFoodManager = calculateWithholding(69_440)
   const checks = {
     base: calculation.withholdingBaseAmount === 484_655,
     incomeTax: calculation.incomeTaxAmount === 14_530,
     localIncomeTax: calculation.localIncomeTaxAmount === 1_450,
     totalTax: calculation.totalWithholdingTaxAmount === 15_980,
     finalPayment: calculation.finalPaymentAmount === 468_675,
+    healthFoodManagerBase: healthFoodManager.withholdingBaseAmount === 63_127,
+    healthFoodManagerIncomeTax: healthFoodManager.incomeTaxAmount === 1_890,
+    healthFoodManagerLocalIncomeTax: healthFoodManager.localIncomeTaxAmount === 180,
+    healthFoodManagerTotalTax: healthFoodManager.totalWithholdingTaxAmount === 2_070,
+    healthFoodManagerFinalPayment: healthFoodManager.finalPaymentAmount === 61_057,
   }
-  return { passed: Object.values(checks).every(Boolean), checks, calculation }
+  return { passed: Object.values(checks).every(Boolean), checks, calculation, healthFoodManager }
 }
