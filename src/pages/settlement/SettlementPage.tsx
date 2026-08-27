@@ -229,6 +229,8 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const [printingDocument, setPrintingDocument] = useState<'seller' | 'manager' | null>(null)
   const [paymentRequestTarget, setPaymentRequestTarget] = useState<EvidenceOwnerType | null>(null)
   const [paymentStatusTarget, setPaymentStatusTarget] = useState<EvidenceOwnerType | null>(null)
+  const [revisionRequestOpen, setRevisionRequestOpen] = useState(false)
+  const [revisionReason, setRevisionReason] = useState('')
   const [readinessModal, setReadinessModal] = useState<ReadinessModal | null>(null)
   const [businessTypeDraft, setBusinessTypeDraft] = useState<SellerBusinessType>('general_business')
   const [businessNameDraft, setBusinessNameDraft] = useState('')
@@ -368,6 +370,15 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const confirmChecklist = (values: Partial<typeof checklist>) => {
     settlementService.updateReviewChecklist(settlement.id, { ...checklist, ...values })
     setSettlement(settlementService.getSettlementById(settlement.id) ?? null)
+  }
+
+  const submitRevisionRequest = () => {
+    const next = settlementService.requestRevision(settlement.id, revisionReason, '허수정')
+    if (!next) return
+    setSettlement({ ...next })
+    setRevisionReason('')
+    setRevisionRequestOpen(false)
+    showClipboardToast('정산 수정 요청이 등록되었습니다.')
   }
 
   const saveSellerBusinessType = () => {
@@ -639,7 +650,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
 
         <SettlementProgress settlement={settlement} />
 
-        <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="calculation-detail"><summary><div><h2>정산 계산 상세</h2><p>정산 금액의 계산식과 계산 근거를 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><CalculationTable settlement={settlement} /><details className="settlement-internal-validation"><summary>내부 검증 항목 관리</summary><div className="settlement-checklist">{Object.entries(checklistLabels).map(([key, label]) => <label className="checklist-item" key={key}><input checked={settlement.reviewChecklist[key as keyof typeof settlement.reviewChecklist]} onChange={(event) => { settlementService.updateReviewChecklist(settlement.id, { ...settlement.reviewChecklist, [key]: event.target.checked }); setSettlement(settlementService.getSettlementById(settlement.id) ?? null) }} type="checkbox" />{label}</label>)}</div></details></div></details>
+        <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="calculation-detail"><summary><div><h2>정산 계산 상세</h2><p>정산 금액의 계산식과 계산 근거를 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><div className="calculation-detail-actions"><p>계산값에 확인이 필요하면 기존 데이터를 보존한 채 수정 요청을 등록합니다.</p><button className="secondary-button" onClick={() => setRevisionRequestOpen(true)} type="button">수정 요청</button></div><CalculationTable settlement={settlement} /><RevisionRequestHistory logs={logs} /><details className="settlement-internal-validation"><summary>내부 검증 항목 관리</summary><div className="settlement-checklist">{Object.entries(checklistLabels).map(([key, label]) => <label className="checklist-item" key={key}><input checked={settlement.reviewChecklist[key as keyof typeof settlement.reviewChecklist]} onChange={(event) => { settlementService.updateReviewChecklist(settlement.id, { ...settlement.reviewChecklist, [key]: event.target.checked }); setSettlement(settlementService.getSettlementById(settlement.id) ?? null) }} type="checkbox" />{label}</label>)}</div></details></div></details>
 
         <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="payment-history"><summary><div><h2>지급 요청 및 승인 이력</h2><p>계산, 상태 변경, 승인, 지급 및 버전 이력을 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><HistoryContent logs={logs} settlement={settlement} />
           <div className="checklist-head">
@@ -670,6 +681,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
         </div>
 
         {compareOpen && <VersionCompareModal versions={versions} onClose={() => setCompareOpen(false)} />}
+        {revisionRequestOpen && <div className="settlement-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setRevisionRequestOpen(false) }}><section aria-modal="true" className="settlement-readiness-modal" role="dialog"><button aria-label="닫기" className="settlement-expanded-close" onClick={() => setRevisionRequestOpen(false)} type="button">×</button><h2>정산 수정 요청</h2><label className="form-field"><span>수정 사유</span><textarea autoFocus onChange={(event) => setRevisionReason(event.target.value)} placeholder="예: 판매수량 확인 필요, 수수료율 오류, 이벤트비 누락, 차감내역 확인 필요" rows={5} value={revisionReason} /></label><p>현재 v{settlement.settlementVersion} 계산 데이터는 삭제하지 않고, 수정 후 재계산 시 새 버전으로 관리합니다.</p><div className="modal-actions"><button className="secondary-button" onClick={() => setRevisionRequestOpen(false)} type="button">취소</button><button className="primary-button" disabled={!revisionReason.trim()} onClick={submitRevisionRequest} type="button">수정 요청</button></div></section></div>}
         {paymentRequestTarget && campaign && <PaymentRequestEvidenceModal campaign={campaign} managerBusinessType={managerBusinessType} onClose={() => setPaymentRequestTarget(null)} onFailed={(message) => showClipboardToast(message, true)} onRequested={(message) => { setPaymentRequestTarget(null); setSettlement({ ...(settlementService.getSettlementById(settlement.id) ?? settlement) }); showClipboardToast(message) }} ownerType={paymentRequestTarget} sellerBusinessType={effectiveSellerBusinessType ?? 'general_business'} settlement={settlement} />}
         {paymentStatusTarget && campaign && <PaymentRequestStatusModal accountConfirmed={paymentStatusTarget === 'seller' ? hasSellerAccount : hasManagerAccount} campaign={campaign} completed={paymentStatusTarget === 'seller' ? settlement.sellerPaymentCompleted : settlement.managerPaymentCompleted} onClose={() => setPaymentStatusTarget(null)} ownerType={paymentStatusTarget} request={paymentStatusTarget === 'seller' ? sellerPaymentRequest : managerPaymentRequest} settlement={settlement} />}
         {clipboardToast && <div aria-live="polite" className={`clipboard-toast ${clipboardToast.error ? 'is-error' : ''}`}>{clipboardToast.error ? '!' : '✓'} {clipboardToast.message}</div>}
@@ -706,26 +718,34 @@ function Summary({ label, value, amount, emphasis }: { label: string; value: str
   return <div className={`settlement-summary-item${emphasis ? ' settlement-summary-item--emphasis' : ''}`}><span>{label}</span><strong className={amount ? 'amount-cell' : ''}>{value}</strong></div>
 }
 
-const workflowSteps = ['정산 계산', '정산서 검토', '셀러 전달', '증빙 확인', '지급 요청', '대표 승인', '지급 완료'] as const
+const workflowSteps = ['정산서 작성 완료', '지급 요청', '대표 승인 완료', '입금 완료'] as const
+const requestedPaymentStatuses: PaymentRequestStatus[] = ['evidence_pending', 'request_ready', 'approval_pending', 'approved', 'sent', 'payment_completed', 'remittance_confirmed', 'on_hold']
+const approvedPaymentStatuses: PaymentRequestStatus[] = ['approved', 'sent', 'payment_completed', 'remittance_confirmed']
 
-function getWorkflowState(settlement: Settlement) {
-  if (settlement.status === 'completed') return { index: 6, current: '지급 완료', next: '모든 정산 업무가 완료되었습니다.' }
-  if (settlement.status === 'payment_ready' || settlement.status === 'partially_paid') return { index: 6, current: '지급 처리 중', next: '셀러와 매니저 지급을 완료해주세요.' }
-  if (settlement.status === 'approval_pending') return { index: 5, current: '대표 승인 대기', next: '대표 승인 결과를 확인해주세요.' }
-  if (settlement.status === 'approved') return { index: 4, current: '지급 요청 대기', next: '승인된 정산의 지급을 요청해주세요.' }
-  if (settlement.evidenceStatus === 'confirmed') return { index: 3, current: '증빙 확인', next: '증빙과 계좌를 확인한 뒤 지급을 요청해주세요.' }
-  if (settlement.status === 'manager_reviewed') return { index: 2, current: '셀러 정산서 전달 대기', next: '셀러에게 정산서를 전달해주세요.' }
-  if (['review_pending', 'revision_required'].includes(settlement.status)) return { index: 1, current: '정산서 검토', next: '검토 체크리스트를 완료하고 정산서를 확정해주세요.' }
-  return { index: 0, current: '정산 계산', next: '정산 계산을 실행하고 결과를 검토해주세요.' }
+function getRecipientProgress(status: PaymentRequestStatus | undefined, completed: boolean) {
+  const paid = completed || status === 'payment_completed' || status === 'remittance_confirmed'
+  const approved = paid || Boolean(status && approvedPaymentStatuses.includes(status))
+  const requested = approved || Boolean(status && requestedPaymentStatuses.includes(status))
+  return { requested, approved, paid }
 }
 
 function SettlementProgress({ settlement }: { settlement: Settlement }) {
-  const state = getWorkflowState(settlement)
+  const seller = getRecipientProgress(settlement.sellerPaymentRequestStatus, settlement.sellerPaymentCompleted)
+  const manager = getRecipientProgress(settlement.managerPaymentRequestStatus, settlement.managerPaymentCompleted)
+  const both = (key: keyof typeof seller) => seller[key] && manager[key]
+  const completedStepCount = both('paid') ? 4 : both('approved') ? 3 : both('requested') ? 2 : 1
+  const statusText = (value: boolean, completeText: string, waitingText: string) => value ? completeText : waitingText
   return <section className="settlement-page-section settlement-progress-section" id="progress">
     <div className="section-heading"><div><p className="page-eyebrow">3. 정산 진행상황</p><h2>정산 진행상황</h2></div></div>
-    <ol className="settlement-stepper">{workflowSteps.map((step, index) => <li className={index < state.index ? 'is-complete' : index === state.index ? 'is-current' : ''} key={step}><span>{index < state.index ? '✓' : index + 1}</span><strong>{step}</strong></li>)}</ol>
-    <div className="settlement-next-action"><div><span>현재 단계</span><strong>{state.current}</strong></div><div><span>다음 할 일</span><strong>{state.next}</strong></div></div>
+    <ol className="settlement-stepper settlement-stepper--four">{workflowSteps.map((step, index) => <li className={index < completedStepCount ? 'is-complete' : index === completedStepCount ? 'is-current' : ''} key={step}><span>{index < completedStepCount ? '✓' : index + 1}</span><strong>{step}</strong></li>)}</ol>
+    <div className="recipient-payment-progress"><div className="recipient-payment-progress__head"><span>대상</span><span>지급 요청</span><span>대표 승인</span><span>입금</span></div>{([['셀러', seller], ['매니저', manager]] as const).map(([label, state]) => <div className="recipient-payment-progress__row" key={label}><strong>{label}</strong><span className={state.requested ? 'is-complete' : ''}>{statusText(state.requested, '완료', '대기')}</span><span className={state.approved ? 'is-complete' : ''}>{statusText(state.approved, '완료', '-')}</span><span className={state.paid ? 'is-complete' : ''}>{statusText(state.paid, '완료', '-')}</span></div>)}</div>
   </section>
+}
+
+function RevisionRequestHistory({ logs }: { logs: ReturnType<typeof settlementService.getActivityLogsBySettlementId> }) {
+  const requests = logs.filter((log) => log.action === 'revision_requested')
+  if (!requests.length) return null
+  return <section className="revision-request-history"><h3>수정 요청 이력</h3>{requests.map((log) => <article key={log.id}><strong>수정 요청 · v{log.version}</strong><time>{formatKoreanDateTime(log.at)}</time><span>요청자: {log.actor}</span><p>사유: {log.reason}</p></article>)}</section>
 }
 
 const checklistLabels = {

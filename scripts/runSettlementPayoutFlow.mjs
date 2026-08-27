@@ -52,6 +52,16 @@ const premiumGross = premiumSettlement.currentCalculation.managerAmount + premiu
 const premiumTax = calculateWithholding(premiumGross, premiumSettlement.currentCalculation.managerDeductionTotal)
 const premiumCompanyAmountBeforeRequest = premiumSettlement.currentCalculation.companyAmount
 const premiumRequest = paymentRequestService.createManagerPaymentRequest(premiumSettlement.id, '테스트', manager.businessType, undefined, { accountConfirmed: true })
+const independentlyTrackedPremium = settlementService.getSettlementById(premiumSettlement.id)
+const premiumVersionBeforeRevision = independentlyTrackedPremium.settlementVersion
+const premiumCalculationBeforeRevision = {
+  finalPaymentAmount: independentlyTrackedPremium.currentCalculation.finalPaymentAmount,
+  managerAmount: independentlyTrackedPremium.currentCalculation.managerAmount,
+  companyAmount: independentlyTrackedPremium.currentCalculation.companyAmount,
+}
+const revisionReason = '이벤트비 확인 필요'
+const revisionRequested = settlementService.requestRevision(premiumSettlement.id, revisionReason, '테스트 요청자')
+const revisionLog = settlementService.getActivityLogsBySettlementId(premiumSettlement.id).find((item) => item.action === 'revision_requested' && item.reason === revisionReason)
 
 const approvedSettlements = settlementService.getSettlements().map((item) => ({ ...item, status: 'approved', accountConfirmed: true }))
 storageService.setItem(STORAGE_KEYS.settlements, approvedSettlements)
@@ -91,6 +101,8 @@ const checks = [
   ['프리미엄 침구 수동 정산 확인 없이 지급 가능', premiumManagerValidation.valid && !premiumManagerValidation.reasons.some((reason) => reason.includes('정산금액이 확정'))],
   ['셀러 미확정/증빙 사전 경고 없이 지급 가능', premiumSellerValidation.valid && !premiumSellerValidation.reasons.some((reason) => reason.includes('확정') || reason.includes('증빙') || reason.includes('캡처본'))],
   ['프리미엄 침구 지급 요청 최종액 일치', premiumRequest.finalPaymentAmount === premiumTax.finalPaymentAmount && premiumRequest.status === 'approval_pending'],
+  ['셀러/매니저 지급 상태 독립 관리', independentlyTrackedPremium.managerPaymentRequestStatus === 'approval_pending' && !independentlyTrackedPremium.sellerPaymentRequestStatus],
+  ['수정 요청 이력 및 현재 버전 보존', revisionRequested?.status === 'revision_required' && revisionRequested.settlementVersion === premiumVersionBeforeRevision && revisionRequested.currentCalculation.finalPaymentAmount === premiumCalculationBeforeRevision.finalPaymentAmount && revisionRequested.currentCalculation.managerAmount === premiumCalculationBeforeRevision.managerAmount && revisionRequested.currentCalculation.companyAmount === premiumCalculationBeforeRevision.companyAmount && revisionLog?.actor === '테스트 요청자' && revisionLog.version === premiumVersionBeforeRevision],
   ['회사 귀속 계산 데이터 유지', Number.isFinite(premiumCompanyAmountBeforeRequest) && settlementService.getSettlementById(premiumSettlement.id).currentCalculation.companyAmount === premiumCompanyAmountBeforeRequest],
   ['건강식품 VAT 포함 배분금액', healthTax.grossSettlementAmount === 69_440],
   ['건강식품 원천세 계산', healthTax.withholdingBaseAmount === 63_127 && healthTax.incomeTaxAmount === 1_890 && healthTax.localIncomeTaxAmount === 180 && healthTax.finalPaymentAmount === 61_057],

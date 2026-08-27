@@ -1432,6 +1432,7 @@
 .settlement-summary-item--emphasis strong { color: var(--primary); }
 
 .settlement-stepper { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); list-style: none; margin: 12px 0 24px; padding: 0; }
+.settlement-stepper--four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .settlement-stepper li { align-items: center; color: var(--muted); display: flex; flex-direction: column; gap: 10px; position: relative; text-align: center; }
 .settlement-stepper li::before { background: var(--border); content: ''; height: 2px; left: -50%; position: absolute; top: 17px; width: 100%; }
 .settlement-stepper li:first-child::before { display: none; }
@@ -1444,6 +1445,22 @@
 .settlement-next-action div { display: grid; gap: 5px; }
 .settlement-next-action span { color: var(--muted); font-size: 12px; font-weight: 800; }
 .settlement-next-action strong { font-size: 15px; }
+.recipient-payment-progress { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.recipient-payment-progress__head,
+.recipient-payment-progress__row { align-items: center; display: grid; grid-template-columns: 1.2fr repeat(3, 1fr); padding: 11px 16px; text-align: center; }
+.recipient-payment-progress__head { background: var(--surface-subtle); color: var(--muted); font-size: 12px; font-weight: 800; }
+.recipient-payment-progress__row + .recipient-payment-progress__row { border-top: 1px solid var(--border); }
+.recipient-payment-progress__row strong { text-align: left; }
+.recipient-payment-progress__row span { color: var(--muted); font-size: 13px; font-weight: 700; }
+.recipient-payment-progress__row span.is-complete { color: #15803d; }
+.calculation-detail-actions { align-items: center; display: flex; gap: 16px; justify-content: space-between; }
+.calculation-detail-actions p { color: var(--muted); margin: 0; }
+.revision-request-history { display: grid; gap: 10px; }
+.revision-request-history h3 { margin: 0; }
+.revision-request-history article { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; display: grid; gap: 4px; padding: 12px 14px; }
+.revision-request-history article time,
+.revision-request-history article span { color: var(--muted); font-size: 12px; }
+.revision-request-history article p { margin: 2px 0 0; }
 
 #basic-info, #key-amounts { order: 10; }
 #progress { order: 45; }
@@ -3528,6 +3545,9 @@
   .settlement-stepper li { align-items: center; flex-direction: row; text-align: left; }
   .settlement-stepper li::before { height: calc(100% + 10px); left: 17px; top: -100%; width: 2px; }
   .settlement-next-action { grid-template-columns: 1fr; }
+  .recipient-payment-progress__head,
+  .recipient-payment-progress__row { grid-template-columns: 1fr repeat(3, .8fr); padding: 10px 8px; }
+  .calculation-detail-actions { align-items: stretch; flex-direction: column; }
   .settlement-evidence-list article { align-items: stretch; grid-template-columns: 1fr; }
   .settlement-evidence-list dl { grid-template-columns: 1fr; }
   .settlement-evidence-preview { height: 180px; width: 100%; }

@@ -451,6 +451,22 @@ export const settlementService = {
     const settlement = this.getSettlementById(settlementId)
     return settlement ? withRecalculation(settlement, reason) : undefined
   },
+  requestRevision(settlementId: string, reason: string, requestedBy = '허수정') {
+    const settlement = this.getSettlementById(settlementId)
+    const trimmedReason = reason.trim()
+    if (!settlement || !trimmedReason) return undefined
+    const next: Settlement = {
+      ...settlement,
+      status: 'revision_required',
+      updatedAt: now(),
+      sourceChangeReason: trimmedReason,
+    }
+    this.saveSettlements(this.getSettlements().map((item) => item.id === settlementId ? next : item))
+    this.addActivity({ ...next, assigneeName: requestedBy }, 'revision_requested', settlement.status, next.status, trimmedReason)
+    createSettlementWork(next, `[수정 요청] ${trimmedReason}`, '정산서 검토', next.assigneeName, 'u-002', '정산 담당자')
+    createSettlementNotification(next, '정산 수정 요청', `${getCampaignText(next.campaignId).campaignName} · ${trimmedReason}`)
+    return next
+  },
   createSettlementVersion(settlement: Settlement, reason: string, changedBy = '허수정') {
     const versions = this.getSettlementVersionsBySettlementId(settlement.id)
     const previous = versions[0]
