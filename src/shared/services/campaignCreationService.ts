@@ -52,6 +52,7 @@ export function getEventPayerLabel(value?: string) {
   if (value === 'vendor') return '벤더 부담'
   if (value === 'seller') return '셀러 부담'
   if (value === 'company_support') return '업체 지원'
+  if (value === 'company') return '회사 부담'
   if (value === 'manager') return '매니저 부담'
   if (value === 'shared') return '공동 부담'
   return value || '미입력'
@@ -115,7 +116,7 @@ export function calculateEventAmounts(event: CampaignEvent): CampaignEvent {
 }
 
 export function summarizeEvents(events: CampaignEvent[]) {
-  const byPayer: Record<CampaignEvent['payer'], number> = { vendor: 0, seller: 0, company_support: 0, manager: 0, shared: 0 }
+  const byPayer: Record<CampaignEvent['payer'], number> = { vendor: 0, seller: 0, company: 0, company_support: 0, manager: 0, shared: 0 }
   events.forEach((event) => { byPayer[event.payer] += event.estimatedTotalAmount })
   return { ...byPayer, total: Object.values(byPayer).reduce((sum, amount) => sum + amount, 0) }
 }

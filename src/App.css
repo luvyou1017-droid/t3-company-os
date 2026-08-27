@@ -2133,6 +2133,31 @@
   width: min(100%, 760px);
 }
 
+.settlement-revision-modal {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 22%);
+  display: grid;
+  gap: 18px;
+  max-height: calc(100vh - 48px);
+  max-width: 1120px;
+  overflow: auto;
+  padding: 28px;
+  position: relative;
+  width: min(1120px, 96vw);
+}
+.settlement-revision-modal h2, .settlement-revision-modal h3, .settlement-revision-modal p { margin: 0; }
+.settlement-revision-modal section { display: grid; gap: 10px; }
+.settlement-revision-modal .data-table input, .settlement-revision-modal .data-table select { min-width: 92px; width: 100%; }
+.settlement-revision-grid { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.settlement-revision-comparison tr.is-changed { background: #fff7d6; color: #b42318; font-weight: 700; }
+.settlement-event-summary-list { display: grid; gap: 10px; }
+.settlement-event-summary-list article { background: #f8fafc; border: 1px solid #dbe4ee; border-radius: 12px; display: grid; gap: 8px; padding: 14px; }
+.settlement-event-summary-list dl { display: grid; gap: 6px; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0; }
+.settlement-event-summary-list dl div { display: grid; gap: 3px; }
+.settlement-event-summary-list dt { color: #64748b; font-size: 11px; }
+.settlement-event-summary-list dd { font-size: 13px; margin: 0; }
+
 .campaign-settlement-table {
   min-width: 1440px;
 }

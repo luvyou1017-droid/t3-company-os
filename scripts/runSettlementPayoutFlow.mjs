@@ -21,6 +21,8 @@ const { calculateManagerProductRow } = await vite.ssrLoadModule('/src/shared/uti
 const { getRecommendedEvidenceType, normalizeSellerBusinessType } = await vite.ssrLoadModule('/src/shared/utils/sellerSettlement.ts')
 const { STORAGE_KEYS, storageService } = await vite.ssrLoadModule('/src/shared/services/storageService.ts')
 const { sensitiveIdentityService } = await vite.ssrLoadModule('/src/shared/services/sensitiveIdentityService.ts')
+const { campaignEventOperationService } = await vite.ssrLoadModule('/src/shared/services/campaignEventOperationService.ts')
+const { canEditSettlement } = await vite.ssrLoadModule('/src/shared/data/users.ts')
 
 const transientResidentNumber = ['900101', '1', '234567'].join('')
 sensitiveIdentityService.stage('seller', 'seller-sensitive-test', transientResidentNumber)
@@ -44,6 +46,28 @@ const premiumSettlement = settlementService.getSettlements().find((item) => item
   ?? settlementService.createSettlementFromSalesData('sales-009', 'review_pending')
 const healthSettlement = settlementService.getSettlements().find((item) => item.campaignId === 'SCH-005')
 if (!premiumSettlement || !healthSettlement) throw new Error('정산 더미데이터가 없습니다.')
+
+const revisionTestSettlement = { ...healthSettlement, id: `${healthSettlement.id}-revision-test`, status: 'revision_required', settlementConfirmed: false, sourceChangeReason: '이벤트비 수정 테스트', sellerPaymentRequestStatus: undefined, managerPaymentRequestStatus: undefined }
+const revisionTestDeductions = settlementService.getDeductionsBySettlementId(healthSettlement.id).map((item) => ({ ...item, id: `${item.id}-revision-test`, settlementId: revisionTestSettlement.id }))
+storageService.setItem(STORAGE_KEYS.settlements, [...settlementService.getSettlements(), revisionTestSettlement])
+storageService.setItem(STORAGE_KEYS.settlementDeductions, [...settlementService.getDeductions(), ...revisionTestDeductions])
+const revisionDraft = { settlementId: revisionTestSettlement.id, reason: '이벤트 확정비 반영', rows: salesDataService.getRowsByImportId(revisionTestSettlement.salesDataImportId), totalCommissionRate: revisionTestSettlement.currentCalculation.totalCommissionRate, sellerCommissionRate: revisionTestSettlement.currentCalculation.sellerCommissionRate, deductions: revisionTestDeductions.map((item, index) => index === 0 ? { ...item, amount: item.amount + 1_000 } : item) }
+const revisionPreview = settlementService.previewRevision(revisionDraft, '허수정')
+const revisionSaved = settlementService.saveRevision(revisionDraft, '허수정', '정산 담당자')
+const revisionPermissionBlocked = (() => { try { settlementService.saveRevision(revisionDraft, '허윤정', '대표'); return false } catch (error) { return error instanceof Error && error.message.includes('수정 권한') } })()
+
+const directEvent = campaignEventOperationService.save({ id: 'event-direct-test', campaignId: 'SCH-005', payer: 'vendor', eventType: 'purchase_complete', eventName: '네이버페이 이벤트', rewardProductName: '네이버페이 5,000원', rewardUnitPrice: 5_000, plannedQuantity: 10, confirmedQuantity: 9, estimatedTotalAmount: 50_000, confirmedTotalAmount: 45_000, costHandling: 'company_direct', shippingOwner: 'company', shippingStatus: 'shipping_pending', winnerCountConfirmed: true, updatedAt: new Date().toISOString() })
+const freeEvent = campaignEventOperationService.save({ ...directEvent, id: 'event-free-test', campaignId: 'SCH-004', eventName: '업체 무상 이벤트', costHandling: 'vendor_free', payer: 'company_support', confirmedTotalAmount: 0 })
+let prepaidEvent = campaignEventOperationService.save({ ...directEvent, id: 'event-prepaid-test', campaignId: 'SCH-006', eventName: '승인형 선결제', costHandling: 'manager_prepaid', payer: 'manager', managerPrepayment: { status: 'not_requested' } })
+const unapprovedPrepaymentCost = campaignEventOperationService.getConfirmedSettlementCost(prepaidEvent)
+prepaidEvent = campaignEventOperationService.requestManagerPrepayment('SCH-006', prepaidEvent.id, '긴급 발송', 50_000, 'u-001')
+prepaidEvent = campaignEventOperationService.approveManagerPrepayment('SCH-006', prepaidEvent.id, 50_000)
+prepaidEvent = campaignEventOperationService.confirmManagerPrepaymentEvidence('SCH-006', prepaidEvent.id, 45_000)
+const approvedPrepaymentCost = campaignEventOperationService.getConfirmedSettlementCost(prepaidEvent)
+let pendingWinnerEvent = campaignEventOperationService.save({ ...directEvent, id: 'event-pending-winner-test', campaignId: 'SCH-010', eventName: '당첨자 미확정 이벤트', confirmedQuantity: undefined, confirmedTotalAmount: undefined, winnerCountConfirmed: false, shippingStatus: 'winner_registration_pending' })
+const pendingWinnerBlocksConfirmation = campaignEventOperationService.validateForSettlementConfirmation('SCH-010').length === 1
+pendingWinnerEvent = campaignEventOperationService.confirmWinnerCount('SCH-010', pendingWinnerEvent.id, 9)
+const winnerConfirmedAllowsConfirmation = campaignEventOperationService.validateForSettlementConfirmation('SCH-010').length === 0 && pendingWinnerEvent.confirmedTotalAmount === 45_000 && pendingWinnerEvent.shippingStatus !== 'shipped'
 storageService.setItem(STORAGE_KEYS.settlements, settlementService.getSettlements().map((item) => item.id === premiumSettlement.id ? { ...item, settlementConfirmed: true, settlementConfirmedAt: item.updatedAt, settlementConfirmedBy: '허수정', settlementConfirmedVersion: item.settlementVersion } : item))
 
 const premiumManagerValidation = paymentRequestService.validateManagerPaymentRequest({
@@ -140,6 +164,13 @@ const completedPaymentBlocksRelease = (() => {
 })()
 
 const checks = [
+  ['정산 수정 권한', canEditSettlement('정산 담당자') && !canEditSettlement('대표') && revisionPermissionBlocked],
+  ['수정 재계산·전후 비교', revisionPreview.companyAmount !== revisionTestSettlement.currentCalculation.companyAmount],
+  ['정산 수정 새 version 저장', revisionSaved.settlementVersion === revisionTestSettlement.settlementVersion + 1 && settlementService.getSettlementVersionsBySettlementId(revisionSaved.id).some((item) => item.version === revisionSaved.settlementVersion)],
+  ['회사 직접 발송 예정 10명·실제 9명', directEvent.estimatedTotalAmount === 50_000 && campaignEventOperationService.getConfirmedSettlementCost(directEvent) === 45_000 && directEvent.shippingStatus === 'shipping_pending'],
+  ['업체 무상 이벤트 정산 차감 없음', campaignEventOperationService.getConfirmedSettlementCost(freeEvent) === 0 && freeEvent.winnerCountConfirmed],
+  ['매니저 선결제 승인형 실제 사용액', unapprovedPrepaymentCost === 0 && approvedPrepaymentCost === 45_000 && prepaidEvent.managerPrepayment?.status === 'evidence_confirmed'],
+  ['이벤트 당첨자 확정 조건·발송 완료 비필수', pendingWinnerBlocksConfirmation && winnerConfirmedAllowsConfirmation],
   ['주민등록번호 메모리 전용·마스킹 처리', maskedResidentNumber === '900101-1******' && !persistedClientData.includes(transientResidentNumber)],
   ['셀러명/사업자명 독립 저장', sellerSaved.name === '헬시윤' && sellerRead.businessName === '(주)헬시윤'],
   ['셀러 사업자 유형 저장', sellerRead.businessType === 'simplified_business'],

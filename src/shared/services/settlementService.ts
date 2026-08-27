@@ -1,5 +1,5 @@
 import type { WorkType } from '../../features/myWork/types'
-import type { AppUserRole } from '../data/users'
+import { canEditSettlement, type AppUserRole } from '../data/users'
 import type { SampleCostOwner, SampleRequest } from '../../features/samples/types'
 import type { SalesDataImport } from '../types/salesData'
 import type {
@@ -14,6 +14,7 @@ import type {
   SettlementStatus,
   SettlementTaxType,
   SettlementVersion,
+  SettlementRevisionDraft,
 } from '../types/settlement'
 import {
   calculateSettlement,
@@ -26,6 +27,7 @@ import {
 } from '../utils/settlement'
 import { validateSalesRows } from '../utils/salesData'
 import { campaignService } from './campaignService'
+import { campaignEventOperationService } from './campaignEventOperationService'
 import { notificationService } from './notificationService'
 import { salesDataService } from './salesDataService'
 import { sampleService } from './sampleService'
@@ -452,6 +454,35 @@ export const settlementService = {
     const settlement = this.getSettlementById(settlementId)
     return settlement ? withRecalculation(settlement, reason) : undefined
   },
+  previewRevision(input: SettlementRevisionDraft, calculatedBy = '정산 담당자 미리보기') {
+    const settlement = this.getSettlementById(input.settlementId)
+    const salesImport = settlement ? salesDataService.getSalesDataImportById(settlement.salesDataImportId) : undefined
+    if (!settlement || !salesImport) throw new Error('정산 원본 데이터를 찾을 수 없습니다.')
+    const rows = input.rows.map((row) => {
+      const netQuantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0)
+      return { ...row, grossSales: row.quantity * row.unitPrice, netQuantity, netSales: netQuantity * row.unitPrice }
+    })
+    return calculateSettlement({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate }, rows, input.deductions, settlement.taxType, calculatedBy)
+  },
+  saveRevision(input: SettlementRevisionDraft, changedBy: string, role: AppUserRole) {
+    const settlement = this.getSettlementById(input.settlementId)
+    if (!settlement) throw new Error('정산서를 찾을 수 없습니다.')
+    if (!canEditSettlement(role)) throw new Error('정산서 수정 권한이 없습니다.')
+    if (this.isSettlementConfirmed(settlement)) throw new Error('확정된 정산서는 확정 해제 후 수정해주세요.')
+    const activeRequestStatuses = ['evidence_pending', 'request_ready', 'approval_pending', 'approved', 'sent', 'on_hold']
+    if ((settlement.sellerPaymentRequestStatus && activeRequestStatuses.includes(settlement.sellerPaymentRequestStatus)) || (settlement.managerPaymentRequestStatus && activeRequestStatuses.includes(settlement.managerPaymentRequestStatus))) throw new Error('지급요청이 존재하는 정산서는 수정할 수 없습니다.')
+    const calculation = this.previewRevision(input, changedBy)
+    const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)!
+    const rows = input.rows.map((row) => { const netQuantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0); return { ...row, grossSales: row.quantity * row.unitPrice, netQuantity, netSales: netQuantity * row.unitPrice } })
+    salesDataService.saveRows([...rows, ...salesDataService.getSalesDataRows().filter((row) => row.salesDataImportId !== settlement.salesDataImportId)])
+    salesDataService.updateSalesDataImport({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate, totalQuantity: rows.reduce((sum, row) => sum + row.quantity, 0), totalSalesAmount: rows.reduce((sum, row) => sum + row.grossSales, 0) })
+    this.saveDeductions([...input.deductions, ...this.getDeductions().filter((item) => item.settlementId !== settlement.id)])
+    const next: Settlement = { ...settlement, settlementVersion: settlement.settlementVersion + 1, status: 'review_pending', updatedAt: now(), currentCalculation: calculation, calculationSteps: createCalculationSteps(calculation), hasSourceChanged: false, sourceChangeReason: undefined }
+    this.saveSettlements(this.getSettlements().map((item) => item.id === settlement.id ? next : item))
+    this.createSettlementVersion(next, input.reason || '정산 수정', changedBy)
+    this.addActivity({ ...next, assigneeName: changedBy }, 'revision_completed', settlement.status, next.status, input.reason || '정산 수정 완료')
+    return next
+  },
   requestRevision(settlementId: string, reason: string, requestedBy = '허수정') {
     const settlement = this.getSettlementById(settlementId)
     const trimmedReason = reason.trim()
@@ -478,6 +509,8 @@ export const settlementService = {
     const settlement = this.getSettlementById(settlementId)
     if (!settlement) throw new Error('정산서를 찾을 수 없습니다.')
     if (settlement.status === 'revision_required') throw new Error('해결되지 않은 수정 요청을 먼저 처리해주세요.')
+    const eventErrors = campaignEventOperationService.validateForSettlementConfirmation(settlement.campaignId)
+    if (eventErrors.length) throw new Error(`정산서를 확정할 수 없습니다.\n${eventErrors.join('\n')}`)
     const validation = validateSettlement(settlement)
     if (!validation.valid) throw new Error(`정산서를 확정할 수 없습니다.\n${validation.errors.join('\n')}`)
     const confirmedAt = now()

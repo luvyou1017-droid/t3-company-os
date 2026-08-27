@@ -30,4 +30,8 @@ export function getUserByName(name: string) {
   return appUsers.find((user) => user.name === name)
 }
 
+export function canEditSettlement(role: AppUserRole) {
+  return role === '정산 담당자'
+}
+
 export const DEFAULT_EVIDENCE_REVIEWER = getUserById(DEFAULT_EVIDENCE_REVIEWER_USER_ID)!

@@ -28,6 +28,7 @@ export const STORAGE_KEYS = {
   sellerMasters: 't3_company_os_seller_masters',
   managerMasters: 't3_company_os_manager_masters',
   paymentRequestBatches: 't3_company_os_payment_request_batches',
+  campaignEventOperations: 't3_company_os_campaign_event_operations',
 } as const
 
 const LEGACY_KEYS: Partial<Record<(typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS], string>> = {

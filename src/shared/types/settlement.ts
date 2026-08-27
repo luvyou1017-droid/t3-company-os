@@ -108,6 +108,7 @@ export type SettlementActivityAction =
   | 'manager_review_requested'
   | 'manager_review_completed'
   | 'revision_requested'
+  | 'revision_completed'
   | 'settlement_confirmed'
   | 'settlement_confirmation_released'
   | 'seller_payment_requested'
@@ -198,4 +199,13 @@ export type SettlementVersionComparison = {
   before: number
   after: number
   changed: boolean
+}
+
+export type SettlementRevisionDraft = {
+  settlementId: string
+  reason: string
+  rows: import('./salesData').SalesDataRow[]
+  totalCommissionRate: number
+  sellerCommissionRate: number
+  deductions: SettlementDeduction[]
 }

@@ -2,7 +2,7 @@ import type { CampaignSalesChannelType } from './campaign'
 import type { SupplierLinkPgPolicy } from '../../features/productMaster/types'
 
 export type CampaignCreationBusinessType = 'general_business' | 'simplified_business' | 'freelancer'
-export type EventPayer = 'vendor' | 'seller' | 'company_support' | 'manager' | 'shared'
+export type EventPayer = 'vendor' | 'seller' | 'company' | 'company_support' | 'manager' | 'shared'
 export type CampaignEventCostOwner = 'seller' | 'company' | 'vendor' | 'manager'
 export interface CampaignEventCostShare {
   owner: CampaignEventCostOwner
@@ -10,6 +10,9 @@ export interface CampaignEventCostShare {
   amount?: number
 }
 export type CampaignEventType = 'first_come' | 'purchase_complete' | 'try_it' | 'other'
+export type CampaignEventCostHandling = 'company_direct' | 'vendor_free' | 'manager_prepaid'
+export type CampaignEventShippingStatus = 'winner_registration_pending' | 'shipping_pending' | 'scheduled_this_week' | 'shipped'
+export type ManagerPrepaymentStatus = 'not_requested' | 'approval_pending' | 'approved' | 'unapproved' | 'evidence_confirmed'
 
 export interface ProductSalesLinkPolicy {
   defaultSalesChannelType: CampaignSalesChannelType
@@ -107,6 +110,22 @@ export interface CampaignEvent {
   memo?: string
   costShares?: CampaignEventCostShare[]
   rewardProductMode?: 'master' | 'same_as_target' | 'direct' | 'none'
+  eventName?: string
+  costHandling?: CampaignEventCostHandling
+  shippingOwner?: 'company' | 'vendor'
+  shippingStatus?: CampaignEventShippingStatus
+  winners?: Array<{ id: string; name: string; contact?: string }>
+  winnerCountConfirmed?: boolean
+  managerPrepayment?: {
+    status: ManagerPrepaymentStatus
+    reason?: string
+    requestedAmount?: number
+    approvedAmount?: number
+    actualAmount?: number
+    evidenceConfirmed?: boolean
+    paidAt?: string
+    managerId?: string
+  }
 }
 
 export interface AiCampaignDraft {
