@@ -63,6 +63,10 @@ const actionLabels: Record<string, string> = {
   revision_requested: '수정 요청',
   settlement_confirmed: '정산서 확정',
   settlement_confirmation_released: '정산서 확정 해제',
+  seller_payment_requested: '셀러 지급요청',
+  seller_payment_request_updated: '셀러 지급요청 수정',
+  manager_payment_requested: '매니저 지급요청',
+  manager_payment_request_updated: '매니저 지급요청 수정',
   approval_requested: '대표 승인 요청',
   approved: '대표 승인',
   payment_ready: '지급 준비',
@@ -401,7 +405,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     try {
       if (settlement.sellerPaymentCompleted || settlement.managerPaymentCompleted) throw new Error('지급 완료된 정산서는 직접 수정할 수 없습니다.')
       if (sellerPaymentRequest || managerPaymentRequest) throw new Error('지급요청이 생성된 정산서입니다. 먼저 기존 지급요청을 취소하거나 정정해주세요.')
-      const next = settlementService.releaseSettlementConfirmation(settlement.id, confirmationReleaseReason, currentUser?.name ?? '허수정')
+      const next = settlementService.releaseSettlementConfirmation(settlement.id, confirmationReleaseReason, currentUser?.name ?? '허수정', currentUser?.role ?? '정산 담당자')
       setSettlement({ ...next })
       setConfirmationReleaseReason('')
       setConfirmationModal(null)

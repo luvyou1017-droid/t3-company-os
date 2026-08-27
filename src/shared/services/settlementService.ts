@@ -1,4 +1,5 @@
 import type { WorkType } from '../../features/myWork/types'
+import type { AppUserRole } from '../data/users'
 import type { SampleCostOwner, SampleRequest } from '../../features/samples/types'
 import type { SalesDataImport } from '../types/salesData'
 import type {
@@ -470,7 +471,8 @@ export const settlementService = {
   isSettlementConfirmed(settlement: Settlement) {
     if (settlement.status === 'revision_required') return false
     if (settlement.settlementConfirmed !== undefined) return settlement.settlementConfirmed
-    return Boolean(settlement.calculationSnapshot)
+    const legacyConfirmedStatuses: SettlementStatus[] = ['manager_reviewed', 'approval_pending', 'approved', 'payment_ready', 'partially_paid', 'completed']
+    return Boolean(settlement.calculationSnapshot) || legacyConfirmedStatuses.includes(settlement.status)
   },
   confirmSettlement(settlementId: string, confirmedBy = '허수정') {
     const settlement = this.getSettlementById(settlementId)
@@ -486,11 +488,15 @@ export const settlementService = {
     this.addActivity({ ...next, assigneeName: confirmedBy }, 'settlement_confirmed', settlement.status, next.status, '정산서 확정')
     return next
   },
-  releaseSettlementConfirmation(settlementId: string, reason: string, releasedBy = '허수정') {
+  releaseSettlementConfirmation(settlementId: string, reason: string, releasedBy = '허수정', releasedByRole: AppUserRole = '정산 담당자') {
     const settlement = this.getSettlementById(settlementId)
     const trimmedReason = reason.trim()
     if (!settlement) throw new Error('정산서를 찾을 수 없습니다.')
+    if (releasedByRole !== '대표' && releasedByRole !== '정산 담당자') throw new Error('정산서 확정을 해제할 권한이 없습니다.')
     if (!trimmedReason) throw new Error('확정 해제 사유를 입력해주세요.')
+    if (settlement.sellerPaymentCompleted || settlement.managerPaymentCompleted || settlement.sellerPaymentRequestStatus === 'payment_completed' || settlement.managerPaymentRequestStatus === 'payment_completed' || settlement.sellerPaymentRequestStatus === 'remittance_confirmed' || settlement.managerPaymentRequestStatus === 'remittance_confirmed') throw new Error('지급 완료된 정산서는 직접 수정할 수 없습니다.')
+    const activeRequestStatuses = ['evidence_pending', 'request_ready', 'approval_pending', 'approved', 'sent', 'on_hold']
+    if ((settlement.sellerPaymentRequestStatus && activeRequestStatuses.includes(settlement.sellerPaymentRequestStatus)) || (settlement.managerPaymentRequestStatus && activeRequestStatuses.includes(settlement.managerPaymentRequestStatus))) throw new Error('지급요청이 생성된 정산서입니다. 먼저 기존 지급요청을 취소하거나 정정해주세요.')
     const releasedAt = now()
     const next: Settlement = { ...settlement, settlementConfirmed: false, settlementConfirmationReleasedAt: releasedAt, settlementConfirmationReleasedBy: releasedBy, settlementConfirmationReleaseReason: trimmedReason, status: 'review_pending', updatedAt: releasedAt }
     this.saveSettlements(this.getSettlements().map((item) => item.id === settlementId ? next : item))
@@ -664,6 +670,9 @@ export const settlementService = {
     const completedKey = recipientType === 'seller' ? 'sellerPaymentCompletedAt' : 'managerPaymentCompletedAt'
     const next = { ...settlement, [statusKey]: status, ...(completedAt ? { [completedKey]: completedAt } : {}), updatedAt: now() }
     this.saveSettlements(this.getSettlements().map((item) => item.id === settlementId ? next : item))
+    const previousRequestStatus = settlement[statusKey]
+    if (!previousRequestStatus) this.addActivity(next, recipientType === 'seller' ? 'seller_payment_requested' : 'manager_payment_requested', settlement.status, next.status, `${recipientType === 'seller' ? '셀러' : '매니저'} 지급요청 생성`)
+    else if (previousRequestStatus === status) this.addActivity(next, recipientType === 'seller' ? 'seller_payment_request_updated' : 'manager_payment_request_updated', settlement.status, next.status, `${recipientType === 'seller' ? '셀러' : '매니저'} 지급요청 수정`)
     return next
   },
 }

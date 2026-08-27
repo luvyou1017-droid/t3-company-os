@@ -38,6 +38,7 @@ const premiumSettlement = settlementService.getSettlements().find((item) => item
   ?? settlementService.createSettlementFromSalesData('sales-009', 'review_pending')
 const healthSettlement = settlementService.getSettlements().find((item) => item.campaignId === 'SCH-005')
 if (!premiumSettlement || !healthSettlement) throw new Error('정산 더미데이터가 없습니다.')
+storageService.setItem(STORAGE_KEYS.settlements, settlementService.getSettlements().map((item) => item.id === premiumSettlement.id ? { ...item, settlementConfirmed: true, settlementConfirmedAt: item.updatedAt, settlementConfirmedBy: '허수정', settlementConfirmedVersion: item.settlementVersion } : item))
 
 const premiumManagerValidation = paymentRequestService.validateManagerPaymentRequest({
   settlementId: premiumSettlement.id, ownerId: 'u-001', businessType: manager.businessType,
@@ -65,12 +66,21 @@ const premiumCalculationBeforeRevision = {
 const revisionReason = '이벤트비 확인 필요'
 const revisionRequested = settlementService.requestRevision(premiumSettlement.id, revisionReason, '테스트 요청자')
 const revisionLog = settlementService.getActivityLogsBySettlementId(premiumSettlement.id).find((item) => item.action === 'revision_requested' && item.reason === revisionReason)
+const unresolvedRevisionBlocksConfirmation = (() => {
+  try { settlementService.confirmSettlement(premiumSettlement.id, '허수정'); return false }
+  catch (error) { return error instanceof Error && error.message.includes('해결되지 않은 수정 요청') }
+})()
 
 const approvedSettlements = settlementService.getSettlements().map((item) => ({ ...item, status: 'approved', accountConfirmed: true }))
 storageService.setItem(STORAGE_KEYS.settlements, approvedSettlements)
 const approvedHealth = settlementService.getSettlementById(healthSettlement.id)
 const releasedHealth = settlementService.releaseSettlementConfirmation(approvedHealth.id, '확정 흐름 테스트', '허수정')
+const unconfirmedHealthValidation = paymentRequestService.validateManagerPaymentRequest({ settlementId: approvedHealth.id, ownerId: 'u-001', businessType: manager.businessType, evidenceTypeConfirmed: true, accountConfirmed: true, calculationCompleted: true, calculationErrors: [], amountConfirmed: true, sourceVersion: approvedHealth.settlementVersion })
 const reconfirmedHealth = settlementService.confirmSettlement(approvedHealth.id, '허수정')
+const unauthorizedReleaseBlocked = (() => {
+  try { settlementService.releaseSettlementConfirmation(approvedHealth.id, '권한 테스트', '김병희', '매니저'); return false }
+  catch (error) { return error instanceof Error && error.message.includes('권한이 없습니다') }
+})()
 const healthConfirmationLogs = settlementService.getActivityLogsBySettlementId(approvedHealth.id)
 const healthProductSubtotal = salesDataService.getRowsByImportId(approvedHealth.salesDataImportId).reduce((total, row) => {
   const calculated = calculateManagerProductRow(row, approvedHealth.currentCalculation.totalCommissionRate)
@@ -79,6 +89,11 @@ const healthProductSubtotal = salesDataService.getRowsByImportId(approvedHealth.
 const healthTax = calculateWithholding(approvedHealth.currentCalculation.managerAmount + approvedHealth.currentCalculation.managerDeductionTotal, approvedHealth.currentCalculation.managerDeductionTotal)
 const beforeRequests = paymentRequestService.getPaymentRequests().length
 const request = paymentRequestService.createManagerPaymentRequest(approvedHealth.id, '테스트', manager.businessType, undefined, { accountConfirmed: true })
+const paymentActivityLogs = settlementService.getActivityLogsBySettlementId(approvedHealth.id)
+const activeRequestBlocksRelease = (() => {
+  try { settlementService.releaseSettlementConfirmation(approvedHealth.id, '요청 충돌 테스트', '허수정', '정산 담당자'); return false }
+  catch (error) { return error instanceof Error && error.message.includes('지급요청이 생성된') }
+})()
 const afterRequests = paymentRequestService.getPaymentRequests().length
 const taxItemsAfterRequest = withholdingTaxService.getBySettlementOwner(approvedHealth.id, 'manager', 'u-001')
 withholdingTaxService.upsert({ settlementId: approvedHealth.id, ownerType: 'manager', ownerId: 'u-001', ownerName: '허윤정', grossSettlementAmount: 69_440, deductions: 0, sourceVersion: approvedHealth.settlementVersion })
@@ -95,6 +110,8 @@ try {
   paymentRequestService.createManagerPaymentRequest(failureSettlement.id, '테스트', 'freelancer', undefined, { accountConfirmed: true })
 } catch (error) { failureMessage = error instanceof Error ? error.message : ''; failureBlocked = failureMessage === '원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.' && paymentRequestService.getPaymentRequests().length === requestsBeforeFailure }
 withholdingTaxService.upsert = originalUpsert
+const sellerOnlySettlement = settlementService.updatePaymentRequestStatus(failureSettlement.id, 'seller', 'approval_pending')
+const independentlyUpdatedRecipients = settlementService.updatePaymentRequestStatus(failureSettlement.id, 'manager', 'request_ready')
 
 const duplicateBlocked = (() => {
   try { paymentRequestService.createManagerPaymentRequest(approvedHealth.id, '테스트', manager.businessType, undefined, { accountConfirmed: true }); return false }
@@ -111,6 +128,10 @@ const completedEditBlocked = (() => {
   try { paymentRequestService.updatePaymentRequest(premiumRequest.id, { memo: '지급 후 수정', accountConfirmed: true, evidenceStatus: premiumRequest.evidenceStatus }); return false }
   catch (error) { return error instanceof Error && error.message === '이미 지급 완료된 건입니다.' }
 })()
+const completedPaymentBlocksRelease = (() => {
+  try { settlementService.releaseSettlementConfirmation(premiumSettlement.id, '지급 완료 테스트', '허수정', '정산 담당자'); return false }
+  catch (error) { return error instanceof Error && error.message.includes('지급 완료된 정산서') }
+})()
 
 const checks = [
   ['셀러명/사업자명 독립 저장', sellerSaved.name === '헬시윤' && sellerRead.businessName === '(주)헬시윤'],
@@ -126,12 +147,20 @@ const checks = [
   ['대표 승인 후 지급 요청 수정 제한', approvedEditBlocked],
   ['지급 완료 후 지급 요청 수정 제한', completedEditBlocked],
   ['셀러/매니저 지급 상태 독립 관리', independentlyTrackedPremium.managerPaymentRequestStatus === 'approval_pending' && !independentlyTrackedPremium.sellerPaymentRequestStatus],
+  ['셀러 선행 및 반대 순서 상태 독립', sellerOnlySettlement?.sellerPaymentRequestStatus === 'approval_pending' && !sellerOnlySettlement.managerPaymentRequestStatus && independentlyUpdatedRecipients?.sellerPaymentRequestStatus === 'approval_pending' && independentlyUpdatedRecipients.managerPaymentRequestStatus === 'request_ready'],
   ['수정 요청 이력 및 현재 버전 보존', revisionRequested?.status === 'revision_required' && revisionRequested.settlementVersion === premiumVersionBeforeRevision && revisionRequested.currentCalculation.finalPaymentAmount === premiumCalculationBeforeRevision.finalPaymentAmount && revisionRequested.currentCalculation.managerAmount === premiumCalculationBeforeRevision.managerAmount && revisionRequested.currentCalculation.companyAmount === premiumCalculationBeforeRevision.companyAmount && revisionLog?.actor === '테스트 요청자' && revisionLog.version === premiumVersionBeforeRevision],
   ['회사 귀속 계산 데이터 유지', Number.isFinite(premiumCompanyAmountBeforeRequest) && settlementService.getSettlementById(premiumSettlement.id).currentCalculation.companyAmount === premiumCompanyAmountBeforeRequest],
   ['건강식품 VAT 포함 배분금액', healthTax.grossSettlementAmount === 69_440],
+  ['미확정 정산서 지급요청 차단', !unconfirmedHealthValidation.valid && unconfirmedHealthValidation.reasons.includes('정산서를 먼저 확정해주세요.')],
+  ['미해결 수정요청 확정 차단', unresolvedRevisionBlocksConfirmation],
+  ['권한 없는 사용자 확정 해제 차단', unauthorizedReleaseBlocked],
+  ['지급요청 존재 시 확정 해제 차단', activeRequestBlocksRelease],
+  ['지급 완료 후 확정 해제 차단', completedPaymentBlocksRelease],
   ['정산서 확정 해제·재확정 이력', releasedHealth.settlementConfirmed === false && reconfirmedHealth.settlementConfirmed === true && reconfirmedHealth.settlementConfirmedVersion === approvedHealth.settlementVersion && healthConfirmationLogs.some((item) => item.action === 'settlement_confirmation_released') && healthConfirmationLogs.some((item) => item.action === 'settlement_confirmed')],
   ['매니저 상품 판매 소계', healthProductSubtotal.quantity === 108 && healthProductSubtotal.salesAmount === 3_024_000 && healthProductSubtotal.salesCommission === 756_000],
   ['건강식품 원천세 계산', healthTax.withholdingBaseAmount === 63_127 && healthTax.incomeTaxAmount === 1_890 && healthTax.localIncomeTaxAmount === 180 && healthTax.finalPaymentAmount === 61_057],
+  ['건강식품 입금 예정일', approvedHealth.paymentDueDate === '2026-08-16'],
+  ['매니저 지급요청 감사 이력', paymentActivityLogs.some((item) => item.action === 'manager_payment_requested' && item.version === approvedHealth.settlementVersion)],
   ['지급 요청 최종액 일치', request.finalPaymentAmount === healthTax.finalPaymentAmount],
   ['원천세 선등록 후 지급 요청 생성', taxItemsAfterRequest.length === 1 && afterRequests === beforeRequests + 1 && request.status === 'approval_pending'],
   ['원천세 중복 등록 방지', taxItemsAfterRepeat.length === 1 && taxItemsAfterRepeat[0].id === taxItemsAfterRequest[0].id],

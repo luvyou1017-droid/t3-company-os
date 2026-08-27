@@ -35,6 +35,8 @@ function validate(input: PaymentRequestValidationInput) {
   const reasons: string[] = []
   if (!settlement) {
     reasons.push(input.ownerType === 'seller' ? '셀러 정산 정보를 찾을 수 없습니다.' : '매니저 정산 정보를 찾을 수 없습니다.')
+  } else if (!settlementService.isSettlementConfirmed(settlement)) {
+    reasons.push('정산서를 먼저 확정해주세요.')
   } else if (input.ownerType === 'manager') {
     const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
     const calculation = settlement.currentCalculation
