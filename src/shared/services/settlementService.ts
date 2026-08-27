@@ -283,15 +283,13 @@ export const settlementService = {
   getRevisionRequestsBySettlementId(settlementId: string) {
     return this.getRevisionRequests().filter((item) => item.settlementId === settlementId).sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
   },
-  getPendingRevisionRequest(settlementId: string) {
+  getPendingRevisionRequest(settlementId: string): SettlementRevisionRequest | undefined {
     const pending = this.getRevisionRequestsBySettlementId(settlementId).find((item) => item.status === 'pending')
     if (pending) return pending
     const settlement = this.getSettlementById(settlementId)
     if (settlement?.status !== 'revision_required') return undefined
     const log = this.getActivityLogsBySettlementId(settlementId).find((item) => item.action === 'revision_requested')
-    const legacy: SettlementRevisionRequest = { id: `revision-request-${settlementId}-${settlement.settlementVersion}`, settlementId, campaignId: settlement.campaignId, version: settlement.settlementVersion, reason: settlement.sourceChangeReason || log?.reason || '확인 필요', status: 'pending', requestedBy: log?.actor || settlement.assigneeName, requestedAt: log?.at || settlement.updatedAt }
-    this.saveRevisionRequests([legacy, ...this.getRevisionRequests().filter((item) => item.id !== legacy.id)])
-    return legacy
+    return { id: `revision-request-${settlementId}-${settlement.settlementVersion}`, settlementId, campaignId: settlement.campaignId, version: settlement.settlementVersion, reason: settlement.sourceChangeReason || log?.reason || '확인 필요', status: 'pending', requestedBy: log?.actor || settlement.assigneeName, requestedAt: log?.at || settlement.updatedAt }
   },
   saveActivityLogs(logs: SettlementActivityLog[]) {
     storageService.setItem(STORAGE_KEYS.settlementActivityLogs, logs)
@@ -422,7 +420,6 @@ export const settlementService = {
       if (!changed) return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current), hasSourceChanged: false }
       return { ...settlement, status: 'revision_required' as const, currentCalculation: current, calculationSteps: createCalculationSteps(current), hasSourceChanged: true, sourceChangeReason: '원본 데이터 변경됨' }
     })
-    if (JSON.stringify(next) !== JSON.stringify(settlements)) this.saveSettlements(next)
     return next
   },
   createSettlementFromSalesData(salesDataImportId: string, initialStatus: SettlementStatus = 'draft') {
@@ -506,7 +503,7 @@ export const settlementService = {
     this.createSettlementVersion(next, input.reason || '정산 수정', changedBy, input, previousInput)
     this.addActivity({ ...next, assigneeName: changedBy }, 'revision_completed', settlement.status, next.status, input.reason || '정산 수정 완료')
     const pendingRequest = this.getPendingRevisionRequest(settlement.id)
-    if (pendingRequest) this.saveRevisionRequests(this.getRevisionRequests().map((item) => item.id === pendingRequest.id ? { ...item, status: 'resolved', resolvedBy: changedBy, resolvedAt: now(), updatedBy: changedBy, updatedAt: now() } : item))
+    if (pendingRequest) { const requests = this.getRevisionRequests(); const resolved = { ...pendingRequest, status: 'resolved' as const, resolvedBy: changedBy, resolvedAt: now(), updatedBy: changedBy, updatedAt: now() }; this.saveRevisionRequests(requests.some((item) => item.id === pendingRequest.id) ? requests.map((item) => item.id === pendingRequest.id ? resolved : item) : [resolved, ...requests]) }
     return next
   },
   requestRevision(settlementId: string, reason: string, requestedBy = '허수정') {
@@ -529,37 +526,40 @@ export const settlementService = {
     return next
   },
   updateRevisionRequest(requestId: string, reason: string, updatedBy: string) {
-    const request = this.getRevisionRequests().find((item) => item.id === requestId)
+    const requests = this.getRevisionRequests()
+    const request = requests.find((item) => item.id === requestId) ?? this.getSettlements().map((item) => this.getPendingRevisionRequest(item.id)).find((item) => item?.id === requestId)
     const trimmedReason = reason.trim()
     if (!request || request.status !== 'pending') throw new Error('처리 대기 중인 수정 요청을 찾을 수 없습니다.')
     if (request.requestedBy !== updatedBy) throw new Error('수정 요청을 변경할 권한이 없습니다.')
     if (!trimmedReason) throw new Error('수정 요청 내용을 입력해주세요.')
-    const next = { ...request, reason: trimmedReason, updatedBy, updatedAt: now() }
-    this.saveRevisionRequests(this.getRevisionRequests().map((item) => item.id === requestId ? next : item))
+    const next: SettlementRevisionRequest = { ...request, reason: trimmedReason, updatedBy, updatedAt: now() }
+    this.saveRevisionRequests(requests.some((item) => item.id === requestId) ? requests.map((item) => item.id === requestId ? next : item) : [next, ...requests])
     const settlement = this.getSettlementById(request.settlementId)
     if (settlement) { const updatedSettlement = { ...settlement, sourceChangeReason: trimmedReason, updatedAt: now() }; this.saveSettlements(this.getSettlements().map((item) => item.id === settlement.id ? updatedSettlement : item)); this.addActivity({ ...updatedSettlement, assigneeName: updatedBy }, 'revision_request_updated', settlement.status, settlement.status, trimmedReason) }
     return next
   },
   cancelRevisionRequest(requestId: string, cancelledBy: string, cancellationReason = '수정 요청 취소') {
-    const request = this.getRevisionRequests().find((item) => item.id === requestId)
+    const requests = this.getRevisionRequests()
+    const request = requests.find((item) => item.id === requestId) ?? this.getSettlements().map((item) => this.getPendingRevisionRequest(item.id)).find((item) => item?.id === requestId)
     if (!request || request.status !== 'pending') throw new Error('처리 대기 중인 수정 요청을 찾을 수 없습니다.')
     if (request.requestedBy !== cancelledBy) throw new Error('수정 요청을 취소할 권한이 없습니다.')
     const trimmedReason = cancellationReason.trim()
     if (!trimmedReason) throw new Error('수정 요청 취소 사유를 입력해주세요.')
     const next = { ...request, status: 'cancelled' as const, cancelledBy, cancelledAt: now(), cancellationReason: trimmedReason, updatedBy: cancelledBy, updatedAt: now() }
-    this.saveRevisionRequests(this.getRevisionRequests().map((item) => item.id === requestId ? next : item))
+    this.saveRevisionRequests(requests.some((item) => item.id === requestId) ? requests.map((item) => item.id === requestId ? next : item) : [next, ...requests])
     const settlement = this.getSettlementById(request.settlementId)
     if (settlement) { const updatedSettlement: Settlement = { ...settlement, status: request.previousSettlementStatus && request.previousSettlementStatus !== 'revision_required' ? request.previousSettlementStatus : 'review_pending', hasSourceChanged: request.previousHasSourceChanged ?? false, sourceChangeReason: request.previousSourceChangeReason, updatedAt: now() }; this.saveSettlements(this.getSettlements().map((item) => item.id === settlement.id ? updatedSettlement : item)); this.addActivity({ ...updatedSettlement, assigneeName: cancelledBy }, 'revision_request_cancelled', settlement.status, updatedSettlement.status, trimmedReason) }
     return next
   },
   rejectRevisionRequest(requestId: string, rejectionReason: string, rejectedBy: string, role: AppUserRole) {
-    const request = this.getRevisionRequests().find((item) => item.id === requestId)
+    const requests = this.getRevisionRequests()
+    const request = requests.find((item) => item.id === requestId) ?? this.getSettlements().map((item) => this.getPendingRevisionRequest(item.id)).find((item) => item?.id === requestId)
     const trimmedReason = rejectionReason.trim()
     if (!canEditSettlement(role)) throw new Error('수정 요청을 반려할 권한이 없습니다.')
     if (!request || request.status !== 'pending') throw new Error('처리 대기 중인 수정 요청을 찾을 수 없습니다.')
     if (!trimmedReason) throw new Error('반려 사유를 입력해주세요.')
     const next = { ...request, status: 'rejected' as const, rejectedBy, rejectedAt: now(), rejectionReason: trimmedReason, updatedBy: rejectedBy, updatedAt: now() }
-    this.saveRevisionRequests(this.getRevisionRequests().map((item) => item.id === requestId ? next : item))
+    this.saveRevisionRequests(requests.some((item) => item.id === requestId) ? requests.map((item) => item.id === requestId ? next : item) : [next, ...requests])
     const settlement = this.getSettlementById(request.settlementId)
     if (settlement) { const updatedSettlement: Settlement = { ...settlement, status: 'review_pending', sourceChangeReason: undefined, updatedAt: now() }; this.saveSettlements(this.getSettlements().map((item) => item.id === settlement.id ? updatedSettlement : item)); this.addActivity({ ...updatedSettlement, assigneeName: rejectedBy }, 'revision_request_rejected', settlement.status, updatedSettlement.status, trimmedReason) }
     return next

@@ -42,7 +42,7 @@ const LEGACY_KEYS: Partial<Record<(typeof STORAGE_KEYS)[keyof typeof STORAGE_KEY
 
 function notifyStorageUpdated(key: string) {
   if (typeof window === 'undefined') return
-  window.dispatchEvent(new CustomEvent('t3-storage-updated', { detail: { key } }))
+  queueMicrotask(() => window.dispatchEvent(new CustomEvent('t3-storage-updated', { detail: { key } })))
 }
 
 export const storageService = {
