@@ -989,7 +989,7 @@ function PayoutStatusBanner({ notice }: { notice?: PayoutStatusNotice }) {
 }
 
 function ManagerDocumentActions({ hasRequest, statusNotice, warnings, onAccount, onCopy, onPreview, onRequestPayment, onSave, paymentDisabled }: { hasRequest: boolean; statusNotice: PayoutStatusNotice; warnings: PaymentWarningAction[]; onAccount: () => void; onCopy: () => void; onPreview: () => void; onRequestPayment: () => void; onSave: () => void; paymentDisabled: boolean }) {
-  return <div className="document-action-bar no-print"><div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview}>확대 보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="secondary-button" onClick={onAccount}>매니저 정보 확인하기</button><button className={hasRequest ? 'payment-edit-button' : 'primary-button'} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '매니저 지급요청 수정하기' : '매니저 지급 요청'}</button></div><PayoutStatusBanner notice={statusNotice} /><PaymentBlockReasons ownerLabel="매니저" warnings={warnings} /></div>
+  return <div className="document-action-bar no-print"><div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview}>확대 보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="secondary-button" onClick={onAccount}>매니저 정보 확인하기</button><button className={hasRequest ? 'payment-edit-button' : 'primary-button'} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '매니저 지급요청 수정하기' : '매니저 지급 요청'}</button></div><div className="document-status-region"><PayoutStatusBanner notice={statusNotice} /><PaymentBlockReasons ownerLabel="매니저" warnings={warnings} /></div></div>
 }
 
 function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, settlement }: { exportGeneratedAt: string; rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
@@ -1093,8 +1093,7 @@ function SettlementDocumentActions({ hasRequest, statusNotice, warnings, onCopyI
   return (
     <div className="document-action-bar no-print">
       <div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview} type="button">확대 보기</button><button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button><button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button><button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button><button className="secondary-button" onClick={onInfo} type="button">셀러 정보 확인하기</button><button className={hasRequest ? 'payment-edit-button' : 'primary-button'} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '셀러 지급요청 수정하기' : '셀러 지급 요청'}</button></div>
-      <PayoutStatusBanner notice={statusNotice} />
-      <PaymentBlockReasons ownerLabel="셀러" warnings={warnings} />
+      <div className="document-status-region"><PayoutStatusBanner notice={statusNotice} /><PaymentBlockReasons ownerLabel="셀러" warnings={warnings} /></div>
     </div>
   )
 }
