@@ -28,6 +28,11 @@ import { STORAGE_KEYS, storageService } from './storageService'
 const now = () => new Date().toISOString()
 const channelCollector = { supplier_link: 'supplier', wise_shop_link: 'wise_shop', seller_checkout: 'seller' } as const
 
+function salesChannelForCampaign(campaignId: string): SalesChannelType {
+  const campaign = campaignService.getCampaignById(campaignId)
+  return campaign?.salesChannelType ?? campaign?.proposalSnapshots?.[0]?.actualSalesChannel ?? 'supplier_link'
+}
+
 function businessTypeForCampaign(campaignId: string): SellerBusinessType {
   if (campaignId === 'SCH-005') return 'simplified_business'
   if (campaignId === 'SCH-009') return 'freelancer'
@@ -103,14 +108,18 @@ export const sellerSettlementService = {
     const existing = storageService.getItem<SellerSettlementRule[]>(STORAGE_KEYS.sellerSettlementRules, [])
     if (existing.length) return existing
     const rules = settlementService.getSettlements().flatMap((settlement) => {
-      const channel = campaignService.getCampaignById(settlement.campaignId)?.salesChannelType
-      return channel ? [buildDefaultRule(settlement.campaignId, channel)] : []
+      return [buildDefaultRule(settlement.campaignId, salesChannelForCampaign(settlement.campaignId))]
     })
     storageService.setItem(STORAGE_KEYS.sellerSettlementRules, rules)
     return rules
   },
   getSellerSettlementRule(campaignId: string) {
     return this.getRules().find((item) => item.campaignId === campaignId)
+  },
+  ensureSellerSettlementRule(campaignId: string) {
+    const existing = this.getSellerSettlementRule(campaignId)
+    if (existing) return existing
+    return this.saveRule(buildDefaultRule(campaignId, salesChannelForCampaign(campaignId)))
   },
   saveRule(rule: SellerSettlementRule) {
     storageService.setItem(STORAGE_KEYS.sellerSettlementRules, [...this.getRules().filter((item) => item.campaignId !== rule.campaignId), rule])

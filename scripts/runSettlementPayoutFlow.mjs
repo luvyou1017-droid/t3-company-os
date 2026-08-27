@@ -10,11 +10,13 @@ globalThis.localStorage = new MemoryStorage()
 const { createServer } = await import('vite')
 const vite = await createServer({ configFile: false, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 const { sellerMasterService } = await vite.ssrLoadModule('/src/shared/services/sellerMasterService.ts')
+const { sellerSettlementService } = await vite.ssrLoadModule('/src/shared/services/sellerSettlementService.ts')
 const { managerPaymentService } = await vite.ssrLoadModule('/src/shared/services/managerPaymentService.ts')
 const { settlementService } = await vite.ssrLoadModule('/src/shared/services/settlementService.ts')
 const { paymentRequestService } = await vite.ssrLoadModule('/src/shared/services/paymentRequestService.ts')
 const { withholdingTaxService } = await vite.ssrLoadModule('/src/shared/services/withholdingTaxService.ts')
 const { calculateWithholding } = await vite.ssrLoadModule('/src/shared/utils/withholdingTax.ts')
+const { getRecommendedEvidenceType, normalizeSellerBusinessType } = await vite.ssrLoadModule('/src/shared/utils/sellerSettlement.ts')
 const { STORAGE_KEYS, storageService } = await vite.ssrLoadModule('/src/shared/services/storageService.ts')
 
 const sellerSaved = sellerMasterService.saveSellerProfile({
@@ -22,6 +24,13 @@ const sellerSaved = sellerMasterService.saveSellerProfile({
   defaultMdId: 'md-SCH-005', defaultManagerId: 'u-001', bankName: '국민은행', accountNumber: '123-456', accountHolder: '(주)헬시윤',
 })
 const sellerRead = sellerMasterService.getSellerById('seller-SCH-005')
+storageService.setItem(STORAGE_KEYS.sellerSettlementRules, sellerSettlementService.getRules().filter((rule) => rule.campaignId !== 'SCH-009'))
+sellerMasterService.saveSellerProfile({ id: 'seller-SCH-009', name: '라이프지수', businessName: '(주)라이프지수', businessType: 'general_business', defaultMdId: 'md-SCH-009', defaultManagerId: 'u-001' })
+const premiumRule = sellerSettlementService.ensureSellerSettlementRule('SCH-009')
+const premiumBusinessType = normalizeSellerBusinessType(sellerMasterService.getSellerById('seller-SCH-009')?.businessType)
+const premiumEvidenceType = getRecommendedEvidenceType(premiumBusinessType)
+sellerSettlementService.saveRule({ ...premiumRule, businessType: premiumBusinessType, recommendedEvidenceType: premiumEvidenceType, confirmedEvidenceType: premiumEvidenceType, evidenceConfirmed: true })
+const refreshedPremiumRule = sellerSettlementService.getSellerSettlementRule('SCH-009')
 const manager = managerPaymentService.getProfile('u-001')
 const healthSettlement = settlementService.getSettlements().find((item) => item.campaignId === 'SCH-005')
 if (!healthSettlement) throw new Error('건강식품 공동구매 정산 더미데이터가 없습니다.')
@@ -57,6 +66,9 @@ const duplicateBlocked = (() => {
 const checks = [
   ['셀러명/사업자명 독립 저장', sellerSaved.name === '헬시윤' && sellerRead.businessName === '(주)헬시윤'],
   ['셀러 사업자 유형 저장', sellerRead.businessType === 'simplified_business'],
+  ['프리미엄 침구 Master/정산 규칙 동기화', premiumBusinessType === 'general_business' && refreshedPremiumRule?.businessType === 'general_business'],
+  ['프리미엄 침구 증빙 유형 자동 결정', refreshedPremiumRule?.confirmedEvidenceType === 'tax_invoice' && refreshedPremiumRule.evidenceConfirmed],
+  ['사업자 유형 공통 normalization', normalizeSellerBusinessType('corporation') === 'general_business'],
   ['Manager Master 사업자 유형', manager?.businessType === 'freelancer' && managerPaymentService.getBusinessType('허윤정') === 'freelancer'],
   ['건강식품 VAT 포함 배분금액', healthTax.grossSettlementAmount === 69_440],
   ['건강식품 원천세 계산', healthTax.withholdingBaseAmount === 63_127 && healthTax.incomeTaxAmount === 1_890 && healthTax.localIncomeTaxAmount === 180 && healthTax.finalPaymentAmount === 61_057],

@@ -58,6 +58,9 @@ export function calculateFinalSellerPayment(gross: number, businessType: SellerB
 export const getRecommendedEvidenceType = (businessType: SellerBusinessType): SellerEvidenceType =>
   businessType === 'freelancer' ? 'withholding_3_3' : businessType === 'simplified_business' ? 'cash_receipt' : 'tax_invoice'
 
+export const normalizeSellerBusinessType = (businessType?: SellerBusinessType): Exclude<SellerBusinessType, 'corporation'> | undefined =>
+  businessType === 'corporation' || businessType === 'general_business' ? 'general_business' : businessType
+
 export function reconcileSellerCheckoutFlow(calculation: Pick<SellerSettlementCalculation, 'sellerRemittanceToCompany' | 'companyRemittanceToSupplier' | 'vendorCommissionAmount'>) {
   return calculation.sellerRemittanceToCompany === calculation.companyRemittanceToSupplier + calculation.vendorCommissionAmount
 }
