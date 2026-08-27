@@ -4659,6 +4659,9 @@
 .payment-cancel-confirmation { max-width: 520px; width: min(520px, calc(100vw - 32px)); }
 .payment-account-fields { border: 1px solid var(--border); border-radius: 10px; display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 12px; }
 .payment-account-fields legend { font-size: 12px; font-weight: 900; padding: 0 5px; }
+.resident-registration-number-input { align-items: center; display: grid; gap: 10px; grid-template-columns: minmax(0, 6fr) auto minmax(0, 7fr); }
+.resident-registration-number-input > span { color: #64748b; font-weight: 800; text-align: center; }
+.resident-registration-number-input input { min-width: 0; text-align: center; }
 .withholding-confirmation { align-items: center; background: #f0fdf4; border: 1px solid #86efac; border-radius: 10px; display: flex; font-weight: 800; gap: 10px; padding: 13px 14px; }
 .withholding-confirmation input { height: 18px; width: 18px; }
 @keyframes clipboard-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
