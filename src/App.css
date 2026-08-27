@@ -1994,6 +1994,8 @@
 .manager-allocation-basis > p { color: #374151 !important; margin: 0; }
 .manager-final-row th,
 .manager-final-row td { background: #fff59d !important; font-size: 14px !important; font-weight: 900 !important; }
+.manager-final-row th { border-bottom: 3px solid #e53935 !important; border-left: 3px solid #e53935 !important; border-top: 3px solid #e53935 !important; }
+.manager-final-row td { border-bottom: 3px solid #e53935 !important; border-right: 3px solid #e53935 !important; border-top: 3px solid #e53935 !important; }
 .manager-calculation-total th,
 .manager-calculation-total td { font-weight: 900 !important; }
 .manager-calculation-deduction th,
@@ -4544,9 +4546,11 @@
 .settlement-readiness-summary dt { color: var(--muted); }
 .settlement-readiness-summary dd { font-weight: 800; margin: 0; }
 .settlement-readiness-form { display: grid; gap: 12px; }
-.clipboard-toast { align-items: center; animation: clipboard-toast-in .16s ease-out; background: #166534; border-radius: 10px; bottom: 24px; box-shadow: 0 12px 36px rgba(15,23,42,.22); color: #fff; display: flex; font-size: 14px; font-weight: 800; gap: 7px; padding: 12px 16px; position: fixed; right: 24px; z-index: 1500; }
+.clipboard-toast { align-items: center; animation: center-toast-in .16s ease-out; background: #166534; border-radius: 10px; box-shadow: 0 12px 36px rgba(15,23,42,.22); color: #fff; display: flex; font-size: 14px; font-weight: 800; gap: 7px; left: 50%; padding: 12px 16px; pointer-events: none; position: fixed; top: 50%; transform: translate(-50%, -50%); z-index: 1500; }
 .clipboard-toast.is-error { background: #b91c1c; }
-.clipboard-toast.is-center { animation: center-toast-in .16s ease-out; bottom: auto; left: 50%; right: auto; top: 50%; transform: translate(-50%, -50%); }
+.payout-status-banner { align-items: flex-start; background: #ecfdf5; border: 1px solid #86efac; border-radius: 10px; color: #166534; display: flex; flex-direction: column; gap: 3px; padding: 11px 13px; }
+.payout-status-banner strong { font-size: 13px; }
+.payout-status-banner span { font-size: 12px; }
 .withholding-confirmation { align-items: center; background: #f0fdf4; border: 1px solid #86efac; border-radius: 10px; display: flex; font-weight: 800; gap: 10px; padding: 13px 14px; }
 .withholding-confirmation input { height: 18px; width: 18px; }
 @keyframes clipboard-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }

@@ -43,6 +43,11 @@ const premiumManagerValidation = paymentRequestService.validateManagerPaymentReq
   calculationErrors: [], amountConfirmed: premiumSettlement.currentCalculation.managerAmount >= 0,
   sourceVersion: premiumSettlement.settlementVersion,
 })
+const premiumSellerValidation = paymentRequestService.validateSellerPaymentRequest({
+  settlementId: premiumSettlement.id, ownerId: 'seller-SCH-009', businessType: premiumBusinessType,
+  evidenceTypeConfirmed: false, accountConfirmed: true, calculationCompleted: true,
+  calculationErrors: [], amountConfirmed: true, sourceVersion: premiumSettlement.settlementVersion,
+})
 const premiumGross = premiumSettlement.currentCalculation.managerAmount + premiumSettlement.currentCalculation.managerDeductionTotal
 const premiumTax = calculateWithholding(premiumGross, premiumSettlement.currentCalculation.managerDeductionTotal)
 const premiumCompanyAmountBeforeRequest = premiumSettlement.currentCalculation.companyAmount
@@ -84,6 +89,7 @@ const checks = [
   ['사업자 유형 공통 normalization', normalizeSellerBusinessType('corporation') === 'general_business'],
   ['Manager Master 사업자 유형', manager?.businessType === 'freelancer' && managerPaymentService.getBusinessType('허윤정') === 'freelancer'],
   ['프리미엄 침구 수동 정산 확인 없이 지급 가능', premiumManagerValidation.valid && !premiumManagerValidation.reasons.some((reason) => reason.includes('정산금액이 확정'))],
+  ['셀러 미확정/증빙 사전 경고 없이 지급 가능', premiumSellerValidation.valid && !premiumSellerValidation.reasons.some((reason) => reason.includes('확정') || reason.includes('증빙') || reason.includes('캡처본'))],
   ['프리미엄 침구 지급 요청 최종액 일치', premiumRequest.finalPaymentAmount === premiumTax.finalPaymentAmount && premiumRequest.status === 'approval_pending'],
   ['회사 귀속 계산 데이터 유지', Number.isFinite(premiumCompanyAmountBeforeRequest) && settlementService.getSettlementById(premiumSettlement.id).currentCalculation.companyAmount === premiumCompanyAmountBeforeRequest],
   ['건강식품 VAT 포함 배분금액', healthTax.grossSettlementAmount === 69_440],

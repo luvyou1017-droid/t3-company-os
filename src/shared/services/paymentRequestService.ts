@@ -31,14 +31,10 @@ type CreatePaymentRequestOptions = { allowEvidencePending?: boolean; memo?: stri
 
 function validate(input: PaymentRequestValidationInput) {
   const settlement = settlementService.getSettlementById(input.settlementId)
-  const withholding = withholdingTaxService.getBySettlementOwner(input.settlementId, input.ownerType, input.ownerId)
-    .some((item) => item.status !== 'canceled')
   const reasons: string[] = []
-  if (input.ownerType === 'seller') {
-    if (!settlement || !['approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) reasons.push('정산서가 확정되지 않았습니다.')
-  } else if (!settlement) {
-    reasons.push('매니저 정산 정보를 찾을 수 없습니다.')
-  } else {
+  if (!settlement) {
+    reasons.push(input.ownerType === 'seller' ? '셀러 정산 정보를 찾을 수 없습니다.' : '매니저 정산 정보를 찾을 수 없습니다.')
+  } else if (input.ownerType === 'manager') {
     const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
     const calculation = settlement.currentCalculation
     const finiteAmounts = [
@@ -54,8 +50,6 @@ function validate(input: PaymentRequestValidationInput) {
     const managerCalculationReady = salesImport?.reviewStatus === '확정 완료' && finiteAmounts && commissionRatesValid && managerShareValid && calculation.managerAmount >= 0
     if (!managerCalculationReady) reasons.push('매니저 최종 지급액을 계산할 수 없습니다.')
   }
-  if (!input.evidenceTypeConfirmed) reasons.push('증빙 유형이 확인되지 않았습니다.')
-  reasons.push(...paymentEvidenceService.getMissingEvidenceReasons(input.settlementId, input.ownerType, input.businessType, withholding))
   if (!input.accountConfirmed) reasons.push('지급 계좌가 확인되지 않았습니다.')
   if (!input.calculationCompleted || input.amountConfirmed === false) reasons.push('최종 지급액 계산이 완료되지 않았습니다.')
   if (input.calculationErrors.length) reasons.push('최종 지급액 계산 오류가 있습니다.')
