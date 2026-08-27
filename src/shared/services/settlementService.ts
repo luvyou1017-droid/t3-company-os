@@ -705,6 +705,7 @@ export const settlementService = {
     this.saveSettlements(this.getSettlements().map((item) => item.id === settlementId ? next : item))
     const previousRequestStatus = settlement[statusKey]
     if (!previousRequestStatus) this.addActivity(next, recipientType === 'seller' ? 'seller_payment_requested' : 'manager_payment_requested', settlement.status, next.status, `${recipientType === 'seller' ? '셀러' : '매니저'} 지급요청 생성`)
+    else if (status === 'canceled') this.addActivity(next, recipientType === 'seller' ? 'seller_payment_request_canceled' : 'manager_payment_request_canceled', settlement.status, next.status, `${recipientType === 'seller' ? '셀러' : '매니저'} 지급요청 취소`)
     else if (previousRequestStatus === status) this.addActivity(next, recipientType === 'seller' ? 'seller_payment_request_updated' : 'manager_payment_request_updated', settlement.status, next.status, `${recipientType === 'seller' ? '셀러' : '매니저'} 지급요청 수정`)
     return next
   },

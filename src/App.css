@@ -1427,12 +1427,28 @@
   opacity: 1;
   transform: none;
 }
+.settlement-revision-request-button:disabled,
+.settlement-revision-request-button:disabled:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  box-shadow: none;
+  color: #9ca3af;
+  cursor: not-allowed;
+  opacity: 1;
+  transform: none;
+}
+.settlement-release-button { background: #dc2626 !important; border-color: #dc2626 !important; color: #fff !important; }
+.settlement-release-button:hover { background: #b91c1c !important; border-color: #b91c1c !important; color: #fff !important; }
 .settlement-confirmation-state { align-items: center; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; color: #475569; display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 12px 16px; }
 .settlement-confirmation-state strong { color: #0f172a; }
 .settlement-confirmation-state.is-confirmed { background: #eaf8ee; border-color: #86efac; color: #166534; }
 .settlement-confirmation-state.is-confirmed strong { color: #166534; }
 .settlement-confirmation-state.is-revision { background: #fff1f2; border-color: #fda4af; color: #be123c; }
 .settlement-confirmation-state.is-revision strong { color: #be123c; }
+.settlement-unlock-payment-warning { background: #fff1f2; border: 1px solid #fda4af; border-radius: 12px; display: grid; gap: 8px; padding: 14px; }
+.settlement-unlock-payment-warning strong { color: #be123c; }
+.settlement-unlock-payment-warning p { margin: 0; }
+.settlement-unlock-payment-warning button { justify-self: start; }
 .settlement-confirmation-state button { margin-left: auto; }
 .settlement-detail-header h1 { font-size: clamp(28px, 3vw, 42px); letter-spacing: -.04em; margin: 0; }
 .settlement-detail-header p { color: var(--muted); font-size: 15px; margin: 8px 0 0; }
@@ -4637,6 +4653,10 @@
 .payment-edit-button { background: #16803c; border: 1px solid #16803c; border-radius: 10px; color: #fff; cursor: pointer; font: inherit; font-weight: 800; padding: 9px 13px; }
 .payment-edit-button:hover:not(:disabled) { background: #166534; border-color: #166534; }
 .payment-edit-button:disabled { cursor: not-allowed; opacity: .5; }
+.payment-request-modal-actions { align-items: center; display: flex; gap: 14px; justify-content: space-between; }
+.payment-request-modal-actions > .button-row { margin-left: auto; }
+.payment-request-cancel-button:disabled { background: #f3f4f6 !important; border-color: #d1d5db !important; color: #9ca3af !important; cursor: not-allowed; }
+.payment-cancel-confirmation { max-width: 520px; width: min(520px, calc(100vw - 32px)); }
 .payment-account-fields { border: 1px solid var(--border); border-radius: 10px; display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 12px; }
 .payment-account-fields legend { font-size: 12px; font-weight: 900; padding: 0 5px; }
 .withholding-confirmation { align-items: center; background: #f0fdf4; border: 1px solid #86efac; border-radius: 10px; display: flex; font-weight: 800; gap: 10px; padding: 13px 14px; }

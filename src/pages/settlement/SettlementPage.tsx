@@ -70,8 +70,10 @@ const actionLabels: Record<string, string> = {
   settlement_confirmation_released: '정산서 확정 해제',
   seller_payment_requested: '셀러 지급요청',
   seller_payment_request_updated: '셀러 지급요청 수정',
+  seller_payment_request_canceled: '셀러 지급요청 취소',
   manager_payment_requested: '매니저 지급요청',
   manager_payment_request_updated: '매니저 지급요청 수정',
+  manager_payment_request_canceled: '매니저 지급요청 취소',
   approval_requested: '대표 승인 요청',
   approved: '대표 승인',
   payment_ready: '지급 준비',
@@ -637,7 +639,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
             <p>{formatKoreanDate(salesImport?.salesStartDate)} ~ {formatKoreanDate(salesImport?.salesEndDate)}</p>
             <p>담당 매니저 {campaign?.managerName ?? '-'} · v{settlement.settlementVersion}</p>
           </div>
-          <div className="settlement-header-actions"><button className="secondary-button" onClick={() => setRevisionRequestOpen(true)} type="button">정산서 수정요청</button>{!settlementConfirmed ? <div className="settlement-confirm-action"><button aria-describedby={hasUnresolvedRevision ? 'settlement-confirm-disabled-help' : undefined} className="primary-button" disabled={hasUnresolvedRevision} onClick={() => setConfirmationModal('confirm')} title={hasUnresolvedRevision ? '수정 요청이 완료되면 정산서를 확정할 수 있습니다.' : undefined} type="button">정산서 확정하기</button>{hasUnresolvedRevision && <small id="settlement-confirm-disabled-help">수정 요청이 완료되면 정산서를 확정할 수 있습니다.</small>}</div> : canReleaseConfirmation && <button className="secondary-button" onClick={() => setConfirmationModal('release')} type="button">확정 해제</button>}</div>
+          <div className="settlement-header-actions"><button className="secondary-button settlement-revision-request-button" disabled={settlementConfirmed} onClick={() => setRevisionRequestOpen(true)} title={settlementConfirmed ? '확정된 정산서는 확정 해제 후 수정 요청할 수 있습니다.' : undefined} type="button">정산서 수정요청</button>{!settlementConfirmed ? <div className="settlement-confirm-action"><button aria-describedby={hasUnresolvedRevision ? 'settlement-confirm-disabled-help' : undefined} className="primary-button" disabled={hasUnresolvedRevision} onClick={() => setConfirmationModal('confirm')} title={hasUnresolvedRevision ? '수정 요청이 완료되면 정산서를 확정할 수 있습니다.' : undefined} type="button">정산서 확정하기</button>{hasUnresolvedRevision && <small id="settlement-confirm-disabled-help">수정 요청이 완료되면 정산서를 확정할 수 있습니다.</small>}</div> : canReleaseConfirmation && <button className="danger-button settlement-release-button" onClick={() => setConfirmationModal('release')} type="button">확정 해제</button>}</div>
         </div>
 
         {settlementConfirmed ? <div className="settlement-confirmation-state is-confirmed"><strong>✓ 정산서 확정 완료</strong><span>확정일 {formatKoreanDateTime(settlement.settlementConfirmedAt ?? settlement.updatedAt)} · 확정자 {settlement.settlementConfirmedBy ?? settlement.assigneeName}</span></div> : settlement.status === 'revision_required' ? <div className="settlement-confirmation-state is-revision"><strong>⚠ 정산서 수정 요청</strong><span>{settlement.sourceChangeReason}</span><button className="secondary-button" onClick={() => setRevisionViewerOpen(true)} type="button">수정 요청 보기</button></div> : <div className="settlement-confirmation-state"><strong>정산서 검토 대기</strong><span>확정 후 셀러·매니저 지급 요청이 가능합니다.</span></div>}
@@ -720,8 +722,8 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
         {revisionViewerOpen && <div className="settlement-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setRevisionViewerOpen(false) }}><section aria-modal="true" className="settlement-readiness-modal" role="dialog"><button aria-label="닫기" className="settlement-expanded-close" onClick={() => setRevisionViewerOpen(false)} type="button">×</button><h2>정산 수정 요청</h2><dl className="settlement-readiness-summary"><div><dt>대상 정산</dt><dd>{campaign?.campaignName}</dd></div><div><dt>현재 버전</dt><dd>v{settlement.settlementVersion}</dd></div><div><dt>수정 사유</dt><dd>{settlement.sourceChangeReason || '확인 필요'}</dd></div><div><dt>요청일시</dt><dd>{formatKoreanDateTime(settlement.updatedAt)}</dd></div></dl>{canEditCurrentSettlement ? <div className="modal-actions"><button className="secondary-button" onClick={() => setRevisionViewerOpen(false)} type="button">닫기</button><button className="primary-button" onClick={() => { setRevisionViewerOpen(false); setRevisionEditorOpen(true) }} type="button">정산서 수정하기</button></div> : <p className="settlement-readiness-modal__error">정산서 수정 권한이 없습니다.</p>}</section></div>}
         {revisionEditorOpen && campaign && currentUser && <SettlementRevisionModal campaign={campaign} currentUser={currentUser} deductions={deductions} managerBusinessType={managerBusinessType} onClose={() => setRevisionEditorOpen(false)} onSaved={(next) => { setRevisionEditorOpen(false); setSettlement({ ...next }); showClipboardToast('정산서 수정이 저장되었습니다. 재확정 전 변경 내용을 확인해주세요.') }} rows={salesRows} sellerBusinessType={effectiveSellerBusinessType} settlement={settlement} />}
         {revisionRequestOpen && <div className="settlement-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setRevisionRequestOpen(false) }}><section aria-modal="true" className="settlement-readiness-modal" role="dialog"><button aria-label="닫기" className="settlement-expanded-close" onClick={() => setRevisionRequestOpen(false)} type="button">×</button><h2>정산 수정 요청</h2><label className="form-field"><span>수정 사유</span><textarea autoFocus onChange={(event) => setRevisionReason(event.target.value)} placeholder="예: 판매수량 확인 필요, 수수료율 오류, 이벤트비 누락, 차감내역 확인 필요" rows={5} value={revisionReason} /></label><p>현재 v{settlement.settlementVersion} 계산 데이터는 삭제하지 않고, 수정 후 재계산 시 새 버전으로 관리합니다.</p><div className="modal-actions"><button className="secondary-button" onClick={() => setRevisionRequestOpen(false)} type="button">취소</button><button className="primary-button" disabled={!revisionReason.trim()} onClick={submitRevisionRequest} type="button">수정 요청</button></div></section></div>}
-        {confirmationModal && <div className="settlement-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setConfirmationModal(null) }}><section aria-modal="true" className="settlement-readiness-modal" role="dialog"><button aria-label="닫기" className="settlement-expanded-close" onClick={() => setConfirmationModal(null)} type="button">×</button>{confirmationModal === 'confirm' ? <><h2>정산서를 확정하시겠습니까?</h2><p>확정 후 셀러/매니저 지급 요청이 가능해집니다.</p><p>확정 이후 정산 내용을 수정하려면 권한자가 정산서 확정을 해제해야 합니다.</p><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirmationModal(null)} type="button">취소</button><button className="primary-button" onClick={confirmSettlementDocument} type="button">정산서 확정</button></div></> : <><h2>정산서 확정을 해제하시겠습니까?</h2><p>확정 해제 후 정산 내용을 수정하고 재확정해야 합니다.</p><label className="form-field"><span>확정 해제 사유</span><textarea autoFocus onChange={(event) => setConfirmationReleaseReason(event.target.value)} rows={4} value={confirmationReleaseReason} /></label><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirmationModal(null)} type="button">취소</button><button className="danger-button" disabled={!confirmationReleaseReason.trim()} onClick={releaseSettlementDocument} type="button">확정 해제</button></div></>}</section></div>}
-        {paymentRequestTarget && campaign && <PaymentRequestEvidenceModal campaign={campaign} existingRequest={paymentRequestTarget === 'seller' ? sellerPaymentRequest : managerPaymentRequest} managerBusinessType={managerBusinessType} onClose={() => setPaymentRequestTarget(null)} onFailed={(message) => showClipboardToast(message, true)} onRequested={(message) => { setPaymentRequestTarget(null); setSettlement({ ...(settlementService.getSettlementById(settlement.id) ?? settlement) }); showClipboardToast(message) }} ownerType={paymentRequestTarget} sellerBusinessType={effectiveSellerBusinessType ?? 'general_business'} settlement={settlement} />}
+        {confirmationModal && <div className="settlement-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setConfirmationModal(null) }}><section aria-modal="true" className="settlement-readiness-modal" role="dialog"><button aria-label="닫기" className="settlement-expanded-close" onClick={() => setConfirmationModal(null)} type="button">×</button>{confirmationModal === 'confirm' ? <><h2>정산서를 확정하시겠습니까?</h2><p>확정 후 셀러/매니저 지급 요청이 가능해집니다.</p><p>확정 이후 정산 내용을 수정하려면 권한자가 정산서 확정을 해제해야 합니다.</p><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirmationModal(null)} type="button">취소</button><button className="primary-button" onClick={confirmSettlementDocument} type="button">정산서 확정</button></div></> : <><h2>정산서 확정을 해제하시겠습니까?</h2><p>확정 해제 후 정산 내용을 수정하고 재확정해야 합니다.</p>{(sellerPaymentRequest || managerPaymentRequest) && <div className="settlement-unlock-payment-warning"><strong>지급요청이 존재하여 확정 해제할 수 없습니다.</strong><p>지급요청을 자동 취소하지 않습니다. 아래에서 각 요청을 명시적으로 취소해주세요.</p>{sellerPaymentRequest && <button className="secondary-button" onClick={() => { setConfirmationModal(null); setPaymentRequestTarget('seller') }} type="button">셀러 지급요청 수정/취소하기</button>}{managerPaymentRequest && <button className="secondary-button" onClick={() => { setConfirmationModal(null); setPaymentRequestTarget('manager') }} type="button">매니저 지급요청 수정/취소하기</button>}</div>}<label className="form-field"><span>확정 해제 사유</span><textarea autoFocus onChange={(event) => setConfirmationReleaseReason(event.target.value)} rows={4} value={confirmationReleaseReason} /></label><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirmationModal(null)} type="button">취소</button><button className="danger-button settlement-release-button" disabled={!confirmationReleaseReason.trim() || Boolean(sellerPaymentRequest || managerPaymentRequest)} onClick={releaseSettlementDocument} type="button">확정 해제</button></div></>}</section></div>}
+        {paymentRequestTarget && campaign && <PaymentRequestEvidenceModal actorName={currentUser?.name ?? '허수정'} campaign={campaign} existingRequest={paymentRequestTarget === 'seller' ? sellerPaymentRequest : managerPaymentRequest} managerBusinessType={managerBusinessType} onCanceled={() => { setPaymentRequestTarget(null); setSettlement({ ...(settlementService.getSettlementById(settlement.id) ?? settlement) }); showClipboardToast('지급요청이 취소되었습니다.') }} onClose={() => setPaymentRequestTarget(null)} onFailed={(message) => showClipboardToast(message, true)} onRequested={(message) => { setPaymentRequestTarget(null); setSettlement({ ...(settlementService.getSettlementById(settlement.id) ?? settlement) }); showClipboardToast(message) }} ownerType={paymentRequestTarget} sellerBusinessType={effectiveSellerBusinessType ?? 'general_business'} settlement={settlement} />}
         {paymentStatusTarget && campaign && <PaymentRequestStatusModal accountConfirmed={paymentStatusTarget === 'seller' ? hasSellerAccount : hasManagerAccount} campaign={campaign} completed={paymentStatusTarget === 'seller' ? settlement.sellerPaymentCompleted : settlement.managerPaymentCompleted} onClose={() => setPaymentStatusTarget(null)} ownerType={paymentStatusTarget} request={paymentStatusTarget === 'seller' ? sellerPaymentRequest : managerPaymentRequest} settlement={settlement} />}
         {clipboardToast && <div aria-live="polite" className={`clipboard-toast ${clipboardToast.error ? 'is-error' : ''}`}>{clipboardToast.error ? '!' : '✓'} {clipboardToast.message}</div>}
         {readinessModal && campaign && <div className="settlement-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setReadinessModal(null) }}><section aria-modal="true" className="settlement-readiness-modal" role="dialog"><button aria-label="닫기" className="settlement-expanded-close" onClick={() => setReadinessModal(null)} type="button">×</button>
@@ -915,7 +917,7 @@ function SellerAdditionalCosts({ rows }: { rows: SellerCostRow[] }) {
 const paymentStatusLabels: Record<PaymentRequestStatus, string> = {
   draft: '지급 대기', evidence_pending: '증빙 검수 대기', request_ready: '지급 요청 준비', approval_pending: '대표 승인 대기',
   approved: '지급 승인', sent: '전달 완료', payment_completed: '지급 완료', remittance_confirmed: '입금 확인 완료',
-  on_hold: '보류', rejected: '반려',
+  on_hold: '보류', rejected: '반려', canceled: '취소',
 }
 
 const businessTypeLabels: Record<SellerBusinessType, string> = {
@@ -1145,10 +1147,12 @@ function PaymentRequestStatusModal({ accountConfirmed, campaign, completed, onCl
   </section></div>
 }
 
-function PaymentRequestEvidenceModal({ campaign, existingRequest, managerBusinessType, onClose, onFailed, onRequested, ownerType, sellerBusinessType, settlement }: {
+function PaymentRequestEvidenceModal({ actorName, campaign, existingRequest, managerBusinessType, onCanceled, onClose, onFailed, onRequested, ownerType, sellerBusinessType, settlement }: {
+  actorName: string
   campaign: NonNullable<ReturnType<typeof getCampaign>>
   existingRequest?: PaymentRequest
   managerBusinessType: SellerBusinessType
+  onCanceled: () => void
   onClose: () => void
   onFailed: (message: string) => void
   onRequested: (message: string) => void
@@ -1160,6 +1164,8 @@ function PaymentRequestEvidenceModal({ campaign, existingRequest, managerBusines
   const [memo, setMemo] = useState(existingRequest?.memo ?? '')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  const [cancellationReason, setCancellationReason] = useState('')
   const [previewUrl, setPreviewUrl] = useState('')
   const [paymentAccountDraft, setPaymentAccountDraft] = useState(() => {
     const profile = ownerType === 'seller' ? sellerMasterService.getSellerById(campaign.sellerId) : managerPaymentService.getProfile(campaign.managerId)
@@ -1181,6 +1187,7 @@ function PaymentRequestEvidenceModal({ campaign, existingRequest, managerBusines
   const withholdingCalculation = withholding ?? calculateWithholding(freelancerGrossAmount, freelancerDeductions)
   const amount = isFreelancer ? withholdingCalculation.finalPaymentAmount : isSeller ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount
   const accountConfirmed = Boolean(paymentAccountDraft.bankName.trim() && paymentAccountDraft.accountNumber.trim() && paymentAccountDraft.accountHolder.trim())
+  const cancellationAllowed = Boolean(existingRequest && paymentRequestService.canCancelPaymentRequest(existingRequest))
   useEffect(() => () => { if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current) }, [])
 
   const selectEvidenceFile = (nextFile?: File | null) => {
@@ -1253,6 +1260,20 @@ function PaymentRequestEvidenceModal({ campaign, existingRequest, managerBusines
     }
   }
 
+  const cancelRequest = () => {
+    if (!existingRequest) return
+    setError('')
+    try {
+      paymentRequestService.cancelPaymentRequest(existingRequest.id, cancellationReason, actorName)
+      setCancelConfirmOpen(false)
+      onCanceled()
+    } catch (cancelError) {
+      const message = cancelError instanceof Error ? cancelError.message : '지급요청을 취소하지 못했습니다.'
+      setError(message)
+      onFailed(message)
+    }
+  }
+
   return <div className="settlement-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section aria-labelledby="payment-request-modal-title" aria-modal="true" className="settlement-modal payment-request-modal" role="dialog">
       <div className="preview-drawer__header"><div><p className="page-eyebrow">Payment Request</p><h2 id="payment-request-modal-title">{existingRequest ? `${isSeller ? '셀러' : '매니저'} 지급요청 수정` : isFreelancer ? '원천세 등록 및 지급 신청' : `${isSeller ? '셀러' : '매니저'} 지급 요청`}</h2></div><button aria-label="닫기" className="icon-button" onClick={onClose} type="button">×</button></div>
@@ -1262,7 +1283,8 @@ function PaymentRequestEvidenceModal({ campaign, existingRequest, managerBusines
       {!existingRequest && isFreelancer ? <p className="withholding-confirmation">지급 신청하시겠습니까?</p> : <div className="payment-request-field"><span>{existingRequest ? '증빙자료 교체 (선택)' : '증빙자료 업로드'}</span><div className="payment-evidence-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); selectEvidenceFile(event.dataTransfer.files[0]) }} onPaste={pasteEvidence} tabIndex={0}><label><input accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => selectEvidenceFile(event.target.files?.[0])} type="file" /><strong>파일 선택</strong></label><p>파일을 끌어놓거나 이미지를 여기에 붙여넣으세요.</p><small>Ctrl+V / Cmd+V · PNG, JPEG, WebP 또는 PDF · 최대 10MB</small></div>{file && <div className="payment-evidence-preview">{previewUrl ? <img alt="첨부 이미지 미리보기" src={previewUrl} /> : <span>{file.name}</span>}<button className="text-button" onClick={clearEvidenceFile} type="button">삭제</button></div>}</div>}
       <label className="payment-request-field"><span>메모</span><textarea onChange={(event) => setMemo(event.target.value)} placeholder="지급 요청 검토에 필요한 내용을 입력해주세요." rows={3} value={memo} /></label>
       {error && <p className="payment-request-error">{error}</p>}
-      <div className="button-row"><button className="secondary-button" disabled={submitting} onClick={onClose} type="button">취소</button><button className="primary-button" disabled={submitting} onClick={submit} type="button">{submitting ? '저장 중…' : existingRequest ? '수정 저장' : isFreelancer ? '네' : '지급 신청'}</button></div>
+      <div className="payment-request-modal-actions">{existingRequest && <button className="danger-button payment-request-cancel-button" disabled={!cancellationAllowed || submitting} onClick={() => setCancelConfirmOpen(true)} title={!cancellationAllowed ? existingRequest.status === 'payment_completed' || existingRequest.status === 'remittance_confirmed' ? '이미 지급 완료된 건입니다.' : '대표 승인 완료 후에는 일반 취소할 수 없습니다.' : undefined} type="button">지급요청 취소</button>}<div className="button-row"><button className="secondary-button" disabled={submitting} onClick={onClose} type="button">닫기</button><button className="primary-button" disabled={submitting} onClick={submit} type="button">{submitting ? '저장 중…' : existingRequest ? '수정 저장' : isFreelancer ? '네' : '지급 신청'}</button></div></div>
+      {cancelConfirmOpen && <div className="nested-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCancelConfirmOpen(false) }}><section aria-modal="true" className="helper-modal payment-cancel-confirmation" role="dialog"><h3>지급요청을 취소하시겠습니까?</h3><p>지급요청 취소 후 해당 대상은 다시 지급요청 전 상태로 돌아갑니다. 정산서 확정 상태는 유지됩니다.</p><label className="form-field"><span>취소 사유</span><textarea autoFocus onChange={(event) => setCancellationReason(event.target.value)} rows={4} value={cancellationReason} /></label><div className="button-row"><button className="secondary-button" onClick={() => setCancelConfirmOpen(false)} type="button">닫기</button><button className="danger-button settlement-release-button" disabled={!cancellationReason.trim()} onClick={cancelRequest} type="button">지급요청 취소</button></div></section></div>}
     </section>
   </div>
 }

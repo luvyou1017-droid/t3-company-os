@@ -137,6 +137,19 @@ export const paymentRequestService = {
     }
     return save({ ...request, ...patch })
   },
+  canCancelPaymentRequest(request: PaymentRequest) { return editablePaymentRequestStatuses.includes(request.status) },
+  cancelPaymentRequest(id: string, reason: string, canceledBy = '허수정') {
+    const request = this.getPaymentRequestById(id)
+    const trimmedReason = reason.trim()
+    if (!request) throw new Error('지급 요청을 찾을 수 없습니다.')
+    if (!trimmedReason) throw new Error('지급요청 취소 사유를 입력해주세요.')
+    if (!this.canCancelPaymentRequest(request)) {
+      if (request.status === 'payment_completed' || request.status === 'remittance_confirmed') throw new Error('이미 지급 완료된 건입니다.')
+      if (request.status === 'approved' || request.status === 'sent') throw new Error('이미 대표 승인이 완료되어 지급요청을 취소할 수 없습니다.')
+      throw new Error('현재 상태에서는 지급요청을 취소할 수 없습니다.')
+    }
+    return transition(id, 'canceled', { canceledBy, canceledAt: now(), cancellationReason: trimmedReason, previousStatusBeforeCancellation: request.status, memo: request.memo })
+  },
   getPaymentRequestForRecipient(settlementId: string, recipientType: EvidenceOwnerType, recipientId: string, sourceVersion: number) {
     return this.getPaymentRequests().find((request) =>
       request.settlementId === settlementId && request.recipientType === recipientType &&

@@ -25,7 +25,7 @@ const money = (value: number) => `${Math.round(value).toLocaleString('ko-KR')}�
 const statusLabel: Record<PaymentRequestStatus, string> = {
   draft: '초안', evidence_pending: '증빙 대기', request_ready: '요청 생성 대기', approval_pending: '대표 승인 대기',
   approved: '승인 완료', sent: '셀러 전달 완료', payment_completed: '지급 완료',
-  remittance_confirmed: '입금 확인 완료', on_hold: '보류', rejected: '반려',
+  remittance_confirmed: '입금 확인 완료', on_hold: '보류', rejected: '반려', canceled: '취소',
 }
 const evidenceLabels: Record<EvidenceDocumentType, string> = {
   tax_invoice: '세금계산서 캡처', cash_receipt: '현금영수증 캡처', withholding_entry: '원천세 리스트', other: '기타 증빙',

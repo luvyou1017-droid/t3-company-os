@@ -6,7 +6,7 @@ export type SellerEvidenceType = 'tax_invoice' | 'cash_receipt' | 'withholding_3
 export type PaymentRequestDirection = 'company_to_seller' | 'seller_to_company'
 export type PaymentRequestStatus =
   | 'draft' | 'evidence_pending' | 'request_ready' | 'approval_pending' | 'approved'
-  | 'sent' | 'payment_completed' | 'remittance_confirmed' | 'on_hold' | 'rejected'
+  | 'sent' | 'payment_completed' | 'remittance_confirmed' | 'on_hold' | 'rejected' | 'canceled'
 export type PaymentRecipientType = 'seller' | 'manager'
 
 export type SellerSettlementRule = {
@@ -124,6 +124,10 @@ export type PaymentRequest = {
   approvedAt?: string
   completedBy?: string
   completedAt?: string
+  canceledBy?: string
+  canceledAt?: string
+  cancellationReason?: string
+  previousStatusBeforeCancellation?: PaymentRequestStatus
   status: PaymentRequestStatus
   memo: string
 }

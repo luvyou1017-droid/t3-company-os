@@ -148,12 +148,22 @@ const duplicateBlocked = (() => {
   catch (error) { return error instanceof Error && error.message.includes('이미 지급 요청이 생성되어 있습니다.') }
 })()
 
+const cancellationSettlement = { ...approvedHealth, id: `${approvedHealth.id}-cancellation`, settlementConfirmed: true, settlementConfirmedAt: approvedHealth.updatedAt, settlementConfirmedBy: '허수정', sellerPaymentRequestStatus: undefined, managerPaymentRequestStatus: undefined, sellerPaymentCompleted: false, managerPaymentCompleted: false }
+storageService.setItem(STORAGE_KEYS.settlements, [...settlementService.getSettlements(), cancellationSettlement])
+const cancellableManagerRequest = paymentRequestService.createManagerPaymentRequest(cancellationSettlement.id, '취소 테스트', manager.businessType, undefined, { accountConfirmed: true })
+const canceledManagerRequest = paymentRequestService.cancelPaymentRequest(cancellableManagerRequest.id, '정산 수정 전 요청 취소', '허수정')
+const cancellationState = settlementService.getSettlementById(cancellationSettlement.id)
+const releasedAfterCancellation = settlementService.releaseSettlementConfirmation(cancellationSettlement.id, '지급요청 취소 후 확정 해제', '허수정', '정산 담당자')
+const cancellationLog = settlementService.getActivityLogsBySettlementId(cancellationSettlement.id).find((item) => item.action === 'manager_payment_request_canceled')
+
 paymentRequestService.approvePaymentRequest(premiumRequest.id, '대표 테스트')
+const approvedCancellationBlocked = (() => { try { paymentRequestService.cancelPaymentRequest(premiumRequest.id, '승인 후 취소', '허수정'); return false } catch (error) { return error instanceof Error && error.message.includes('대표 승인이 완료') } })()
 const approvedEditBlocked = (() => {
   try { paymentRequestService.updatePaymentRequest(premiumRequest.id, { memo: '승인 후 수정', accountConfirmed: true, evidenceStatus: premiumRequest.evidenceStatus }); return false }
   catch (error) { return error instanceof Error && error.message === '이미 대표 승인이 완료되어 지급요청을 수정할 수 없습니다.' }
 })()
 paymentRequestService.markPaymentCompleted(premiumRequest.id, '지급 테스트')
+const completedCancellationBlocked = (() => { try { paymentRequestService.cancelPaymentRequest(premiumRequest.id, '지급 후 취소', '허수정'); return false } catch (error) { return error instanceof Error && error.message.includes('지급 완료') } })()
 const completedEditBlocked = (() => {
   try { paymentRequestService.updatePaymentRequest(premiumRequest.id, { memo: '지급 후 수정', accountConfirmed: true, evidenceStatus: premiumRequest.evidenceStatus }); return false }
   catch (error) { return error instanceof Error && error.message === '이미 지급 완료된 건입니다.' }
@@ -204,6 +214,9 @@ const checks = [
   ['원천세 선등록 후 지급 요청 생성', taxItemsAfterRequest.length === 1 && afterRequests === beforeRequests + 1 && request.status === 'approval_pending'],
   ['원천세 중복 등록 방지', taxItemsAfterRepeat.length === 1 && taxItemsAfterRepeat[0].id === taxItemsAfterRequest[0].id],
   ['지급 요청 중복 생성 방지', duplicateBlocked],
+  ['지급요청 취소 이력·대상 독립 복원', canceledManagerRequest.status === 'canceled' && canceledManagerRequest.cancellationReason === '정산 수정 전 요청 취소' && canceledManagerRequest.previousStatusBeforeCancellation === 'approval_pending' && cancellationState.managerPaymentRequestStatus === 'canceled' && cancellationState.sellerPaymentRequestStatus === undefined && cancellationState.settlementConfirmed === true && Boolean(cancellationLog)],
+  ['지급요청 취소 후 확정 해제 재시도', releasedAfterCancellation.settlementConfirmed === false],
+  ['대표 승인·지급 완료 취소 제한', approvedCancellationBlocked && completedCancellationBlocked],
   [`원천세 등록 실패 시 지급 요청 미생성${failureMessage ? ` · ${failureMessage}` : ''}`, failureBlocked],
 ]
 
