@@ -1,12 +1,14 @@
-import type { PaymentRequest, PaymentRequestStatus } from '../types/sellerSettlement'
+import type { PaymentDocumentCheckStatus, PaymentRequest, PaymentRequestStatus } from '../types/sellerSettlement'
 import { validateSellerSettlement } from '../utils/sellerSettlement'
 import type { EvidenceOwnerType } from '../types/paymentEvidence'
 import type { SellerBusinessType } from '../types/sellerSettlement'
 import { calculateWithholding } from '../utils/withholdingTax'
+import { canEditSettlement, type AppUserRole } from '../data/users'
 import { duplicateBlockingPaymentStatuses, hasDuplicatePaymentRequest } from '../utils/paymentRequest'
 import { campaignService } from './campaignService'
 import { paymentEvidenceService } from './paymentEvidenceService'
 import { sellerSettlementService } from './sellerSettlementService'
+import { sellerMasterService } from './sellerMasterService'
 import { salesDataService } from './salesDataService'
 import { settlementService } from './settlementService'
 import { STORAGE_KEYS, storageService } from './storageService'
@@ -27,7 +29,7 @@ export type PaymentRequestValidationInput = {
   sourceVersion?: number
 }
 
-type CreatePaymentRequestOptions = { allowEvidencePending?: boolean; memo?: string; accountConfirmed?: boolean }
+type CreatePaymentRequestOptions = { allowEvidencePending?: boolean; memo?: string; accountConfirmed?: boolean; bankNameSnapshot?: string; accountNumberSnapshot?: string; accountHolderSnapshot?: string }
 const editablePaymentRequestStatuses: PaymentRequestStatus[] = ['evidence_pending', 'request_ready', 'approval_pending', 'on_hold']
 
 function validate(input: PaymentRequestValidationInput) {
@@ -56,7 +58,7 @@ function validate(input: PaymentRequestValidationInput) {
   if (!input.accountConfirmed) reasons.push('지급 계좌가 확인되지 않았습니다.')
   if (!input.calculationCompleted || input.amountConfirmed === false) reasons.push('최종 지급액 계산이 완료되지 않았습니다.')
   if (input.calculationErrors.length) reasons.push('최종 지급액 계산 오류가 있습니다.')
-  const duplicate = hasDuplicatePaymentRequest(paymentRequestService.getPaymentRequests(), {
+  const duplicate = hasDuplicatePaymentRequest(paymentRequestService.getOperationalPaymentRequests(), {
     settlementId: input.settlementId, recipientType: input.ownerType, recipientId: input.ownerId,
     sourceVersion: input.sourceVersion ?? settlement?.settlementVersion ?? 1,
   })
@@ -99,32 +101,17 @@ function normalizeRequest(request: PaymentRequest): PaymentRequest {
   }
 }
 
+function isLegacyApprovalFixture(request: PaymentRequest) {
+  return request.memo === 'MVP mock 요청' && request.id === `payment-request-${request.settlementId}`
+}
+
 export const paymentRequestService = {
   getPaymentRequests() {
     const existing = storageService.getItem<PaymentRequest[]>(STORAGE_KEYS.paymentRequests, [])
-    if (existing.length) return existing.map(normalizeRequest)
-    const seeded: PaymentRequest[] = sellerSettlementService.getDocuments().map((document, index) => {
-      const c = document.calculation
-      const direction = document.salesChannelType === 'seller_checkout' ? 'seller_to_company' as const : 'company_to_seller' as const
-      const statuses: PaymentRequestStatus[] = ['approval_pending', 'sent', 'evidence_pending']
-      return {
-        id: `payment-request-${document.settlementId}`, campaignId: document.campaignId, settlementId: document.settlementId,
-        sellerId: document.sellerId, recipientType: 'seller', recipientId: document.sellerId, recipientName: document.sellerName,
-        managerId: campaignService.getCampaignById(document.campaignId)?.managerId ?? '',
-        managerName: campaignService.getCampaignById(document.campaignId)?.managerName ?? '',
-        amount: c.finalSellerPaymentAmount, sourceVersion: settlementService.getSettlementById(document.settlementId)?.settlementVersion ?? 1,
-        direction, salesChannelType: document.salesChannelType,
-        businessType: document.businessType, evidenceType: document.evidenceType,
-        grossSettlementAmount: c.sellerGrossSettlementAmount, vatExcludedAmount: c.vatExcludedAmount,
-        withholdingBaseAmount: c.withholdingBaseAmount, withholdingTaxAmount: c.withholdingTaxAmount,
-        deductions: c.sellerDeductions, finalPaymentAmount: c.finalSellerPaymentAmount,
-        sellerRemittanceToCompany: c.sellerRemittanceToCompany, evidenceStatus: index === 2 ? 'pending' as const : 'confirmed' as const,
-        accountConfirmed: true, requestedBy: '허수정', requestedAt: '2026-07-19T09:00:00.000Z',
-        dueDate: document.dueDate, status: statuses[index % statuses.length], memo: 'MVP mock 요청',
-      }
-    })
-    storageService.setItem(STORAGE_KEYS.paymentRequests, seeded)
-    return seeded
+    return existing.map(normalizeRequest)
+  },
+  getOperationalPaymentRequests() {
+    return this.getPaymentRequests().filter((request) => !isLegacyApprovalFixture(request))
   },
   getPaymentRequestById(id: string) { return this.getPaymentRequests().find((item) => item.id === id) },
   canEditPaymentRequest(request: PaymentRequest) { return editablePaymentRequestStatuses.includes(request.status) },
@@ -137,7 +124,30 @@ export const paymentRequestService = {
     }
     return save({ ...request, ...patch })
   },
+  updateDocumentCheck(id: string, status: PaymentDocumentCheckStatus, memo = '', checkedBy = '허수정') {
+    const request = this.getPaymentRequestById(id)
+    if (!request) throw new Error('지급 요청을 찾을 수 없습니다.')
+    const checkedAt = now()
+    const entry = { status, memo: memo.trim(), checkedBy, checkedAt }
+    return save({ ...request, documentCheckStatus: status, documentCheckMemo: entry.memo, documentCheckedBy: checkedBy, documentCheckedAt: checkedAt, documentCheckHistory: [...(request.documentCheckHistory ?? []), entry], taxInvoiceFollowUpRequired: status === 'reported_issued' || status === 'follow_up' ? true : status === 'confirmed' ? false : request.taxInvoiceFollowUpRequired, taxInvoiceFinalConfirmed: status === 'confirmed' })
+  },
   canCancelPaymentRequest(request: PaymentRequest) { return editablePaymentRequestStatuses.includes(request.status) },
+  canRecoverLegacyPaymentRequest(request: PaymentRequest) {
+    const settlement = settlementService.getSettlementById(request.settlementId)
+    return Boolean(settlement && !settlementService.isSettlementConfirmed(settlement) && (this.canCancelPaymentRequest(request) || request.status === 'sent'))
+  },
+  cancelLegacyPaymentRequest(id: string, reason: string, canceledBy: string, role: AppUserRole) {
+    const request = this.getPaymentRequestById(id)
+    const trimmedReason = reason.trim()
+    if (!canEditSettlement(role)) throw new Error('이전 지급요청을 정리할 권한이 없습니다.')
+    if (!request) throw new Error('지급 요청을 찾을 수 없습니다.')
+    if (!trimmedReason) throw new Error('지급요청 취소 사유를 입력해주세요.')
+    if (!this.canRecoverLegacyPaymentRequest(request)) {
+      if (request.status === 'payment_completed' || request.status === 'remittance_confirmed') throw new Error('이미 지급 완료된 건입니다.')
+      throw new Error('승인 완료된 지급요청은 이 복구 절차로 취소할 수 없습니다.')
+    }
+    return transition(id, 'canceled', { canceledBy, canceledAt: now(), cancellationReason: trimmedReason, previousStatusBeforeCancellation: request.status, memo: request.memo })
+  },
   cancelPaymentRequest(id: string, reason: string, canceledBy = '허수정') {
     const request = this.getPaymentRequestById(id)
     const trimmedReason = reason.trim()
@@ -151,10 +161,16 @@ export const paymentRequestService = {
     return transition(id, 'canceled', { canceledBy, canceledAt: now(), cancellationReason: trimmedReason, previousStatusBeforeCancellation: request.status, memo: request.memo })
   },
   getPaymentRequestForRecipient(settlementId: string, recipientType: EvidenceOwnerType, recipientId: string, sourceVersion: number) {
-    return this.getPaymentRequests().find((request) =>
+    return this.getOperationalPaymentRequests().find((request) =>
       request.settlementId === settlementId && request.recipientType === recipientType &&
       request.recipientId === recipientId && request.sourceVersion === sourceVersion &&
       duplicateBlockingPaymentStatuses.includes(request.status))
+  },
+  getActivePaymentRequestForRecipient(settlementId: string, recipientType: EvidenceOwnerType, recipientId: string) {
+    return this.getOperationalPaymentRequests().filter((request) =>
+      request.settlementId === settlementId && request.recipientType === recipientType &&
+      request.recipientId === recipientId && duplicateBlockingPaymentStatuses.includes(request.status))
+      .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))[0]
   },
   validateSellerPaymentRequest(input: Omit<PaymentRequestValidationInput, 'ownerType'>) {
     return validate({ ...input, ownerType: 'seller' })
@@ -172,7 +188,7 @@ export const paymentRequestService = {
     if (!validation.valid) throw new Error(validation.errors.join('\n'))
     const requestValidation = validate({
       settlementId, ownerType: 'seller', ownerId: document.sellerId, businessType: rule.businessType,
-      evidenceTypeConfirmed: rule.evidenceConfirmed && Boolean(rule.confirmedEvidenceType),
+      evidenceTypeConfirmed: rule.businessType === 'freelancer' || (rule.evidenceConfirmed && Boolean(rule.confirmedEvidenceType)),
       accountConfirmed: options.accountConfirmed ?? settlementService.getSettlementById(settlementId)?.accountConfirmed ?? false,
       calculationCompleted: true, calculationErrors: validation.errors, amountConfirmed: true,
       sourceVersion: settlementService.getSettlementById(settlementId)?.settlementVersion,
@@ -194,6 +210,7 @@ export const paymentRequestService = {
       } catch { throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.') }
       if (!taxItem) throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.')
     }
+    const sellerProfile = sellerMasterService.getSellerById(document.sellerId)
     const request = save({
       id: `payment-request-${crypto.randomUUID()}`, campaignId: document.campaignId, settlementId,
       sellerId: document.sellerId, direction: document.salesChannelType === 'seller_checkout' ? 'seller_to_company' : 'company_to_seller',
@@ -209,6 +226,7 @@ export const paymentRequestService = {
       localIncomeTaxAmount: rule.businessType === 'freelancer' ? withholding.localIncomeTaxAmount : 0,
       deductions: c.sellerDeductions, finalPaymentAmount: c.finalSellerPaymentAmount,
       sellerRemittanceToCompany: c.sellerRemittanceToCompany, evidenceStatus: options.allowEvidencePending ? 'pending' : 'confirmed', accountConfirmed: true,
+      bankNameSnapshot: sellerProfile?.bankName, accountNumberSnapshot: sellerProfile?.accountNumber, accountHolderSnapshot: sellerProfile?.accountHolder,
       requestedBy, requestedAt: now(), dueDate: document.dueDate,
       status: options.allowEvidencePending ? 'evidence_pending' : rule.businessType === 'freelancer' ? 'approval_pending' : document.salesChannelType === 'seller_checkout' ? 'request_ready' : 'approval_pending', memo: options.memo?.trim() ?? '',
     })
@@ -268,6 +286,7 @@ export const paymentRequestService = {
       localIncomeTaxAmount: businessType === 'freelancer' ? tax.localIncomeTaxAmount : 0,
       deductions, finalPaymentAmount, sellerRemittanceToCompany: 0, evidenceStatus: options.allowEvidencePending ? 'pending' : 'confirmed',
       accountConfirmed: options.accountConfirmed ?? settlement.accountConfirmed, requestedBy, requestedAt: now(), dueDate: settlement.paymentDueDate,
+      bankNameSnapshot: options.bankNameSnapshot, accountNumberSnapshot: options.accountNumberSnapshot, accountHolderSnapshot: options.accountHolderSnapshot,
       status: options.allowEvidencePending ? 'evidence_pending' : 'approval_pending', memo: options.memo?.trim() || '매니저 지급 요청',
     })
     paymentEvidenceService.linkToPaymentRequest(settlementId, 'manager', request.id)
@@ -287,6 +306,20 @@ export const paymentRequestService = {
     if (request.recipientType === 'seller') settlementService.markSellerPaymentCompleted(request.settlementId)
     else settlementService.markManagerPaymentCompleted(request.settlementId)
     return request
+  },
+  markPaymentBatchCompleted(ids: string[], completedBy = '허수정') {
+    const uniqueIds = [...new Set(ids)]
+    if (!uniqueIds.length) throw new Error('입금 완료 처리할 지급건을 선택해주세요.')
+    const requests = uniqueIds.map((id) => this.getPaymentRequestById(id))
+    if (requests.some((request) => !request || request.status !== 'approved')) throw new Error('대표 승인 완료된 지급건만 입금 완료 처리할 수 있습니다.')
+    const completedAt = now()
+    const payoutBatchId = `payout-batch-${crypto.randomUUID()}`
+    return requests.map((request) => {
+      const next = save({ ...request!, status: 'payment_completed', completedBy, completedAt, actualPaidAmount: request!.finalPaymentAmount, payoutBatchId })
+      if (next.recipientType === 'seller') settlementService.markSellerPaymentCompleted(next.settlementId)
+      else settlementService.markManagerPaymentCompleted(next.settlementId)
+      return next
+    })
   },
   markSellerRemittanceConfirmed(id: string, completedBy = '허수정') {
     const request = transition(id, 'remittance_confirmed', { completedBy, completedAt: now() })

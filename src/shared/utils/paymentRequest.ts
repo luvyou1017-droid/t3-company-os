@@ -1,7 +1,7 @@
 import type { PaymentRecipientType, PaymentRequest, PaymentRequestStatus } from '../types/sellerSettlement'
 
 export const duplicateBlockingPaymentStatuses: PaymentRequestStatus[] = [
-  'evidence_pending', 'request_ready', 'approval_pending', 'approved', 'sent', 'payment_completed', 'remittance_confirmed',
+  'evidence_pending', 'request_ready', 'approval_pending', 'approved', 'sent', 'payment_completed', 'remittance_confirmed', 'on_hold',
 ]
 
 export function hasDuplicatePaymentRequest(
@@ -12,6 +12,5 @@ export function hasDuplicatePaymentRequest(
     request.settlementId === key.settlementId &&
     request.recipientType === key.recipientType &&
     request.recipientId === key.recipientId &&
-    request.sourceVersion === key.sourceVersion &&
     duplicateBlockingPaymentStatuses.includes(request.status))
 }

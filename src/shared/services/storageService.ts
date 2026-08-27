@@ -14,6 +14,7 @@ export const STORAGE_KEYS = {
   settlementVersions: 't3_company_os_settlement_versions',
   settlementDeductions: 't3_company_os_settlement_deductions',
   settlementActivityLogs: 't3_company_os_settlement_activity_logs',
+  settlementRevisionRequests: 't3_company_os_settlement_revision_requests',
   notificationSendLogs: 't3_company_os_notification_send_logs',
   campaignActivities: 't3_company_os_campaign_activities',
   campaignFiles: 't3_company_os_campaign_files',

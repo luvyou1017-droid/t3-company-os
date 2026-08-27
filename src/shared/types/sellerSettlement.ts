@@ -8,6 +8,7 @@ export type PaymentRequestStatus =
   | 'draft' | 'evidence_pending' | 'request_ready' | 'approval_pending' | 'approved'
   | 'sent' | 'payment_completed' | 'remittance_confirmed' | 'on_hold' | 'rejected' | 'canceled'
 export type PaymentRecipientType = 'seller' | 'manager'
+export type PaymentDocumentCheckStatus = 'needs_review' | 'attached' | 'reported_issued' | 'follow_up' | 'confirmed'
 
 export type SellerSettlementRule = {
   campaignId: string
@@ -117,6 +118,18 @@ export type PaymentRequest = {
   sellerRemittanceToCompany: number
   evidenceStatus: 'pending' | 'confirmed'
   accountConfirmed: boolean
+  bankNameSnapshot?: string
+  accountNumberSnapshot?: string
+  accountHolderSnapshot?: string
+  withdrawalMemoSnapshot?: string
+  depositMemoSnapshot?: string
+  documentCheckStatus?: PaymentDocumentCheckStatus
+  documentCheckMemo?: string
+  documentCheckedBy?: string
+  documentCheckedAt?: string
+  documentCheckHistory?: Array<{ status: PaymentDocumentCheckStatus; memo: string; checkedBy: string; checkedAt: string }>
+  taxInvoiceFollowUpRequired?: boolean
+  taxInvoiceFinalConfirmed?: boolean
   requestedBy: string
   requestedAt: string
   dueDate: string
@@ -124,6 +137,8 @@ export type PaymentRequest = {
   approvedAt?: string
   completedBy?: string
   completedAt?: string
+  actualPaidAmount?: number
+  payoutBatchId?: string
   canceledBy?: string
   canceledAt?: string
   cancellationReason?: string

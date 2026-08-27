@@ -99,7 +99,7 @@ export const managerPaymentService = {
     const batches = this.getBatches()
     const id = createPaymentBatchId(batches.map((item) => item.id))
     const requests = candidates.map((item) =>
-      paymentRequestService.createManagerPaymentRequest(item.settlement.id, requestedBy, item.businessType as SellerBusinessType, id, { accountConfirmed: true }))
+      paymentRequestService.createManagerPaymentRequest(item.settlement.id, requestedBy, item.businessType as SellerBusinessType, id, { accountConfirmed: true, bankNameSnapshot: this.getProfile(managerId)?.bankName, accountNumberSnapshot: this.getProfile(managerId)?.accountNumber, accountHolderSnapshot: this.getProfile(managerId)?.accountHolder }))
     const summary = summarizePaymentBatch(requests.map((request) => ({
       grossAmount: request.grossSettlementAmount,
       incomeTaxAmount: request.incomeTaxAmount ?? 0,

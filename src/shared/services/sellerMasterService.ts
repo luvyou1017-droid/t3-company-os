@@ -1,6 +1,6 @@
 import type { CampaignCreationBusinessType } from '../types/campaignCreation'
 import { appUsers, getUserById } from '../data/users.ts'
-import { storageService, STORAGE_KEYS } from './storageService'
+import { storageService, STORAGE_KEYS } from './storageService.ts'
 
 export interface SellerMaster {
   id: string

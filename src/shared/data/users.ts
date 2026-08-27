@@ -34,4 +34,12 @@ export function canEditSettlement(role: AppUserRole) {
   return role === '정산 담당자'
 }
 
+export function canViewPaymentApproval(role: AppUserRole) {
+  return role === '대표' || role === '정산 담당자' || role === '팀장'
+}
+
+export function canManagePaymentApproval(role: AppUserRole) {
+  return role === '대표' || role === '정산 담당자'
+}
+
 export const DEFAULT_EVIDENCE_REVIEWER = getUserById(DEFAULT_EVIDENCE_REVIEWER_USER_ID)!

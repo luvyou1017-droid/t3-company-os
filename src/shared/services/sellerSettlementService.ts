@@ -132,8 +132,8 @@ export const sellerSettlementService = {
   },
   recalculateSellerSettlement(settlementId: string) {
     const settlement = settlementService.getSettlementById(settlementId)
-    const rule = settlement && this.getSellerSettlementRule(settlement.campaignId)
-    if (!rule) throw new Error('결제 방식을 먼저 확인해주세요.')
+    const rule = settlement && this.ensureSellerSettlementRule(settlement.campaignId)
+    if (!rule) throw new Error('셀러 정산 규칙을 확인해주세요.')
     return calculate(rule, settlementId)
   },
   getDocuments() {
@@ -152,9 +152,9 @@ export const sellerSettlementService = {
     const settlement = settlementService.getSettlementById(settlementId)
     if (!settlement) throw new Error('기존 정산을 찾을 수 없습니다.')
     const campaign = campaignService.getCampaignById(settlement.campaignId)
-    const rule = this.getSellerSettlementRule(settlement.campaignId)
-    if (!campaign?.salesChannelType || !rule) throw new Error('결제 방식을 먼저 확인해주세요.')
-    if (!rule.evidenceConfirmed || !rule.confirmedEvidenceType) throw new Error('증빙 유형을 최종 확인해주세요.')
+    const rule = this.ensureSellerSettlementRule(settlement.campaignId)
+    if (!campaign || !rule) throw new Error('셀러 정산 정보를 확인해주세요.')
+    if (rule.businessType !== 'freelancer' && (!rule.evidenceConfirmed || !rule.confirmedEvidenceType)) throw new Error('증빙 유형을 최종 확인해주세요.')
     const sales = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
     const rows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
     const calculation = calculate(rule, settlement.id)
@@ -165,7 +165,7 @@ export const sellerSettlementService = {
       productName: campaign.productName,
       items: rows.map((row) => ({ optionName: row.optionName, quantity: row.netQuantity, unitPrice: row.unitPrice, amount: row.netSales })),
       salesChannelType: rule.salesChannelType, direction: rule.settlementDirection,
-      businessType: rule.businessType, evidenceType: rule.confirmedEvidenceType,
+      businessType: rule.businessType, evidenceType: rule.businessType === 'freelancer' ? 'withholding_3_3' : rule.confirmedEvidenceType!,
       evidenceRequestAmount: calculation.taxDocumentAmount, dueDate: settlement.paymentDueDate,
       companyAccountPlaceholder: '와이즈벤더 000-0000-0000 (예금주 placeholder)',
       remittanceConfirmed: false, calculation, createdAt: now(),

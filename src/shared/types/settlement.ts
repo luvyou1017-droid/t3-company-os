@@ -108,6 +108,9 @@ export type SettlementActivityAction =
   | 'manager_review_requested'
   | 'manager_review_completed'
   | 'revision_requested'
+  | 'revision_request_updated'
+  | 'revision_request_cancelled'
+  | 'revision_request_rejected'
   | 'revision_completed'
   | 'settlement_confirmed'
   | 'settlement_confirmation_released'
@@ -136,6 +139,32 @@ export type SettlementActivityLog = {
   nextStatus?: SettlementStatus
   reason: string
   version: number
+}
+
+export type SettlementRevisionRequestStatus = 'pending' | 'resolved' | 'rejected' | 'cancelled'
+
+export type SettlementRevisionRequest = {
+  id: string
+  settlementId: string
+  campaignId: string
+  version: number
+  reason: string
+  status: SettlementRevisionRequestStatus
+  requestedBy: string
+  requestedAt: string
+  previousSettlementStatus?: SettlementStatus
+  previousHasSourceChanged?: boolean
+  previousSourceChangeReason?: string
+  updatedBy?: string
+  updatedAt?: string
+  resolvedBy?: string
+  resolvedAt?: string
+  rejectedBy?: string
+  rejectedAt?: string
+  rejectionReason?: string
+  cancelledBy?: string
+  cancelledAt?: string
+  cancellationReason?: string
 }
 
 export type SettlementVersion = {
