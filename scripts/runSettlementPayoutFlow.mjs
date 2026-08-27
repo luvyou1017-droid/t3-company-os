@@ -53,7 +53,11 @@ storageService.setItem(STORAGE_KEYS.settlements, [...settlementService.getSettle
 storageService.setItem(STORAGE_KEYS.settlementDeductions, [...settlementService.getDeductions(), ...revisionTestDeductions])
 const revisionDraft = { settlementId: revisionTestSettlement.id, reason: '이벤트 확정비 반영', rows: salesDataService.getRowsByImportId(revisionTestSettlement.salesDataImportId), totalCommissionRate: revisionTestSettlement.currentCalculation.totalCommissionRate, sellerCommissionRate: revisionTestSettlement.currentCalculation.sellerCommissionRate, deductions: revisionTestDeductions.map((item, index) => index === 0 ? { ...item, amount: item.amount + 1_000 } : item) }
 const revisionPreview = settlementService.previewRevision(revisionDraft, '허수정')
+const skuRevisionDraft = { ...revisionDraft, rows: revisionDraft.rows.map((row, index) => ({ ...row, totalCommissionRate: index === 0 ? 24 : revisionDraft.totalCommissionRate, sellerCommissionRate: revisionDraft.sellerCommissionRate })) }
+const skuRevisionPreview = settlementService.previewRevision(skuRevisionDraft, '허수정')
 const revisionSaved = settlementService.saveRevision(revisionDraft, '허수정', '정산 담당자')
+const savedRevisionVersion = settlementService.getSettlementVersionsBySettlementId(revisionTestSettlement.id)[0]
+const expectedSkuGrossCommission = skuRevisionDraft.rows.reduce((sum, row) => sum + Math.round(row.quantity * row.unitPrice * row.totalCommissionRate / 100), 0)
 const revisionPermissionBlocked = (() => { try { settlementService.saveRevision(revisionDraft, '허윤정', '대표'); return false } catch (error) { return error instanceof Error && error.message.includes('수정 권한') } })()
 
 const directEvent = campaignEventOperationService.save({ id: 'event-direct-test', campaignId: 'SCH-005', payer: 'vendor', eventType: 'purchase_complete', eventName: '네이버페이 이벤트', rewardProductName: '네이버페이 5,000원', rewardUnitPrice: 5_000, plannedQuantity: 10, confirmedQuantity: 9, estimatedTotalAmount: 50_000, confirmedTotalAmount: 45_000, costHandling: 'company_direct', shippingOwner: 'company', shippingStatus: 'shipping_pending', winnerCountConfirmed: true, updatedAt: new Date().toISOString() })
@@ -177,6 +181,7 @@ const checks = [
   ['정산 수정 권한', canEditSettlement('정산 담당자') && !canEditSettlement('대표') && revisionPermissionBlocked],
   ['수정 재계산·전후 비교', revisionPreview.companyAmount !== revisionTestSettlement.currentCalculation.companyAmount],
   ['정산 수정 새 version 저장', revisionSaved.settlementVersion === revisionTestSettlement.settlementVersion + 1 && settlementService.getSettlementVersionsBySettlementId(revisionSaved.id).some((item) => item.version === revisionSaved.settlementVersion)],
+  ['SKU별 수수료 계산·version 입력값 보존', skuRevisionPreview.grossCommission === expectedSkuGrossCommission && Boolean(savedRevisionVersion.revisionInput?.rows.length) && Boolean(savedRevisionVersion.previousRevisionInput)],
   ['수정 완료 후 확정 가능 상태 재평가', revisionTestSettlement.status === 'revision_required' && revisionSaved.status === 'review_pending' && !settlementService.isSettlementConfirmed(revisionSaved)],
   ['회사 직접 발송 예정 10명·실제 9명', directEvent.estimatedTotalAmount === 50_000 && campaignEventOperationService.getConfirmedSettlementCost(directEvent) === 45_000 && directEvent.shippingStatus === 'shipping_pending'],
   ['업체 무상 이벤트 정산 차감 없음', campaignEventOperationService.getConfirmedSettlementCost(freeEvent) === 0 && freeEvent.winnerCountConfirmed],

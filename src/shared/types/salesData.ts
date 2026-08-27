@@ -46,6 +46,8 @@ export type SalesDataRow = {
   optionName: string
   quantity: number
   unitPrice: number
+  totalCommissionRate?: number
+  sellerCommissionRate?: number
   grossSales: number
   canceledQuantity: number
   refundedQuantity: number

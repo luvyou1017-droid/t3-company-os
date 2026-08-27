@@ -1978,6 +1978,8 @@
 .seller-statement .seller-document__table .amount-cell { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .seller-document__meta-table th { text-align: center; width: 150px; }
 .seller-document__meta-table td { font-weight: 700; }
+.seller-document__meta-table tr { height: 38px; }
+.seller-statement .seller-document__header { min-height: 48px; }
 .seller-statement .seller-document__vat-notice { color: #374151; margin: 0 0 2px; }
 .seller-subtotal-row th,
 .seller-subtotal-row td { background: #eef5fa; font-weight: 900; }
@@ -2188,11 +2190,18 @@
 .settlement-revision-modal h2, .settlement-revision-modal h3, .settlement-revision-modal p { margin: 0; }
 .settlement-revision-modal section { display: grid; gap: 10px; }
 .settlement-revision-modal .data-table input, .settlement-revision-modal .data-table select { min-width: 92px; width: 100%; }
+.settlement-revision-sku-table { font-size: 12px; table-layout: fixed; width: 100%; }
+.settlement-revision-sku-table th:nth-child(1), .settlement-revision-sku-table th:nth-child(2) { width: 15%; }
+.settlement-revision-sku-table input { min-width: 0 !important; padding-inline: 6px; }
 .settlement-revision-grid { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.settlement-revision-comparison tr.is-changed { background: #fff7d6; color: #b42318; font-weight: 700; }
+.settlement-revision-comparison { width: 100%; }
+.settlement-revision-comparison tr.is-changed { background: #fff7d6; }
+.settlement-revision-comparison tr.is-changed td:last-child { color: #1d4ed8; font-weight: 900; }
+.settlement-revision-no-change { background: #f8fafc; border: 1px solid #dbe4ee; border-radius: 10px; color: #64748b; padding: 14px; }
+.section-heading-actions { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
 .settlement-event-summary-list { display: grid; gap: 10px; }
 .settlement-event-summary-list article { background: #f8fafc; border: 1px solid #dbe4ee; border-radius: 12px; display: grid; gap: 8px; padding: 14px; }
-.settlement-event-summary-list dl { display: grid; gap: 6px; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0; }
+.settlement-event-summary-list dl { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); margin: 0; }
 .settlement-event-summary-list dl div { display: grid; gap: 3px; }
 .settlement-event-summary-list dt { color: #64748b; font-size: 11px; }
 .settlement-event-summary-list dd { font-size: 13px; margin: 0; }
@@ -4675,7 +4684,9 @@
 .settlement-document-column:not(.is-expanded) { width: 100%; }
 .settlement-document-column:not(.is-expanded) .seller-document-shell { justify-items: stretch; overflow: visible; padding: 8px; width: 100%; }
 .settlement-document-column:not(.is-expanded) .seller-statement { gap: 8px; max-width: none; min-width: 0; padding: 12px; width: 100%; }
-.settlement-document-column:not(.is-expanded) .seller-document__header { gap: 10px; }
+.settlement-document-column:not(.is-expanded) .seller-statement { align-content: start; }
+.settlement-document-column:not(.is-expanded) .seller-document__header { box-sizing: border-box; gap: 10px; height: 54px; min-height: 54px; padding-bottom: 9px; }
+.settlement-document-column:not(.is-expanded) .seller-document__meta-table tr { height: 38px; }
 .settlement-document-column:not(.is-expanded) .seller-document__header h2 { font-size: 16px; overflow-wrap: anywhere; }
 .settlement-document-column:not(.is-expanded) .settlement-work-table-wrap { overflow: visible; width: 100%; }
 .settlement-document-column:not(.is-expanded) .seller-document__table,

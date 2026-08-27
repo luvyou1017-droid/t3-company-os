@@ -471,15 +471,18 @@ export const settlementService = {
     if (this.isSettlementConfirmed(settlement)) throw new Error('확정된 정산서는 확정 해제 후 수정해주세요.')
     const activeRequestStatuses = ['evidence_pending', 'request_ready', 'approval_pending', 'approved', 'sent', 'on_hold']
     if ((settlement.sellerPaymentRequestStatus && activeRequestStatuses.includes(settlement.sellerPaymentRequestStatus)) || (settlement.managerPaymentRequestStatus && activeRequestStatuses.includes(settlement.managerPaymentRequestStatus))) throw new Error('지급요청이 존재하는 정산서는 수정할 수 없습니다.')
-    const calculation = this.previewRevision(input, changedBy)
     const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)!
+    const previousRows = salesDataService.getRowsByImportId(settlement.salesDataImportId).map((row) => ({ ...row }))
+    const previousDeductions = this.getDeductionsBySettlementId(settlement.id).map((item) => ({ ...item }))
+    const previousInput: SettlementRevisionDraft = { settlementId: settlement.id, reason: settlement.sourceChangeReason || '수정 전 적용값', rows: previousRows, totalCommissionRate: salesImport.totalCommissionRate ?? settlement.currentCalculation.totalCommissionRate, sellerCommissionRate: salesImport.sellerCommissionRate ?? settlement.currentCalculation.sellerCommissionRate, deductions: previousDeductions }
+    const calculation = this.previewRevision(input, changedBy)
     const rows = input.rows.map((row) => { const netQuantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0); return { ...row, grossSales: row.quantity * row.unitPrice, netQuantity, netSales: netQuantity * row.unitPrice } })
     salesDataService.saveRows([...rows, ...salesDataService.getSalesDataRows().filter((row) => row.salesDataImportId !== settlement.salesDataImportId)])
     salesDataService.updateSalesDataImport({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate, totalQuantity: rows.reduce((sum, row) => sum + row.quantity, 0), totalSalesAmount: rows.reduce((sum, row) => sum + row.grossSales, 0) })
     this.saveDeductions([...input.deductions, ...this.getDeductions().filter((item) => item.settlementId !== settlement.id)])
     const next: Settlement = { ...settlement, settlementVersion: settlement.settlementVersion + 1, status: 'review_pending', updatedAt: now(), currentCalculation: calculation, calculationSteps: createCalculationSteps(calculation), hasSourceChanged: false, sourceChangeReason: undefined }
     this.saveSettlements(this.getSettlements().map((item) => item.id === settlement.id ? next : item))
-    this.createSettlementVersion(next, input.reason || '정산 수정', changedBy)
+    this.createSettlementVersion(next, input.reason || '정산 수정', changedBy, input, previousInput)
     this.addActivity({ ...next, assigneeName: changedBy }, 'revision_completed', settlement.status, next.status, input.reason || '정산 수정 완료')
     return next
   },
@@ -536,7 +539,7 @@ export const settlementService = {
     this.addActivity({ ...next, assigneeName: releasedBy }, 'settlement_confirmation_released', settlement.status, next.status, trimmedReason)
     return next
   },
-  createSettlementVersion(settlement: Settlement, reason: string, changedBy = '허수정') {
+  createSettlementVersion(settlement: Settlement, reason: string, changedBy = '허수정', revisionInput?: SettlementRevisionDraft, previousRevisionInput?: SettlementRevisionDraft) {
     const versions = this.getSettlementVersionsBySettlementId(settlement.id)
     const previous = versions[0]
     const version: SettlementVersion = {
@@ -551,6 +554,8 @@ export const settlementService = {
       afterAmount: settlement.currentCalculation.finalPaymentAmount,
       status: settlement.status,
       snapshot: settlement.currentCalculation,
+      revisionInput,
+      previousRevisionInput,
     }
     this.saveVersions([version, ...this.getSettlementVersions().filter((item) => item.id !== version.id)])
     return version

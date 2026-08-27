@@ -150,6 +150,8 @@ export type SettlementVersion = {
   afterAmount: number
   status: SettlementStatus
   snapshot: SettlementCalculationSnapshot
+  revisionInput?: SettlementRevisionDraft
+  previousRevisionInput?: SettlementRevisionDraft
 }
 
 export type Settlement = {
