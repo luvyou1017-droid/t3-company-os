@@ -1914,7 +1914,7 @@
   padding-bottom: 14px;
 }
 
-.seller-statement .seller-document__header h2 { font-size: 24px; }
+.seller-statement .seller-document__header h2 { font-size: 21px; }
 .seller-statement .seller-document__section { display: grid; gap: 8px; }
 .seller-statement .seller-document__section h3 { font-size: 15px; margin: 0; }
 .seller-statement .seller-document__table { table-layout: auto; }
@@ -1925,9 +1925,9 @@
   padding: 8px 9px;
   vertical-align: middle;
 }
-.seller-statement .seller-document__table th { background: #e5e7eb; color: #111827; }
+.seller-statement .seller-document__table th { background: #e9f1f8; color: #111827; }
 .seller-statement .seller-document__products thead th,
-.seller-statement .seller-document__meta-table th { background: #eaf2f8; }
+.seller-statement .seller-document__meta-table th { background: #e9f1f8; }
 .seller-statement .seller-document__table .amount-cell { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .seller-document__meta-table th { text-align: center; width: 150px; }
 .seller-document__meta-table td { font-weight: 700; }
@@ -2002,9 +2002,11 @@
 .seller-document--exporting details > * { display: block !important; }
 .seller-export-timestamp { color: #4b5563; font-size: 10px; margin: 2px 0 0; text-align: right; }
 .settlement-work-table td small { color: #64748b; display: block; font-size: 10px; margin-top: 3px; white-space: nowrap; }
-.manager-statement { max-width: 1180px; }
+.manager-statement { gap: 10px; max-width: 1120px; padding: 24px; }
 .manager-statement .manager-document__section { border: 0; display: grid; gap: 8px; padding: 0; }
-.manager-statement .manager-document__section h3 { font-size: 15px; margin: 0; }
+.manager-statement .manager-document__section h3 { font-size: 13px; margin: 0; }
+.manager-statement .seller-document__table th,
+.manager-statement .seller-document__table td { font-size: 11px; padding: 5px 7px; }
 .manager-statement .manager-event-cost { border: 1px solid #111827; margin: 0; }
 .manager-allocation-basis { border: 2px solid #111827 !important; padding: 14px !important; }
 .manager-allocation-basis > strong { font-size: 22px; text-align: right; }
@@ -2013,13 +2015,14 @@
 .manager-final-row td { background: #fff59d !important; font-size: 14px !important; font-weight: 900 !important; }
 .manager-final-row th { border-bottom: 3px solid #e53935 !important; border-left: 3px solid #e53935 !important; border-top: 3px solid #e53935 !important; }
 .manager-final-row td { border-bottom: 3px solid #e53935 !important; border-right: 3px solid #e53935 !important; border-top: 3px solid #e53935 !important; }
+.manager-final-row .amount-cell { color: #d32f2f !important; }
 .manager-calculation-total th,
 .manager-calculation-total td { font-weight: 900 !important; }
 .manager-calculation-deduction th,
 .manager-calculation-deduction td { background: #fce8df !important; color: #9a3412; }
 .manager-distributable-row th,
 .manager-distributable-row td { background: #fff7b8 !important; font-size: 15px !important; font-weight: 900 !important; }
-.manager-payment-account { border: 1px solid #9ca3af !important; grid-template-columns: 120px 1fr; padding: 8px 10px !important; }
+.manager-payment-account { border: 1px solid #111827 !important; grid-template-columns: 120px 1fr; padding: 8px 10px !important; }
 .manager-payment-account h3 { align-self: center; }
 .manager-payment-account p { font-size: 11px; margin: 0; }
 .manager-product-table { min-width: 960px; }
@@ -4571,6 +4574,10 @@
 .payout-status-banner { align-items: flex-start; background: #ecfdf5; border: 1px solid #86efac; border-radius: 10px; color: #166534; display: flex; flex-direction: column; gap: 3px; padding: 11px 13px; }
 .payout-status-banner strong { font-size: 13px; }
 .payout-status-banner span { font-size: 12px; }
+.payout-status-banner.is-pending { background: #fff1f2; border-color: #fda4af; color: #be123c; }
+.payout-status-banner.is-approved { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+.payment-account-fields { border: 1px solid var(--border); border-radius: 10px; display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 12px; }
+.payment-account-fields legend { font-size: 12px; font-weight: 900; padding: 0 5px; }
 .withholding-confirmation { align-items: center; background: #f0fdf4; border: 1px solid #86efac; border-radius: 10px; display: flex; font-weight: 800; gap: 10px; padding: 13px 14px; }
 .withholding-confirmation input { height: 18px; width: 18px; }
 @keyframes clipboard-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }

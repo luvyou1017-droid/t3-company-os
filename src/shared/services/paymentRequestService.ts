@@ -28,6 +28,7 @@ export type PaymentRequestValidationInput = {
 }
 
 type CreatePaymentRequestOptions = { allowEvidencePending?: boolean; memo?: string; accountConfirmed?: boolean }
+const editablePaymentRequestStatuses: PaymentRequestStatus[] = ['evidence_pending', 'request_ready', 'approval_pending', 'on_hold']
 
 function validate(input: PaymentRequestValidationInput) {
   const settlement = settlementService.getSettlementById(input.settlementId)
@@ -124,6 +125,16 @@ export const paymentRequestService = {
     return seeded
   },
   getPaymentRequestById(id: string) { return this.getPaymentRequests().find((item) => item.id === id) },
+  canEditPaymentRequest(request: PaymentRequest) { return editablePaymentRequestStatuses.includes(request.status) },
+  updatePaymentRequest(id: string, patch: Pick<PaymentRequest, 'memo' | 'accountConfirmed' | 'evidenceStatus'>) {
+    const request = this.getPaymentRequestById(id)
+    if (!request) throw new Error('지급 요청을 찾을 수 없습니다.')
+    if (!this.canEditPaymentRequest(request)) {
+      if (request.status === 'payment_completed' || request.status === 'remittance_confirmed') throw new Error('이미 지급 완료된 건입니다.')
+      throw new Error('이미 대표 승인이 완료되어 지급요청을 수정할 수 없습니다.')
+    }
+    return save({ ...request, ...patch })
+  },
   getPaymentRequestForRecipient(settlementId: string, recipientType: EvidenceOwnerType, recipientId: string, sourceVersion: number) {
     return this.getPaymentRequests().find((request) =>
       request.settlementId === settlementId && request.recipientType === recipientType &&

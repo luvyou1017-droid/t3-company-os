@@ -13,9 +13,11 @@ const { sellerMasterService } = await vite.ssrLoadModule('/src/shared/services/s
 const { sellerSettlementService } = await vite.ssrLoadModule('/src/shared/services/sellerSettlementService.ts')
 const { managerPaymentService } = await vite.ssrLoadModule('/src/shared/services/managerPaymentService.ts')
 const { settlementService } = await vite.ssrLoadModule('/src/shared/services/settlementService.ts')
+const { salesDataService } = await vite.ssrLoadModule('/src/shared/services/salesDataService.ts')
 const { paymentRequestService } = await vite.ssrLoadModule('/src/shared/services/paymentRequestService.ts')
 const { withholdingTaxService } = await vite.ssrLoadModule('/src/shared/services/withholdingTaxService.ts')
 const { calculateWithholding } = await vite.ssrLoadModule('/src/shared/utils/withholdingTax.ts')
+const { calculateManagerProductRow } = await vite.ssrLoadModule('/src/shared/utils/settlementDocument.ts')
 const { getRecommendedEvidenceType, normalizeSellerBusinessType } = await vite.ssrLoadModule('/src/shared/utils/sellerSettlement.ts')
 const { STORAGE_KEYS, storageService } = await vite.ssrLoadModule('/src/shared/services/storageService.ts')
 
@@ -52,6 +54,7 @@ const premiumGross = premiumSettlement.currentCalculation.managerAmount + premiu
 const premiumTax = calculateWithholding(premiumGross, premiumSettlement.currentCalculation.managerDeductionTotal)
 const premiumCompanyAmountBeforeRequest = premiumSettlement.currentCalculation.companyAmount
 const premiumRequest = paymentRequestService.createManagerPaymentRequest(premiumSettlement.id, '테스트', manager.businessType, undefined, { accountConfirmed: true })
+const updatedPremiumRequest = paymentRequestService.updatePaymentRequest(premiumRequest.id, { memo: '수정된 지급 메모', accountConfirmed: true, evidenceStatus: premiumRequest.evidenceStatus })
 const independentlyTrackedPremium = settlementService.getSettlementById(premiumSettlement.id)
 const premiumVersionBeforeRevision = independentlyTrackedPremium.settlementVersion
 const premiumCalculationBeforeRevision = {
@@ -66,6 +69,10 @@ const revisionLog = settlementService.getActivityLogsBySettlementId(premiumSettl
 const approvedSettlements = settlementService.getSettlements().map((item) => ({ ...item, status: 'approved', accountConfirmed: true }))
 storageService.setItem(STORAGE_KEYS.settlements, approvedSettlements)
 const approvedHealth = settlementService.getSettlementById(healthSettlement.id)
+const healthProductSubtotal = salesDataService.getRowsByImportId(approvedHealth.salesDataImportId).reduce((total, row) => {
+  const calculated = calculateManagerProductRow(row, approvedHealth.currentCalculation.totalCommissionRate)
+  return { quantity: total.quantity + calculated.quantity, salesAmount: total.salesAmount + row.unitPrice * calculated.quantity, salesCommission: total.salesCommission + calculated.salesCommission }
+}, { quantity: 0, salesAmount: 0, salesCommission: 0 })
 const healthTax = calculateWithholding(approvedHealth.currentCalculation.managerAmount + approvedHealth.currentCalculation.managerDeductionTotal, approvedHealth.currentCalculation.managerDeductionTotal)
 const beforeRequests = paymentRequestService.getPaymentRequests().length
 const request = paymentRequestService.createManagerPaymentRequest(approvedHealth.id, '테스트', manager.businessType, undefined, { accountConfirmed: true })
@@ -91,6 +98,17 @@ const duplicateBlocked = (() => {
   catch (error) { return error instanceof Error && error.message.includes('이미 지급 요청이 생성되어 있습니다.') }
 })()
 
+paymentRequestService.approvePaymentRequest(premiumRequest.id, '대표 테스트')
+const approvedEditBlocked = (() => {
+  try { paymentRequestService.updatePaymentRequest(premiumRequest.id, { memo: '승인 후 수정', accountConfirmed: true, evidenceStatus: premiumRequest.evidenceStatus }); return false }
+  catch (error) { return error instanceof Error && error.message === '이미 대표 승인이 완료되어 지급요청을 수정할 수 없습니다.' }
+})()
+paymentRequestService.markPaymentCompleted(premiumRequest.id, '지급 테스트')
+const completedEditBlocked = (() => {
+  try { paymentRequestService.updatePaymentRequest(premiumRequest.id, { memo: '지급 후 수정', accountConfirmed: true, evidenceStatus: premiumRequest.evidenceStatus }); return false }
+  catch (error) { return error instanceof Error && error.message === '이미 지급 완료된 건입니다.' }
+})()
+
 const checks = [
   ['셀러명/사업자명 독립 저장', sellerSaved.name === '헬시윤' && sellerRead.businessName === '(주)헬시윤'],
   ['셀러 사업자 유형 저장', sellerRead.businessType === 'simplified_business'],
@@ -101,10 +119,14 @@ const checks = [
   ['프리미엄 침구 수동 정산 확인 없이 지급 가능', premiumManagerValidation.valid && !premiumManagerValidation.reasons.some((reason) => reason.includes('정산금액이 확정'))],
   ['셀러 미확정/증빙 사전 경고 없이 지급 가능', premiumSellerValidation.valid && !premiumSellerValidation.reasons.some((reason) => reason.includes('확정') || reason.includes('증빙') || reason.includes('캡처본'))],
   ['프리미엄 침구 지급 요청 최종액 일치', premiumRequest.finalPaymentAmount === premiumTax.finalPaymentAmount && premiumRequest.status === 'approval_pending'],
+  ['지급 요청 정보 수정 및 상태 유지', updatedPremiumRequest.memo === '수정된 지급 메모' && updatedPremiumRequest.status === 'approval_pending' && updatedPremiumRequest.finalPaymentAmount === premiumRequest.finalPaymentAmount],
+  ['대표 승인 후 지급 요청 수정 제한', approvedEditBlocked],
+  ['지급 완료 후 지급 요청 수정 제한', completedEditBlocked],
   ['셀러/매니저 지급 상태 독립 관리', independentlyTrackedPremium.managerPaymentRequestStatus === 'approval_pending' && !independentlyTrackedPremium.sellerPaymentRequestStatus],
   ['수정 요청 이력 및 현재 버전 보존', revisionRequested?.status === 'revision_required' && revisionRequested.settlementVersion === premiumVersionBeforeRevision && revisionRequested.currentCalculation.finalPaymentAmount === premiumCalculationBeforeRevision.finalPaymentAmount && revisionRequested.currentCalculation.managerAmount === premiumCalculationBeforeRevision.managerAmount && revisionRequested.currentCalculation.companyAmount === premiumCalculationBeforeRevision.companyAmount && revisionLog?.actor === '테스트 요청자' && revisionLog.version === premiumVersionBeforeRevision],
   ['회사 귀속 계산 데이터 유지', Number.isFinite(premiumCompanyAmountBeforeRequest) && settlementService.getSettlementById(premiumSettlement.id).currentCalculation.companyAmount === premiumCompanyAmountBeforeRequest],
   ['건강식품 VAT 포함 배분금액', healthTax.grossSettlementAmount === 69_440],
+  ['매니저 상품 판매 소계', healthProductSubtotal.quantity === 108 && healthProductSubtotal.salesAmount === 3_024_000 && healthProductSubtotal.salesCommission === 756_000],
   ['건강식품 원천세 계산', healthTax.withholdingBaseAmount === 63_127 && healthTax.incomeTaxAmount === 1_890 && healthTax.localIncomeTaxAmount === 180 && healthTax.finalPaymentAmount === 61_057],
   ['지급 요청 최종액 일치', request.finalPaymentAmount === healthTax.finalPaymentAmount],
   ['원천세 선등록 후 지급 요청 생성', taxItemsAfterRequest.length === 1 && afterRequests === beforeRequests + 1 && request.status === 'approval_pending'],
