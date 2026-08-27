@@ -10,6 +10,7 @@
     "test:campaign-drafts": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runCampaignDrafts.mjs",
     "test:campaign-defaults": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runCampaignDefaults.mjs",
     "test:settlement-document": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSettlementDocument.mjs",
+    "test:settlement-payout": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSettlementPayoutFlow.mjs",
     "test:scenarios": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runOperationalScenarios.mjs",
     "lint": "eslint .",
     "preview": "vite preview"

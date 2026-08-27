@@ -14,10 +14,11 @@ export function validateEvidenceRecords(
   businessType: SellerBusinessType,
   withholdingRegistered = false,
 ) {
+  void withholdingRegistered
   const requiredType = getRequiredEvidenceType(businessType)
   if (!requiredType) return {
-    valid: withholdingRegistered,
-    reasons: withholdingRegistered ? [] : ['원천세 리스트에 등록되지 않았습니다.'],
+    valid: true,
+    reasons: [],
     requiredType: 'withholding_entry' as const,
   }
   const record = evidence.filter((item) =>
@@ -41,7 +42,7 @@ export function runEvidenceAssertions() {
     corporatePendingBlocked: !validateEvidenceRecords([corporatePending], 'settlement', 'seller', 'corporation').valid,
     corporateApprovedAllowed: validateEvidenceRecords([{ ...corporatePending, reviewStatus: 'approved' }], 'settlement', 'seller', 'corporation').valid,
     managerCashReceiptApproved: validateEvidenceRecords([simplifiedApproved], 'settlement', 'manager', 'simplified_business').valid,
-    freelancerRequiresList: !validateEvidenceRecords([], 'settlement', 'manager', 'freelancer').valid,
+    freelancerAutoRegisters: validateEvidenceRecords([], 'settlement', 'manager', 'freelancer').valid,
     freelancerWithListAllowed: validateEvidenceRecords([], 'settlement', 'manager', 'freelancer', true).valid,
   }
   return { passed: Object.values(checks).every(Boolean), checks }

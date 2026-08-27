@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { campaignService } from '../../../shared/services/campaignService'
 import { managerPaymentService } from '../../../shared/services/managerPaymentService'
 import { paymentEvidenceService } from '../../../shared/services/paymentEvidenceService'
@@ -16,7 +15,6 @@ type CampaignSettlementTabProps = {
 }
 
 export function CampaignSettlementTab({ campaignId, onOpenSettlement }: CampaignSettlementTabProps) {
-  const [, setRevision] = useState(0)
   const settlements = settlementService.getSettlementByCampaignId(campaignId)
   const readySales = salesDataService.getSalesDataByCampaignId(campaignId).imports.find((item) => item.reviewStatus === '확정 완료' && item.settlementStatus === '정산 가능')
 
@@ -92,10 +90,11 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
             const recipientName = isSeller ? campaign.sellerName : campaign.managerName
             const businessType = isSeller ? sellerRule?.businessType ?? 'general_business' : managerPaymentService.getBusinessType(campaign.managerName)
             const evidence = paymentEvidenceService.getEvidenceBySettlementId(settlement.id, recipientType)
+            const managerProfile = !isSeller ? managerPaymentService.getProfile(campaign.managerId) : undefined
             const reasons = paymentRequestService.getPaymentRequestBlockReasons({
               settlementId: settlement.id, ownerType: recipientType, ownerId: recipientId, businessType,
               evidenceTypeConfirmed: isSeller ? Boolean(sellerRule?.evidenceConfirmed && sellerRule.confirmedEvidenceType) : true,
-              accountConfirmed: settlement.accountConfirmed, calculationCompleted: true, calculationErrors: [],
+              accountConfirmed: isSeller ? settlement.accountConfirmed : Boolean(managerProfile?.bankName && managerProfile.accountNumber && managerProfile.accountHolder), calculationCompleted: true, calculationErrors: [],
               sourceVersion: settlement.settlementVersion,
             })
             const request = paymentRequestService.getPaymentRequestForRecipient(settlement.id, recipientType, recipientId, settlement.settlementVersion)
@@ -104,17 +103,13 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
               <h3>{recipientName}</h3>
               <dl>
                 <div><dt>사업자·증빙</dt><dd>{businessType} · {isSeller ? sellerRule?.confirmedEvidenceType ?? '미확정' : businessType === 'freelancer' ? 'withholding_3_3' : businessType === 'simplified_business' ? 'cash_receipt' : 'tax_invoice'}</dd></div>
-                <div><dt>증빙 상태</dt><dd>{businessType === 'freelancer' ? reasons.some((reason) => reason.includes('원천세')) ? '원천세 미등록' : '원천세 등록' : evidence.some((item) => item.reviewStatus === 'approved') ? '승인' : '대기'}</dd></div>
+                <div><dt>증빙 상태</dt><dd>{businessType === 'freelancer' ? '지급 요청 시 원천세 자동 등록' : evidence.some((item) => item.reviewStatus === 'approved') ? '승인' : '대기'}</dd></div>
                 <div><dt>최종 지급액</dt><dd>{formatCurrency(isSeller ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount)}</dd></div>
                 <div><dt>지급요청 상태</dt><dd>{request?.status ?? '요청 전'}</dd></div>
               </dl>
               <div className="button-row">
                 <button className="secondary-button" onClick={() => openPaymentDetail(settlement.id, recipientType, { from: `/campaigns/${encodeURIComponent(campaign.id)}?tab=settlement`, label: '공동구매 상세' })} type="button">지급 상세</button>
-                <button className="secondary-button" disabled={Boolean(reasons.length)} onClick={() => {
-                  if (isSeller) paymentRequestService.createPaymentRequest(settlement.id, '허수정')
-                  else paymentRequestService.createManagerPaymentRequest(settlement.id, '허수정', businessType)
-                  setRevision((value) => value + 1)
-                }} type="button">{isSeller ? '셀러 지급요청' : '매니저 지급요청'}</button>
+                <button className="secondary-button" disabled={Boolean(reasons.length)} onClick={() => openPaymentDetail(settlement.id, recipientType, { from: `/campaigns/${encodeURIComponent(campaign.id)}?tab=settlement`, label: '공동구매 상세' })} type="button">{isSeller ? '셀러 지급요청' : '매니저 지급요청'}</button>
               </div>
               {reasons.length > 0 && <small>{reasons.join(' · ')}</small>}
             </article>

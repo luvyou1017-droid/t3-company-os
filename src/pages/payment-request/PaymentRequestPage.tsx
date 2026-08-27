@@ -9,7 +9,7 @@ import { withholdingTaxService } from '../../shared/services/withholdingTaxServi
 import type { EvidenceDocumentType, EvidenceOwnerType, PaymentEvidence } from '../../shared/types/paymentEvidence'
 import type { PaymentRequestStatus, SellerBusinessType } from '../../shared/types/sellerSettlement'
 import type { WithholdingTaxStatus } from '../../shared/types/withholdingTax'
-import { runWithholdingAssertions } from '../../shared/utils/withholdingTax'
+import { calculateWithholding, runWithholdingAssertions } from '../../shared/utils/withholdingTax'
 import { validateSettlement } from '../../shared/utils/settlement'
 import { openEvidenceReviewDetail, openPaymentDetail } from '../../shared/utils/paymentNavigation'
 import { DEFAULT_EVIDENCE_REVIEWER } from '../../shared/data/users'
@@ -76,7 +76,6 @@ export function PaymentRequestPage() {
   const sync = () => setRevision((value) => value + 1)
   const requests = useMemo(() => paymentRequestService.getPaymentRequests(), [revision])
   const evidence = useMemo(() => paymentEvidenceService.getAllEvidence(), [revision])
-  useMemo(() => withholdingTaxService.syncFromConfirmedSettlements(), [revision])
   const assertion = runWithholdingAssertions()
   useEffect(() => {
     const saved = JSON.parse(sessionStorage.getItem('t3_payment_view_state') ?? '{}') as { scrollY?: number }
@@ -145,6 +144,14 @@ function StageRequestList({ requests, empty, onSelect, onSync, approval }: {
 
 function PaymentWorkflowDetail({ target, backLabel, onBack, onSync }: { target: WorkflowTarget; backLabel: string; onBack: () => void; onSync: () => void }) {
   const [previewEvidence, setPreviewEvidence] = useState<PaymentEvidence | null>(null)
+  const [freelancerConfirmationOpen, setFreelancerConfirmationOpen] = useState(false)
+  const [requestMessage, setRequestMessage] = useState('')
+  const [requestError, setRequestError] = useState('')
+  useEffect(() => {
+    if (!requestMessage) return
+    const timeout = window.setTimeout(() => setRequestMessage(''), 2000)
+    return () => window.clearTimeout(timeout)
+  }, [requestMessage])
   const settlement = settlementService.getSettlementById(target.settlementId)
   if (!settlement) return <section className="workspace-card"><p>정산을 찾을 수 없습니다.</p><button className="secondary-button" onClick={onBack}>목록으로</button></section>
   const campaign = campaignService.getCampaignById(settlement.campaignId)
@@ -193,11 +200,18 @@ function PaymentWorkflowDetail({ target, backLabel, onBack, onSync }: { target: 
       window.alert(error instanceof Error ? error.message : '증빙파일 업로드에 실패했습니다. 다시 시도해주세요.')
     }
   }
-  const createRequest = () => {
-    if (isSeller) paymentRequestService.createPaymentRequest(settlement.id, '허수정')
-    else paymentRequestService.createManagerPaymentRequest(settlement.id, '허수정', businessType)
-    onSync()
+  const saveRequest = () => {
+    setRequestError('')
+    try {
+      const accountConfirmed = settlement.accountConfirmed || (!isSeller && Boolean(managerPaymentService.getProfile(campaign.managerId)?.bankName && managerPaymentService.getProfile(campaign.managerId)?.accountNumber && managerPaymentService.getProfile(campaign.managerId)?.accountHolder))
+      if (isSeller) paymentRequestService.createPaymentRequest(settlement.id, '허수정', { accountConfirmed })
+      else paymentRequestService.createManagerPaymentRequest(settlement.id, '허수정', businessType, undefined, { accountConfirmed })
+      setFreelancerConfirmationOpen(false)
+      setRequestMessage(businessType === 'freelancer' ? '원천세 리스트 등록 및 지급 요청이 완료되었습니다.' : '지급 요청이 완료되었습니다.')
+      onSync()
+    } catch (error) { setRequestError(error instanceof Error ? error.message : '지급 요청을 생성하지 못했습니다.') }
   }
+  const createRequest = () => businessType === 'freelancer' ? setFreelancerConfirmationOpen(true) : saveRequest()
   const completedStep = request?.status === 'payment_completed' || request?.status === 'remittance_confirmed'
   const approvedStep = request?.status === 'approved' || completedStep
   const requestedStep = Boolean(request)
@@ -242,7 +256,9 @@ function PaymentWorkflowDetail({ target, backLabel, onBack, onSync }: { target: 
             : evidenceApproved ? ['지급요청 준비 완료', '지급요청을 생성해주세요.']
               : evidence ? ['증빙 업로드 완료', '증빙 검수를 요청해주세요.']
                 : ['증빙자료 필요', businessType === 'freelancer' ? '원천세 리스트 등록 상태를 확인해주세요.' : `${evidenceLabels[recommended]}을 업로드해주세요.`]
+  const freelancerCalculation = calculateWithholding(grossSettlementAmount(settlement, target.recipientType), isSeller ? settlement.currentCalculation.sellerDeductionTotal : settlement.currentCalculation.managerDeductionTotal)
   return <section className="payment-workflow-detail">
+    {requestMessage && <div aria-live="polite" className="clipboard-toast">✓ {requestMessage}</div>}
     <header className="payment-stage-hero"><button className="text-button payment-back-link" onClick={onBack}>← {backLabel === '이전 화면' ? '지급 요청 목록' : backLabel}</button><div><p>지급요청 상세</p><h1>{campaign.campaignName}</h1><strong>다음 행동: {stage[1]}</strong></div></header>
     <section className="workspace-card payment-summary-card"><div className="section-heading"><div><p className="page-eyebrow">Payment Summary</p><h2>지급요청 요약</h2></div><span className={`status-badge ${completedStep ? 'done' : 'settlement'}`}>● {stage[0]}</span></div>
       <div className="payment-summary-items">
@@ -287,10 +303,11 @@ function PaymentWorkflowDetail({ target, backLabel, onBack, onSync }: { target: 
       <WorkflowAction evidence={evidence} businessType={businessType} request={request} reasons={reasons} onUpload={upload} onRequestReview={() => { if (evidence) paymentEvidenceService.requestEvidenceReview(evidence.id); onSync() }} onCreateRequest={createRequest} onComplete={() => { if (request?.status === 'sent') paymentRequestService.markSellerRemittanceConfirmed(request.id); else if (request) paymentRequestService.markPaymentCompleted(request.id); onSync() }} />
     </section>
     <section className="workspace-card"><h2>4. 계좌 확인</h2><p>{settlement.accountConfirmed ? '✓ 지급 계좌 확인 완료' : '지급 계좌 확인이 필요합니다.'}</p></section>
-    <section className="workspace-card"><h2>5. 원천세</h2>{businessType === 'freelancer' && taxItem ? <div className="payment-detail-sections"><SummaryItem label="부가세 포함 정산금" value={money(taxItem.grossSettlementAmount)} /><SummaryItem label="부가세 제외 기준금액" value={money(taxItem.withholdingBaseAmount)} /><SummaryItem label="소득세 3%" value={money(taxItem.incomeTaxAmount)} /><SummaryItem label="지방소득세 0.3%" value={money(taxItem.localIncomeTaxAmount)} /><SummaryItem label="총 원천징수액" value={money(taxItem.totalWithholdingTaxAmount)} /><SummaryItem label="최종 지급액" value={money(taxItem.finalPaymentAmount)} /><SummaryItem label="원천세 리스트" value="등록 완료" /></div> : <p>{businessType === 'freelancer' ? '원천세 리스트 미등록' : '원천세 대상이 아닙니다.'}</p>}</section>
+    <section className="workspace-card"><h2>5. 원천세</h2>{businessType === 'freelancer' && taxItem ? <div className="payment-detail-sections"><SummaryItem label="부가세 포함 정산금" value={money(taxItem.grossSettlementAmount)} /><SummaryItem label="부가세 제외 기준금액" value={money(taxItem.withholdingBaseAmount)} /><SummaryItem label="소득세 3%" value={money(taxItem.incomeTaxAmount)} /><SummaryItem label="지방소득세 0.3%" value={money(taxItem.localIncomeTaxAmount)} /><SummaryItem label="총 원천징수액" value={money(taxItem.totalWithholdingTaxAmount)} /><SummaryItem label="최종 지급액" value={money(taxItem.finalPaymentAmount)} /><SummaryItem label="원천세 리스트" value="등록 완료" /></div> : <p>{businessType === 'freelancer' ? '지급 요청 시 원천세 리스트에 자동 등록됩니다.' : '원천세 대상이 아닙니다.'}</p>}</section>
     <section className="workspace-card"><h2>6. 지급요청 상태</h2><p>{request ? statusLabel[request.status] : '지급요청 생성 전'}</p>{reasons.length > 0 && !request && <ul className="block-reasons">{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}</section>
     <section className="workspace-card"><h2>7. 승인·지급 이력</h2><div className="payment-history"><p>{request?.requestedAt ? `요청 · ${request.requestedBy} · ${formatKoreanDateTime(request.requestedAt)}` : '지급요청 이력 없음'}</p>{request?.approvedAt && <p>승인 · {request.approvedBy} · {formatKoreanDateTime(request.approvedAt)}</p>}{request?.completedAt && <p>지급 완료 · {request.completedBy} · {formatKoreanDateTime(request.completedAt)}</p>}</div></section>
     <EvidencePreviewModal evidence={previewEvidence} onClose={() => setPreviewEvidence(null)} />
+    {freelancerConfirmationOpen && <div className="settlement-modal-backdrop"><section aria-modal="true" className="settlement-modal payment-request-modal" role="dialog"><div className="preview-drawer__header"><div><p className="page-eyebrow">Payment Request</p><h2>원천세 등록 및 지급 신청</h2></div><button className="icon-button" onClick={() => setFreelancerConfirmationOpen(false)} type="button">×</button></div><p>해당 {isSeller ? '셀러' : '매니저'}는 개인 프리랜서입니다.</p><p>지급 신청 시 원천세 리스트에 자동으로 등록됩니다.</p><table className="payment-request-summary-table"><tbody><tr><th>{isSeller ? '셀러명' : '매니저명'}</th><td>{recipientName}</td></tr><tr><th>원천세 신고금액</th><td className="money-cell">{money(freelancerCalculation.withholdingBaseAmount)}</td></tr><tr><th>소득세</th><td className="money-cell">- {money(freelancerCalculation.incomeTaxAmount)}</td></tr><tr><th>지방소득세</th><td className="money-cell">- {money(freelancerCalculation.localIncomeTaxAmount)}</td></tr><tr><th>{isSeller ? '최종 입금액' : '최종 지급액'}</th><td className="money-cell"><strong>{money(freelancerCalculation.finalPaymentAmount)}</strong></td></tr></tbody></table><p className="withholding-confirmation">지급 신청하시겠습니까?</p>{requestError && <p className="payment-request-error">{requestError}</p>}<div className="button-row"><button className="secondary-button" onClick={() => setFreelancerConfirmationOpen(false)} type="button">취소</button><button className="primary-button" onClick={saveRequest} type="button">네</button></div></section></div>}
   </section>
 }
 
@@ -483,7 +500,7 @@ function RequestTab({ requests, evidence, onSelect }: { requests: ReturnType<typ
               <div><dt>사업자 유형</dt><dd>{businessType}</dd></div>
               <div><dt>증빙 업로드</dt><dd>{ownerEvidence.length ? '완료' : '미완료'}</dd></div>
               <div><dt>증빙 검수</dt><dd>{ownerEvidence.some((item) => item.reviewStatus === 'approved') ? '승인' : '미승인'}</dd></div>
-              <div><dt>원천세 리스트</dt><dd>{taxRegistered ? '등록' : businessType === 'freelancer' ? '미등록' : '해당 없음'}</dd></div>
+              <div><dt>원천세 리스트</dt><dd>{taxRegistered ? '등록' : businessType === 'freelancer' ? '지급 요청 시 자동 등록' : '해당 없음'}</dd></div>
               <div><dt>최종 지급액</dt><dd className="money-cell">{money(isSeller ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount)}</dd></div>
             </dl>
             {!reasons.length ? <p className="success-panel">지급요청 생성 가능</p> : <div className="block-reasons"><strong>지급요청 불가</strong><p>증빙자료 업로드 후 지급요청이 가능합니다.</p><ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>}

@@ -26,7 +26,7 @@ export type PaymentRequestValidationInput = {
   sourceVersion?: number
 }
 
-type CreatePaymentRequestOptions = { allowEvidencePending?: boolean; memo?: string }
+type CreatePaymentRequestOptions = { allowEvidencePending?: boolean; memo?: string; accountConfirmed?: boolean }
 
 function validate(input: PaymentRequestValidationInput) {
   const settlement = settlementService.getSettlementById(input.settlementId)
@@ -45,7 +45,7 @@ function validate(input: PaymentRequestValidationInput) {
     settlementId: input.settlementId, recipientType: input.ownerType, recipientId: input.ownerId,
     sourceVersion: input.sourceVersion ?? settlement?.settlementVersion ?? 1,
   })
-  if (duplicate) reasons.push('이미 지급요청된 건입니다.')
+  if (duplicate) reasons.push('이미 지급 요청이 생성되어 있습니다.')
   return { valid: reasons.length === 0, reasons }
 }
 
@@ -132,11 +132,10 @@ export const paymentRequestService = {
     if (!rule) throw new Error('셀러 정산 규칙이 없습니다.')
     const validation = validateSellerSettlement(rule, document.calculation)
     if (!validation.valid) throw new Error(validation.errors.join('\n'))
-    withholdingTaxService.syncFromConfirmedSettlements()
     const requestValidation = validate({
       settlementId, ownerType: 'seller', ownerId: document.sellerId, businessType: rule.businessType,
       evidenceTypeConfirmed: rule.evidenceConfirmed && Boolean(rule.confirmedEvidenceType),
-      accountConfirmed: settlementService.getSettlementById(settlementId)?.accountConfirmed ?? false,
+      accountConfirmed: options.accountConfirmed ?? settlementService.getSettlementById(settlementId)?.accountConfirmed ?? false,
       calculationCompleted: true, calculationErrors: validation.errors, amountConfirmed: true,
       sourceVersion: settlementService.getSettlementById(settlementId)?.settlementVersion,
     })
@@ -146,6 +145,17 @@ export const paymentRequestService = {
     if (blockingReasons.length) throw new Error(blockingReasons.join('\n'))
     const c = document.calculation
     const withholding = calculateWithholding(c.sellerGrossSettlementAmount, c.sellerDeductions)
+    let taxItem
+    if (rule.businessType === 'freelancer') {
+      try {
+        taxItem = withholdingTaxService.upsert({
+          settlementId, ownerType: 'seller', ownerId: document.sellerId, ownerName: document.sellerName,
+          grossSettlementAmount: c.sellerGrossSettlementAmount, deductions: c.sellerDeductions,
+          sourceVersion: settlementService.getSettlementById(settlementId)?.settlementVersion ?? 1, updatedBy: requestedBy,
+        })
+      } catch { throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.') }
+      if (!taxItem) throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.')
+    }
     const request = save({
       id: `payment-request-${crypto.randomUUID()}`, campaignId: document.campaignId, settlementId,
       sellerId: document.sellerId, direction: document.salesChannelType === 'seller_checkout' ? 'seller_to_company' : 'company_to_seller',
@@ -162,11 +172,9 @@ export const paymentRequestService = {
       deductions: c.sellerDeductions, finalPaymentAmount: c.finalSellerPaymentAmount,
       sellerRemittanceToCompany: c.sellerRemittanceToCompany, evidenceStatus: options.allowEvidencePending ? 'pending' : 'confirmed', accountConfirmed: true,
       requestedBy, requestedAt: now(), dueDate: document.dueDate,
-      status: options.allowEvidencePending ? 'evidence_pending' : document.salesChannelType === 'seller_checkout' ? 'request_ready' : 'approval_pending', memo: options.memo?.trim() ?? '',
+      status: options.allowEvidencePending ? 'evidence_pending' : rule.businessType === 'freelancer' ? 'approval_pending' : document.salesChannelType === 'seller_checkout' ? 'request_ready' : 'approval_pending', memo: options.memo?.trim() ?? '',
     })
     paymentEvidenceService.linkToPaymentRequest(settlementId, 'seller', request.id)
-    const taxItem = withholdingTaxService.getBySettlementOwner(settlementId, 'seller', document.sellerId)
-      .find((item) => item.sourceVersion === (settlementService.getSettlementById(settlementId)?.settlementVersion ?? 1))
     if (taxItem) {
       request.withholdingTaxItemId = taxItem.id
       withholdingTaxService.linkPaymentRequest(taxItem.id, request.id)
@@ -184,7 +192,7 @@ export const paymentRequestService = {
     const managerName = campaign.managerName
     const validation = validate({
       settlementId, ownerType: 'manager', ownerId: managerId, businessType,
-      evidenceTypeConfirmed: true, accountConfirmed: settlement.accountConfirmed,
+      evidenceTypeConfirmed: true, accountConfirmed: options.accountConfirmed ?? settlement.accountConfirmed,
       calculationCompleted: true, calculationErrors: [], amountConfirmed: settlement.currentCalculation.managerAmount >= 0,
       sourceVersion: settlement.settlementVersion,
     })
@@ -195,6 +203,16 @@ export const paymentRequestService = {
     const deductions = settlement.currentCalculation.managerDeductionTotal
     const gross = settlement.currentCalculation.managerAmount + deductions
     const tax = calculateWithholding(gross, deductions)
+    let taxItem
+    if (businessType === 'freelancer') {
+      try {
+        taxItem = withholdingTaxService.upsert({
+          settlementId, ownerType: 'manager', ownerId: managerId, ownerName: managerName,
+          grossSettlementAmount: gross, deductions, sourceVersion: settlement.settlementVersion, updatedBy: requestedBy,
+        })
+      } catch { throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.') }
+      if (!taxItem) throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.')
+    }
     const vatExcluded = Math.round(gross / 1.1)
     const finalPaymentAmount = businessType === 'freelancer' ? tax.finalPaymentAmount
       : businessType === 'simplified_business' ? vatExcluded - deductions : gross - deductions
@@ -211,12 +229,10 @@ export const paymentRequestService = {
       incomeTaxAmount: businessType === 'freelancer' ? tax.incomeTaxAmount : 0,
       localIncomeTaxAmount: businessType === 'freelancer' ? tax.localIncomeTaxAmount : 0,
       deductions, finalPaymentAmount, sellerRemittanceToCompany: 0, evidenceStatus: options.allowEvidencePending ? 'pending' : 'confirmed',
-      accountConfirmed: settlement.accountConfirmed, requestedBy, requestedAt: now(), dueDate: settlement.paymentDueDate,
+      accountConfirmed: options.accountConfirmed ?? settlement.accountConfirmed, requestedBy, requestedAt: now(), dueDate: settlement.paymentDueDate,
       status: options.allowEvidencePending ? 'evidence_pending' : 'approval_pending', memo: options.memo?.trim() || '매니저 지급 요청',
     })
     paymentEvidenceService.linkToPaymentRequest(settlementId, 'manager', request.id)
-    const taxItem = withholdingTaxService.getBySettlementOwner(settlementId, 'manager', managerId)
-      .find((item) => item.sourceVersion === settlement.settlementVersion)
     if (taxItem) {
       request.withholdingTaxItemId = taxItem.id
       withholdingTaxService.linkPaymentRequest(taxItem.id, request.id)

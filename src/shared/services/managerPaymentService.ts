@@ -14,14 +14,33 @@ export interface ManagerMasterProfile {
   id: string
   name: string
   businessName?: string
+  businessType: SellerBusinessType
   bankName?: string
   accountNumber?: string
   accountHolder?: string
+  taxRegistrationNumber?: string
 }
+
+const managerProfiles: ManagerMasterProfile[] = [
+  { id: 'u-001', name: '허윤정', businessName: '허윤정', businessType: 'freelancer', bankName: '국민은행', accountNumber: '123456-01-123456', accountHolder: '허윤정', taxRegistrationNumber: 'mock-tax-u-001' },
+  { id: 'u-005', name: '김병희', businessName: '김병희', businessType: 'freelancer', bankName: '신한은행', accountNumber: '110-123-456789', accountHolder: '김병희', taxRegistrationNumber: 'mock-tax-u-005' },
+  { id: 'manager-SCH-003', name: '오세린', businessName: '오세린컴퍼니', businessType: 'general_business', bankName: '우리은행', accountNumber: '1002-003-003003', accountHolder: '오세린컴퍼니' },
+  { id: 'manager-SCH-004', name: '박지훈', businessName: '박지훈', businessType: 'simplified_business', bankName: '하나은행', accountNumber: '004-004004-00404', accountHolder: '박지훈' },
+  { id: 'manager-SCH-006', name: '최유진', businessName: '최유진', businessType: 'freelancer', bankName: '카카오뱅크', accountNumber: '3333-06-0606060', accountHolder: '최유진', taxRegistrationNumber: 'mock-tax-sch-006' },
+  { id: 'manager-SCH-008', name: '윤태호', businessName: '(주)윤태호컴퍼니', businessType: 'general_business', bankName: '기업은행', accountNumber: '008-008008-01-008', accountHolder: '(주)윤태호컴퍼니' },
+  { id: 'manager-SCH-010', name: '오세린', businessName: '오세린컴퍼니', businessType: 'general_business', bankName: '우리은행', accountNumber: '1002-003-003003', accountHolder: '오세린컴퍼니' },
+  { id: 'manager-SCH-011', name: '박지훈', businessName: '박지훈', businessType: 'simplified_business', bankName: '하나은행', accountNumber: '004-004004-00404', accountHolder: '박지훈' },
+  { id: 'manager-SCH-012', name: '최유진', businessName: '최유진', businessType: 'freelancer', bankName: '카카오뱅크', accountNumber: '3333-06-0606060', accountHolder: '최유진', taxRegistrationNumber: 'mock-tax-sch-012' },
+]
 
 export const managerPaymentService = {
   getProfiles() {
-    return storageService.getItem<ManagerMasterProfile[]>(STORAGE_KEYS.managerMasters, [])
+    const stored = storageService.getItem<ManagerMasterProfile[]>(STORAGE_KEYS.managerMasters, [])
+    const storedById = new Map(stored.map((profile) => [profile.id, profile]))
+    return [
+      ...managerProfiles.map((profile) => ({ ...profile, ...storedById.get(profile.id), businessType: storedById.get(profile.id)?.businessType ?? profile.businessType })),
+      ...stored.filter((profile) => !managerProfiles.some((seed) => seed.id === profile.id)),
+    ]
   },
   getProfile(managerId: string) {
     return this.getProfiles().find((profile) => profile.id === managerId)
@@ -36,13 +55,13 @@ export const managerPaymentService = {
     return [...unique.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko'))
   },
   getBusinessType(managerName: string) {
-    return getManagerBusinessType(managerName)
+    return this.getProfiles().find((profile) => profile.name === managerName)?.businessType ?? getManagerBusinessType(managerName)
   },
   getScheduledItems(managerId: string) {
     return settlementService.getSettlements().flatMap((settlement) => {
       const campaign = campaignService.getCampaignById(settlement.campaignId)
       if (!campaign || campaign.managerId !== managerId) return []
-      const businessType = getManagerBusinessType(campaign.managerName)
+      const businessType = this.getBusinessType(campaign.managerName)
       const grossManagerAmount = settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal
       const tax = businessType === 'freelancer'
         ? calculateWithholding(grossManagerAmount, settlement.currentCalculation.managerDeductionTotal)
@@ -53,7 +72,7 @@ export const managerPaymentService = {
           : grossManagerAmount - settlement.currentCalculation.managerDeductionTotal
       const reasons = paymentRequestService.getPaymentRequestBlockReasons({
         settlementId: settlement.id, ownerType: 'manager', ownerId: campaign.managerId, businessType,
-        evidenceTypeConfirmed: true, accountConfirmed: settlement.accountConfirmed, calculationCompleted: true,
+        evidenceTypeConfirmed: true, accountConfirmed: Boolean(this.getProfile(campaign.managerId)?.bankName && this.getProfile(campaign.managerId)?.accountNumber && this.getProfile(campaign.managerId)?.accountHolder), calculationCompleted: true,
         calculationErrors: [], amountConfirmed: settlement.currentCalculation.managerAmount >= 0,
         sourceVersion: settlement.settlementVersion,
       })
@@ -79,7 +98,7 @@ export const managerPaymentService = {
     const batches = this.getBatches()
     const id = createPaymentBatchId(batches.map((item) => item.id))
     const requests = candidates.map((item) =>
-      paymentRequestService.createManagerPaymentRequest(item.settlement.id, requestedBy, item.businessType as SellerBusinessType, id))
+      paymentRequestService.createManagerPaymentRequest(item.settlement.id, requestedBy, item.businessType as SellerBusinessType, id, { accountConfirmed: true }))
     const summary = summarizePaymentBatch(requests.map((request) => ({
       grossAmount: request.grossSettlementAmount,
       incomeTaxAmount: request.incomeTaxAmount ?? 0,
