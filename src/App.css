@@ -4582,7 +4582,12 @@
 .payout-status-banner strong { font-size: 13px; }
 .payout-status-banner span { font-size: 12px; }
 .payout-status-banner.is-pending { background: #fff1f2; border-color: #fda4af; color: #be123c; }
-.payout-status-banner.is-approved { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+.payout-status-banner.is-waiting { background: #effaff; border-color: #7dd3fc; color: #0369a1; }
+.payout-status-banner.is-approved { background: #f5f3ff; border-color: #c4b5fd; color: #6d28d9; }
+.payout-status-banner.is-complete { background: #eaf8ee; border-color: #86efac; color: #166534; }
+.payment-edit-button { background: #16803c; border: 1px solid #16803c; border-radius: 10px; color: #fff; cursor: pointer; font: inherit; font-weight: 800; padding: 9px 13px; }
+.payment-edit-button:hover:not(:disabled) { background: #166534; border-color: #166534; }
+.payment-edit-button:disabled { cursor: not-allowed; opacity: .5; }
 .payment-account-fields { border: 1px solid var(--border); border-radius: 10px; display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 12px; }
 .payment-account-fields legend { font-size: 12px; font-weight: 900; padding: 0 5px; }
 .withholding-confirmation { align-items: center; background: #f0fdf4; border: 1px solid #86efac; border-radius: 10px; display: flex; font-weight: 800; gap: 10px; padding: 13px 14px; }

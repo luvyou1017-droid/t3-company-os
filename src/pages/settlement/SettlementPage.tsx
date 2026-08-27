@@ -30,11 +30,11 @@ import type { PaymentRequest, PaymentRequestStatus, SellerBusinessType } from '.
 import type { CampaignEvent } from '../../shared/types/campaignCreation'
 
 type DocumentMode = '내부 검토용' | '셀러 전달용' | '매니저 정산서'
-type ReadinessModal = 'commission' | 'costs' | 'share' | 'business' | 'account' | 'seller-info' | 'manager-account'
+type ReadinessModal = 'commission' | 'costs' | 'share' | 'business' | 'account' | 'seller-info' | 'manager-info' | 'manager-business-edit' | 'manager-account-edit'
 type ReadinessSeverity = 'blocking' | 'non-blocking'
 type ReadinessWarning = { id: string; message: string; actionLabel: string; severity: ReadinessSeverity; action: () => void }
 type PaymentWarningAction = { reason: string; actionLabel: string; action: () => void }
-type PayoutStatusNotice = { title: string; detail: string; tone?: 'pending' | 'approved' | 'complete' }
+type PayoutStatusNotice = { title: string; detail: string; tone: 'pending' | 'waiting' | 'approved' | 'complete' }
 const evidenceAllowedTypes = new Set<string>(PAYMENT_EVIDENCE_ALLOWED_TYPES)
 const evidenceImageTypes = new Set<string>(PAYMENT_EVIDENCE_ALLOWED_TYPES.filter((type) => type.startsWith('image/')))
 const statusTone: Record<SettlementStatus, string> = {
@@ -232,7 +232,6 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const [sellerExportGeneratedAt, setSellerExportGeneratedAt] = useState('')
   const [managerExportGeneratedAt, setManagerExportGeneratedAt] = useState('')
   const [expandedDocument, setExpandedDocument] = useState<'seller' | 'manager' | null>(null)
-  const [printingDocument, setPrintingDocument] = useState<'seller' | 'manager' | null>(null)
   const [paymentRequestTarget, setPaymentRequestTarget] = useState<EvidenceOwnerType | null>(null)
   const [paymentStatusTarget, setPaymentStatusTarget] = useState<EvidenceOwnerType | null>(null)
   const [revisionRequestOpen, setRevisionRequestOpen] = useState(false)
@@ -342,16 +341,10 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const managerButtonBlockReasons = managerPaymentRequest || settlement.managerPaymentCompleted ? managerRequestEditable ? [] : [paymentStateReason(managerPaymentRequest, settlement.managerPaymentCompleted)] : settlementConfirmed ? managerRequestReasons : [confirmationReason]
   const sellerActionReasons = sellerPaymentRequest || settlement.sellerPaymentCompleted ? [] : settlementConfirmed ? sellerRequestReasons : [confirmationReason]
   const managerActionReasons = managerPaymentRequest || settlement.managerPaymentCompleted ? [] : settlementConfirmed ? managerRequestReasons : [confirmationReason]
-  const payoutStatusNotice = (request: typeof sellerPaymentRequest, completed: boolean) => {
-    if (completed || request?.status === 'payment_completed' || request?.status === 'remittance_confirmed') return { title: '지급이 완료되었습니다.', detail: '', tone: 'complete' as const }
-    if (request?.status === 'rejected') return { title: '지급 요청이 반려되었습니다.', detail: '수정 후 다시 요청해주세요.' }
-    if (request?.status === 'approved' || request?.status === 'sent') return { title: '지급 승인이 완료되었습니다.', detail: '입금 대기 중입니다.', tone: 'approved' as const }
-    if (request?.status === 'approval_pending') return { title: '지급요청이 완료된 정산서입니다.', detail: '대표 승인 대기 중입니다.', tone: 'complete' as const }
-    if (request) return { title: '지급요청이 완료된 정산서입니다.', detail: paymentStatusLabels[request.status], tone: 'complete' as const }
-    return { title: '해당 정산서는 아직 지급신청이 되지 않은 정산서입니다.', detail: '', tone: 'pending' as const }
-  }
-  const sellerStatusNotice = payoutStatusNotice(sellerPaymentRequest, settlement.sellerPaymentCompleted)
-  const managerStatusNotice = payoutStatusNotice(managerPaymentRequest, settlement.managerPaymentCompleted)
+  const sellerPaymentStatus = sellerPaymentRequest?.status ?? settlement.sellerPaymentRequestStatus
+  const managerPaymentStatus = managerPaymentRequest?.status ?? settlement.managerPaymentRequestStatus
+  const sellerStatusNotice = getPaymentPresentation(sellerPaymentStatus, settlement.sellerPaymentCompleted).notice
+  const managerStatusNotice = getPaymentPresentation(managerPaymentStatus, settlement.managerPaymentCompleted).notice
   const checklist = settlement.reviewChecklist
   const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
   const actualCosts = deductions.filter((item) => item.amount > 0)
@@ -459,13 +452,15 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     showClipboardToast('셀러 계좌가 저장되었습니다.')
   }
 
-  const saveManagerAccount = () => {
-    if (!campaign || !managerAccountDraft.bankName.trim() || !managerAccountDraft.accountNumber.trim() || !managerAccountDraft.accountHolder.trim()) return
+  const saveManagerProfileDraft = (target: 'business' | 'account') => {
+    if (!campaign) return
+    if (target === 'business' && !managerBusinessNameDraft.trim()) return
+    if (target === 'account' && (!managerAccountDraft.bankName.trim() || !managerAccountDraft.accountNumber.trim() || !managerAccountDraft.accountHolder.trim())) return
     managerPaymentService.saveProfile({ id: campaign.managerId, name: campaign.managerName, businessName: managerBusinessNameDraft.trim() || undefined, businessType: managerBusinessTypeDraft, bankName: managerAccountDraft.bankName.trim(), accountNumber: managerAccountDraft.accountNumber.trim(), accountHolder: managerAccountDraft.accountHolder.trim(), taxRegistrationNumber: managerProfile?.taxRegistrationNumber })
     settlementService.updateEvidence(settlement.id, settlement.evidenceStatus, settlement.taxEvidenceConfirmed, true)
     setSettlement(settlementService.getSettlementById(settlement.id) ?? null)
     setMasterRevision((value) => value + 1)
-    setReadinessModal(null)
+    setReadinessModal('manager-info')
     showClipboardToast('매니저 정보가 저장되었습니다.')
   }
 
@@ -504,13 +499,6 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     }
   }
   const createSellerDocumentPng = () => createDocumentPng(sellerDocumentRef, 'seller-document--exporting', setSellerExportGeneratedAt)
-
-  const printDocument = (target: 'seller' | 'manager', setGeneratedAt: (value: string) => void) => {
-    flushSync(() => { setPrintingDocument(target); setGeneratedAt(formatKoreanExportTime()) })
-    const clear = () => { setGeneratedAt(''); setPrintingDocument(null) }
-    window.addEventListener('afterprint', clear, { once: true })
-    requestAnimationFrame(() => window.print())
-  }
 
   const saveSellerDocumentImage = async () => {
     try {
@@ -595,8 +583,11 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     setManagerAccountDraft({ bankName: managerProfile?.bankName ?? '', accountNumber: managerProfile?.accountNumber ?? '', accountHolder: managerProfile?.accountHolder ?? '' })
     setManagerBusinessNameDraft(managerProfile?.businessName ?? '')
     setManagerBusinessTypeDraft(managerProfile?.businessType ?? managerBusinessType)
-    setReadinessModal('manager-account')
+    setReadinessModal('manager-info')
   }
+
+  const openManagerBusinessEdit = () => { openManagerAccount(); setReadinessModal('manager-business-edit') }
+  const openManagerAccountEdit = () => { openManagerAccount(); setReadinessModal('manager-account-edit') }
 
   const makePaymentWarningAction = (owner: EvidenceOwnerType, reason: string): PaymentWarningAction => {
     if (owner === 'seller' && (reason.includes('사업자 유형') || reason.includes('증빙 유형'))) return { reason, actionLabel: '사업자 유형 등록', action: openSellerBusinessType }
@@ -662,15 +653,15 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
           {documentMode === '내부 검토용' ? (
             <InternalSettlementDocument campaignName={campaign?.campaignName ?? settlement.campaignId} settlement={settlement} />
           ) : (
-            <div className={`settlement-document-comparison ${printingDocument ? `is-printing-${printingDocument}` : ''}`}>
+            <div className="settlement-document-comparison">
               <article className={`settlement-document-column ${expandedDocument === 'seller' ? 'is-expanded' : ''}`} id="seller-settlement-document">
                 <div className="settlement-document-column__heading"><h3>셀러 정산서</h3>{expandedDocument === 'seller' && <button aria-label="닫기" className="settlement-expanded-close no-print" onClick={() => setExpandedDocument(null)} type="button">×</button>}</div>
-                <SettlementDocumentActions hasRequest={Boolean(sellerPaymentRequest)} statusNotice={sellerStatusNotice} warnings={sellerWarningActions} onCopyImage={copySellerDocumentImage} onCopyMessage={copySellerMessage} onInfo={openSellerInfo} onPreview={() => setExpandedDocument('seller')} onPrint={() => printDocument('seller', setSellerExportGeneratedAt)} onRequestPayment={() => setPaymentRequestTarget('seller')} onSaveImage={saveSellerDocumentImage} paymentDisabled={sellerButtonBlockReasons.length > 0} paymentStatus={sellerPaymentRequest ? paymentStatusLabels[sellerPaymentRequest.status] : settlement.sellerPaymentCompleted ? '지급 완료' : '지급 대기'} />
+                <SettlementDocumentActions hasRequest={Boolean(sellerPaymentRequest)} statusNotice={sellerStatusNotice} warnings={sellerWarningActions} onCopyImage={copySellerDocumentImage} onCopyMessage={copySellerMessage} onInfo={openSellerInfo} onPreview={() => setExpandedDocument('seller')} onRequestPayment={() => setPaymentRequestTarget('seller')} onSaveImage={saveSellerDocumentImage} paymentDisabled={sellerButtonBlockReasons.length > 0} />
                 <SellerSettlementDocument exportGeneratedAt={sellerExportGeneratedAt} rows={salesRows} sellerDocumentRef={sellerDocumentRef} settlement={settlement} />
               </article>
               {canAccessManagerDocument && <article className={`settlement-document-column ${expandedDocument === 'manager' ? 'is-expanded' : ''}`} id="manager-settlement-document">
                 <div className="settlement-document-column__heading"><h3>매니저 정산서</h3>{expandedDocument === 'manager' && <button aria-label="닫기" className="settlement-expanded-close no-print" onClick={() => setExpandedDocument(null)} type="button">×</button>}</div>
-                <ManagerDocumentActions hasRequest={Boolean(managerPaymentRequest)} statusNotice={managerStatusNotice} warnings={managerWarningActions} onAccount={openManagerAccount} onCopy={copyManagerDocumentImage} onPreview={() => setExpandedDocument('manager')} onPrint={() => printDocument('manager', setManagerExportGeneratedAt)} onRequestPayment={() => setPaymentRequestTarget('manager')} onSave={saveManagerDocumentImage} paymentDisabled={managerButtonBlockReasons.length > 0} paymentStatus={managerPaymentRequest ? paymentStatusLabels[managerPaymentRequest.status] : settlement.managerPaymentCompleted ? '지급 완료' : '지급 대기'} />
+                <ManagerDocumentActions hasRequest={Boolean(managerPaymentRequest)} statusNotice={managerStatusNotice} warnings={managerWarningActions} onAccount={openManagerAccount} onCopy={copyManagerDocumentImage} onPreview={() => setExpandedDocument('manager')} onRequestPayment={() => setPaymentRequestTarget('manager')} onSave={saveManagerDocumentImage} paymentDisabled={managerButtonBlockReasons.length > 0} />
                 <ManagerSettlementDocument documentRef={managerDocumentRef} exportGeneratedAt={managerExportGeneratedAt} rows={salesRows} settlement={settlement} />
               </article>}
               {expandedDocument && <button aria-label="닫기" className="settlement-document-expanded-backdrop no-print" onClick={() => setExpandedDocument(null)} type="button" />}
@@ -679,7 +670,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
           )}
         </section>}
 
-        <SettlementProgress settlement={settlement} />
+        <SettlementProgress managerStatus={managerPaymentStatus} sellerStatus={sellerPaymentStatus} settlement={settlement} />
 
         <details className="detail-card settlement-card settlement-page-section settlement-collapsible" id="calculation-detail"><summary><div><h2>정산 계산 상세</h2><p>정산 금액의 계산식과 계산 근거를 확인합니다.</p></div><span className="settlement-collapse-label">펼쳐보기</span></summary><div className="settlement-collapsible__content"><div className="calculation-detail-actions"><p>계산값에 확인이 필요하면 기존 데이터를 보존한 채 수정 요청을 등록합니다.</p><button className="secondary-button" onClick={() => setRevisionRequestOpen(true)} type="button">수정 요청</button></div><CalculationTable settlement={settlement} /><RevisionRequestHistory logs={logs} /><details className="settlement-internal-validation"><summary>내부 검증 항목 관리</summary><div className="settlement-checklist">{Object.entries(checklistLabels).map(([key, label]) => <label className="checklist-item" key={key}><input checked={settlement.reviewChecklist[key as keyof typeof settlement.reviewChecklist]} disabled={settlementConfirmed} onChange={(event) => { settlementService.updateReviewChecklist(settlement.id, { ...settlement.reviewChecklist, [key]: event.target.checked }); setSettlement(settlementService.getSettlementById(settlement.id) ?? null) }} type="checkbox" />{label}</label>)}</div></details></div></details>
 
@@ -713,7 +704,9 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
           {readinessModal === 'business' && <><h2>셀러 정보 등록</h2><label className="form-field"><span>셀러명</span><input disabled value={campaign.sellerName} /></label><label className="form-field"><span>사업자명</span><input onChange={(event) => setBusinessNameDraft(event.target.value)} placeholder="등록된 사업자명을 입력하세요" value={businessNameDraft} /></label><label className="form-field"><span>사업자 유형</span><select onChange={(event) => setBusinessTypeDraft(event.target.value as SellerBusinessType)} value={businessTypeDraft}><option value="general_business">법인/개인사업자</option><option value="simplified_business">간이사업자</option><option value="freelancer">개인 프리랜서</option></select></label><p>셀러명과 사업자명은 별도 정보로 저장됩니다. 증빙 유형은 사업자 유형에 따라 자동 결정됩니다.</p>{sellerSaveError && <p className="settlement-readiness-modal__error">{sellerSaveError}</p>}<div className="modal-actions"><button className="primary-button" disabled={!businessNameDraft.trim()} onClick={saveSellerBusinessType} type="button">저장</button></div></>}
           {readinessModal === 'account' && <><h2>셀러 지급 계좌 등록</h2><div className="settlement-readiness-form"><label className="form-field"><span>은행명</span><input onChange={(event) => setAccountDraft((value) => ({ ...value, bankName: event.target.value }))} value={accountDraft.bankName} /></label><label className="form-field"><span>계좌번호</span><input onChange={(event) => setAccountDraft((value) => ({ ...value, accountNumber: event.target.value }))} value={accountDraft.accountNumber} /></label><label className="form-field"><span>예금주명</span><input onChange={(event) => setAccountDraft((value) => ({ ...value, accountHolder: event.target.value }))} value={accountDraft.accountHolder} /></label></div><div className="modal-actions"><button className="primary-button" disabled={!accountDraft.bankName.trim() || !accountDraft.accountNumber.trim() || !accountDraft.accountHolder.trim()} onClick={saveSellerAccount} type="button">저장</button></div></>}
           {readinessModal === 'seller-info' && <><h2>셀러 정보 확인하기</h2><dl className="settlement-readiness-summary"><div><dt>셀러명</dt><dd>{campaign.sellerName}</dd></div><div><dt>사업자명</dt><dd>{sellerProfile?.businessName || '미등록'}</dd></div><div><dt>사업자 유형</dt><dd>{effectiveSellerBusinessType ? businessTypeLabels[effectiveSellerBusinessType] : '미등록'}</dd></div><div><dt>은행명</dt><dd>{sellerProfile?.bankName || '미등록'}</dd></div><div><dt>계좌번호</dt><dd>{sellerProfile?.accountNumber || '미등록'}</dd></div><div><dt>예금주명</dt><dd>{sellerProfile?.accountHolder || '미등록'}</dd></div></dl><div className="modal-actions"><button className="secondary-button" onClick={openSellerBusinessType} type="button">사업자 정보 수정</button><button className="secondary-button" onClick={openSellerAccount} type="button">계좌 수정</button><button className="primary-button" onClick={() => setReadinessModal(null)} type="button">확인</button></div></>}
-          {readinessModal === 'manager-account' && <><h2>매니저 정보 확인하기</h2><div className="settlement-readiness-form"><label className="form-field"><span>매니저명</span><input disabled value={campaign.managerName} /></label><label className="form-field"><span>사업자명</span><input onChange={(event) => setManagerBusinessNameDraft(event.target.value)} value={managerBusinessNameDraft} /></label><label className="form-field"><span>사업자 유형</span><select onChange={(event) => setManagerBusinessTypeDraft(event.target.value as SellerBusinessType)} value={managerBusinessTypeDraft}><option value="general_business">법인/개인사업자</option><option value="simplified_business">간이사업자</option><option value="freelancer">개인 프리랜서</option></select></label><label className="form-field"><span>은행명</span><input onChange={(event) => setManagerAccountDraft((value) => ({ ...value, bankName: event.target.value }))} value={managerAccountDraft.bankName} /></label><label className="form-field"><span>계좌번호</span><input onChange={(event) => setManagerAccountDraft((value) => ({ ...value, accountNumber: event.target.value }))} value={managerAccountDraft.accountNumber} /></label><label className="form-field"><span>예금주명</span><input onChange={(event) => setManagerAccountDraft((value) => ({ ...value, accountHolder: event.target.value }))} value={managerAccountDraft.accountHolder} /></label></div><p>매니저명, 사업자명, 예금주명은 서로 독립적으로 저장됩니다.</p><div className="modal-actions"><button className="primary-button" disabled={!managerBusinessNameDraft.trim() || !managerAccountDraft.bankName.trim() || !managerAccountDraft.accountNumber.trim() || !managerAccountDraft.accountHolder.trim()} onClick={saveManagerAccount} type="button">저장</button></div></>}
+          {readinessModal === 'manager-info' && <><h2>매니저 정보 확인하기</h2><dl className="settlement-readiness-summary"><div><dt>매니저명</dt><dd>{campaign.managerName}</dd></div><div><dt>사업자명</dt><dd>{managerProfile?.businessName || '미등록'}</dd></div><div><dt>사업자 유형</dt><dd>{businessTypeLabels[managerBusinessType]}</dd></div><div><dt>은행명</dt><dd>{managerProfile?.bankName || '미등록'}</dd></div><div><dt>계좌번호</dt><dd>{managerProfile?.accountNumber || '미등록'}</dd></div><div><dt>예금주명</dt><dd>{managerProfile?.accountHolder || '미등록'}</dd></div></dl><div className="modal-actions"><button className="secondary-button" onClick={openManagerBusinessEdit} type="button">사업자 정보 수정</button><button className="secondary-button" onClick={openManagerAccountEdit} type="button">계좌 수정</button><button className="primary-button" onClick={() => setReadinessModal(null)} type="button">확인</button></div></>}
+          {readinessModal === 'manager-business-edit' && <><h2>매니저 사업자 정보 수정</h2><label className="form-field"><span>매니저명</span><input disabled value={campaign.managerName} /></label><label className="form-field"><span>사업자명</span><input onChange={(event) => setManagerBusinessNameDraft(event.target.value)} value={managerBusinessNameDraft} /></label><label className="form-field"><span>사업자 유형</span><select onChange={(event) => setManagerBusinessTypeDraft(event.target.value as SellerBusinessType)} value={managerBusinessTypeDraft}><option value="general_business">법인/개인사업자</option><option value="simplified_business">간이사업자</option><option value="freelancer">개인 프리랜서</option></select></label><div className="modal-actions"><button className="secondary-button" onClick={() => setReadinessModal('manager-info')} type="button">취소</button><button className="primary-button" disabled={!managerBusinessNameDraft.trim()} onClick={() => saveManagerProfileDraft('business')} type="button">저장</button></div></>}
+          {readinessModal === 'manager-account-edit' && <><h2>매니저 계좌 수정</h2><div className="settlement-readiness-form"><label className="form-field"><span>은행명</span><input onChange={(event) => setManagerAccountDraft((value) => ({ ...value, bankName: event.target.value }))} value={managerAccountDraft.bankName} /></label><label className="form-field"><span>계좌번호</span><input onChange={(event) => setManagerAccountDraft((value) => ({ ...value, accountNumber: event.target.value }))} value={managerAccountDraft.accountNumber} /></label><label className="form-field"><span>예금주명</span><input onChange={(event) => setManagerAccountDraft((value) => ({ ...value, accountHolder: event.target.value }))} value={managerAccountDraft.accountHolder} /></label></div><div className="modal-actions"><button className="secondary-button" onClick={() => setReadinessModal('manager-info')} type="button">취소</button><button className="primary-button" disabled={!managerAccountDraft.bankName.trim() || !managerAccountDraft.accountNumber.trim() || !managerAccountDraft.accountHolder.trim()} onClick={() => saveManagerProfileDraft('account')} type="button">저장</button></div></>}
         </section></div>}
     </section>
   )
@@ -743,23 +736,29 @@ const workflowSteps = ['정산서 작성 완료', '지급 요청', '대표 승�
 const requestedPaymentStatuses: PaymentRequestStatus[] = ['evidence_pending', 'request_ready', 'approval_pending', 'approved', 'sent', 'payment_completed', 'remittance_confirmed', 'on_hold']
 const approvedPaymentStatuses: PaymentRequestStatus[] = ['approved', 'sent', 'payment_completed', 'remittance_confirmed']
 
-function getRecipientProgress(status: PaymentRequestStatus | undefined, completed: boolean) {
+function getPaymentPresentation(status: PaymentRequestStatus | undefined, completed: boolean) {
   const paid = completed || status === 'payment_completed' || status === 'remittance_confirmed'
   const approved = paid || Boolean(status && approvedPaymentStatuses.includes(status))
   const requested = approved || Boolean(status && requestedPaymentStatuses.includes(status))
-  return { requested, approved, paid }
+  let notice: PayoutStatusNotice
+  if (paid) notice = { title: '지급이 완료되었습니다.', detail: '', tone: 'complete' }
+  else if (approved) notice = { title: '대표 승인이 완료되었습니다.', detail: '입금 대기 중입니다.', tone: 'approved' }
+  else if (status === 'rejected') notice = { title: '지급 요청이 반려되었습니다.', detail: '수정 후 다시 요청해주세요.', tone: 'pending' }
+  else if (requested) notice = { title: '지급 요청이 완료되었습니다.', detail: status === 'evidence_pending' ? '증빙 검수 대기 중입니다.' : status === 'approval_pending' ? '대표 승인 대기 중입니다.' : `${status ? paymentStatusLabels[status] : '처리'} 중입니다.`, tone: 'waiting' }
+  else notice = { title: '해당 정산서는 아직 지급신청이 되지 않은 정산서입니다.', detail: '', tone: 'pending' }
+  return { requested, approved, paid, notice }
 }
 
-function SettlementProgress({ settlement }: { settlement: Settlement }) {
-  const seller = getRecipientProgress(settlement.sellerPaymentRequestStatus, settlement.sellerPaymentCompleted)
-  const manager = getRecipientProgress(settlement.managerPaymentRequestStatus, settlement.managerPaymentCompleted)
+function SettlementProgress({ managerStatus, sellerStatus, settlement }: { managerStatus?: PaymentRequestStatus; sellerStatus?: PaymentRequestStatus; settlement: Settlement }) {
+  const seller = getPaymentPresentation(sellerStatus, settlement.sellerPaymentCompleted)
+  const manager = getPaymentPresentation(managerStatus, settlement.managerPaymentCompleted)
   const both = (key: keyof typeof seller) => seller[key] && manager[key]
   const completedStepCount = both('paid') ? 4 : both('approved') ? 3 : both('requested') ? 2 : 1
   const statusText = (value: boolean, completeText: string, waitingText: string) => value ? completeText : waitingText
   return <section className="settlement-page-section settlement-progress-section" id="progress">
     <div className="section-heading"><div><p className="page-eyebrow">3. 정산 진행상황</p><h2>정산 진행상황</h2></div></div>
     <ol className="settlement-stepper settlement-stepper--four">{workflowSteps.map((step, index) => <li className={index < completedStepCount ? 'is-complete' : index === completedStepCount ? 'is-current' : ''} key={step}><span>{index < completedStepCount ? '✓' : index + 1}</span><strong>{step}</strong></li>)}</ol>
-    <div className="recipient-payment-progress"><div className="recipient-payment-progress__head"><span>대상</span><span>지급 요청</span><span>대표 승인</span><span>입금</span></div>{([['셀러', seller], ['매니저', manager]] as const).map(([label, state]) => <div className="recipient-payment-progress__row" key={label}><strong>{label}</strong><span className={state.requested ? 'is-complete' : ''}>{statusText(state.requested, '완료', '대기')}</span><span className={state.approved ? 'is-complete' : ''}>{statusText(state.approved, '완료', '-')}</span><span className={state.paid ? 'is-complete' : ''}>{statusText(state.paid, '완료', '-')}</span></div>)}</div>
+    <div className="recipient-payment-progress"><div className="recipient-payment-progress__head"><span>대상</span><span>지급 요청</span><span>대표 승인</span><span>입금</span></div>{([['셀러', seller], ['매니저', manager]] as const).map(([label, state]) => <div className="recipient-payment-progress__row" key={label}><strong>{label}</strong><span className={state.requested ? 'is-complete' : ''}>{statusText(state.requested, '완료', '대기')}</span><span className={state.approved ? 'is-complete' : ''}>{state.approved ? '완료' : state.requested ? '대기' : '-'}</span><span className={state.paid ? 'is-complete' : ''}>{state.paid ? '완료' : state.approved ? '대기' : '-'}</span></div>)}</div>
   </section>
 }
 
@@ -871,7 +870,6 @@ function ManagerSettlementDocument({ documentRef, exportGeneratedAt, rows, settl
   const snapshots = campaign?.proposalSnapshots ?? []
   const report = managerSettlementReportService.getReport(settlement)
   const managerBusinessType = managerPaymentService.getBusinessType(campaign?.managerName ?? '')
-  const request = campaign ? paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'manager', campaign.managerId, settlement.settlementVersion) : undefined
   const managerProfile = campaign ? managerPaymentService.getProfile(campaign.managerId) : undefined
   const grossManagerAmount = settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal
   const withholdingCalculation = calculateWithholding(grossManagerAmount, settlement.currentCalculation.managerDeductionTotal)
@@ -898,7 +896,7 @@ function ManagerSettlementDocument({ documentRef, exportGeneratedAt, rows, settl
   }), { quantity: 0, supplyAmount: 0, salesAmount: 0, salesCommission: 0 })
   return <div className="seller-document-shell"><div className="seller-document seller-statement manager-document manager-statement" ref={documentRef}>
     <header className="seller-document__header"><h2>[와이즈벤더 매니저 정산서]</h2><p><span>정산 버전</span><strong>v{settlement.settlementVersion}</strong></p></header>
-    <table className="seller-document__table seller-document__meta-table"><tbody><tr><th>공구명</th><td>{campaign?.campaignName ?? '-'}</td><th>공구기간</th><td>{formatKoreanDate(campaign?.startDate)} ~ {formatKoreanDate(campaign?.endDate)}</td></tr><tr><th>셀러</th><td>{campaign?.sellerName ?? '-'}</td><th>브랜드</th><td>{campaign?.brandName ?? '-'}</td></tr><tr><th>담당 매니저</th><td>{campaign?.managerName ?? '-'}</td><th>사업자명</th><td>{managerProfile?.businessName ?? '미등록'}</td></tr><tr><th>사업자 유형</th><td>{businessTypeLabels[managerBusinessType]}</td><th>정산 상태</th><td>{request ? paymentStatusLabels[request.status] : '지급 대기'}</td></tr></tbody></table>
+    <table className="seller-document__table seller-document__meta-table"><tbody><tr><th>공구기간</th><td>{formatKoreanDate(campaign?.startDate)} ~ {formatKoreanDate(campaign?.endDate)}</td></tr><tr><th>진행 물품</th><td>{campaign ? `${campaign.sellerName} × ${campaign.productName}` : '-'}</td></tr><tr><th>셀러명</th><td>{campaign?.sellerName ?? '-'}</td></tr><tr><th>사업자명 / 유형</th><td>{managerProfile?.businessName || '사업자명 미등록'} / {businessTypeLabels[managerBusinessType]}</td></tr><tr><th>담당 매니저</th><td>{campaign?.managerName ?? '-'}</td></tr></tbody></table>
     <section className="manager-document__section"><h3>상품별 내부 정산표</h3><p className="manager-product-table-notice">* 아래 금액은 부가세 포함 금액입니다.</p><div className="settlement-work-table-wrap"><table className="seller-document__table manager-product-table"><thead><tr><th>상품명</th><th>구분</th><th>판매수량</th><th>공급가</th><th>공구가</th><th>총수수료율</th><th>상품당 수수료</th><th>총 판매 수수료<br />(셀러+벤더)</th><th>비고</th></tr></thead><tbody>{managerProductRows.length ? <>{managerProductRows.map(({ row, totalRate, productAmount, productName }) => <tr key={row.id}><td>{productName}</td><td>{row.optionName}</td><td className="amount-cell">{productAmount.quantity.toLocaleString('ko-KR')}</td><td className="amount-cell">{money(productAmount.supplyPrice)}</td><td className="amount-cell">{money(row.unitPrice)}</td><td className="amount-cell">{totalRate}%</td><td className="amount-cell">{money(productAmount.unitCommission)}</td><td className="amount-cell">{money(productAmount.salesCommission)}</td><td>{row.validationStatus === 'valid' ? '-' : row.validationMessage}</td></tr>)}<tr className="seller-subtotal-row manager-subtotal-row"><th colSpan={2}>판매 소계</th><td className="amount-cell">{managerProductSubtotal.quantity.toLocaleString('ko-KR')}개</td><td className="amount-cell">{money(managerProductSubtotal.supplyAmount)}</td><td className="amount-cell">{money(managerProductSubtotal.salesAmount)}</td><td></td><td></td><td className="amount-cell">{money(managerProductSubtotal.salesCommission)}</td><td></td></tr></> : <tr><td colSpan={9}>SKU별 판매 데이터가 아직 연결되지 않았습니다.</td></tr>}</tbody></table></div></section>
     <section className="manager-document__section"><h3>정산 계산</h3><table className="seller-document__table manager-calculation-table"><tbody>
       <tr className="manager-calculation-total"><th>총수수료</th><td className="amount-cell">{money(settlement.currentCalculation.grossCommission)}</td></tr>
@@ -924,8 +922,8 @@ function PayoutStatusBanner({ notice }: { notice?: PayoutStatusNotice }) {
   return <div className={`payout-status-banner ${notice.tone ? `is-${notice.tone}` : ''}`}><strong>{notice.tone === 'pending' ? '!' : '✓'} {notice.title}</strong>{notice.detail && <span>{notice.detail}</span>}</div>
 }
 
-function ManagerDocumentActions({ hasRequest, statusNotice, warnings, onAccount, onCopy, onPreview, onPrint, onRequestPayment, onSave, paymentDisabled, paymentStatus }: { hasRequest: boolean; statusNotice?: PayoutStatusNotice; warnings: PaymentWarningAction[]; onAccount: () => void; onCopy: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSave: () => void; paymentDisabled: boolean; paymentStatus: string }) {
-  return <div className="document-action-bar no-print"><span className="payment-recipient-status">{paymentStatus}</span><div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview}>확대 보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="secondary-button" onClick={onAccount}>매니저 정보 확인하기</button><button className="text-button" onClick={onPrint}>인쇄</button><button className="primary-button" disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '매니저 지급요청 수정하기' : '매니저 지급 요청'}</button></div><PayoutStatusBanner notice={statusNotice} /><PaymentBlockReasons ownerLabel="매니저" warnings={warnings} /></div>
+function ManagerDocumentActions({ hasRequest, statusNotice, warnings, onAccount, onCopy, onPreview, onRequestPayment, onSave, paymentDisabled }: { hasRequest: boolean; statusNotice: PayoutStatusNotice; warnings: PaymentWarningAction[]; onAccount: () => void; onCopy: () => void; onPreview: () => void; onRequestPayment: () => void; onSave: () => void; paymentDisabled: boolean }) {
+  return <div className="document-action-bar no-print"><div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview}>확대 보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="secondary-button" onClick={onAccount}>매니저 정보 확인하기</button><button className={hasRequest ? 'payment-edit-button' : 'primary-button'} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '매니저 지급요청 수정하기' : '매니저 지급 요청'}</button></div><PayoutStatusBanner notice={statusNotice} /><PaymentBlockReasons ownerLabel="매니저" warnings={warnings} /></div>
 }
 
 function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, settlement }: { exportGeneratedAt: string; rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
@@ -1025,11 +1023,10 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
   )
 }
 
-function SettlementDocumentActions({ hasRequest, statusNotice, warnings, onCopyImage, onCopyMessage, onInfo, onPreview, onPrint, onRequestPayment, onSaveImage, paymentDisabled, paymentStatus }: { hasRequest: boolean; statusNotice?: PayoutStatusNotice; warnings: PaymentWarningAction[]; onCopyImage: () => void; onCopyMessage: () => void; onInfo: () => void; onPreview: () => void; onPrint: () => void; onRequestPayment: () => void; onSaveImage: () => void; paymentDisabled: boolean; paymentStatus: string }) {
+function SettlementDocumentActions({ hasRequest, statusNotice, warnings, onCopyImage, onCopyMessage, onInfo, onPreview, onRequestPayment, onSaveImage, paymentDisabled }: { hasRequest: boolean; statusNotice: PayoutStatusNotice; warnings: PaymentWarningAction[]; onCopyImage: () => void; onCopyMessage: () => void; onInfo: () => void; onPreview: () => void; onRequestPayment: () => void; onSaveImage: () => void; paymentDisabled: boolean }) {
   return (
     <div className="document-action-bar no-print">
-      <span className="payment-recipient-status">{paymentStatus}</span>
-      <div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview} type="button">확대 보기</button><button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button><button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button><button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button><button className="secondary-button" onClick={onInfo} type="button">셀러 정보 확인하기</button><button className="text-button" onClick={onPrint} type="button">인쇄</button><button className="primary-button" disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '셀러 지급요청 수정하기' : '셀러 지급 요청'}</button></div>
+      <div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview} type="button">확대 보기</button><button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button><button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button><button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button><button className="secondary-button" onClick={onInfo} type="button">셀러 정보 확인하기</button><button className={hasRequest ? 'payment-edit-button' : 'primary-button'} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '셀러 지급요청 수정하기' : '셀러 지급 요청'}</button></div>
       <PayoutStatusBanner notice={statusNotice} />
       <PaymentBlockReasons ownerLabel="셀러" warnings={warnings} />
     </div>
