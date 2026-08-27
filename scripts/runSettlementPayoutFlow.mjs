@@ -167,6 +167,7 @@ const checks = [
   ['정산 수정 권한', canEditSettlement('정산 담당자') && !canEditSettlement('대표') && revisionPermissionBlocked],
   ['수정 재계산·전후 비교', revisionPreview.companyAmount !== revisionTestSettlement.currentCalculation.companyAmount],
   ['정산 수정 새 version 저장', revisionSaved.settlementVersion === revisionTestSettlement.settlementVersion + 1 && settlementService.getSettlementVersionsBySettlementId(revisionSaved.id).some((item) => item.version === revisionSaved.settlementVersion)],
+  ['수정 완료 후 확정 가능 상태 재평가', revisionTestSettlement.status === 'revision_required' && revisionSaved.status === 'review_pending' && !settlementService.isSettlementConfirmed(revisionSaved)],
   ['회사 직접 발송 예정 10명·실제 9명', directEvent.estimatedTotalAmount === 50_000 && campaignEventOperationService.getConfirmedSettlementCost(directEvent) === 45_000 && directEvent.shippingStatus === 'shipping_pending'],
   ['업체 무상 이벤트 정산 차감 없음', campaignEventOperationService.getConfirmedSettlementCost(freeEvent) === 0 && freeEvent.winnerCountConfirmed],
   ['매니저 선결제 승인형 실제 사용액', unapprovedPrepaymentCost === 0 && approvedPrepaymentCost === 45_000 && prepaidEvent.managerPrepayment?.status === 'evidence_confirmed'],

@@ -328,6 +328,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const sellerPaymentRequest = campaign ? paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'seller', campaign.sellerId, settlement.settlementVersion) : undefined
   const managerPaymentRequest = campaign ? paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'manager', campaign.managerId, settlement.settlementVersion) : undefined
   const settlementConfirmed = settlementService.isSettlementConfirmed(settlement)
+  const hasUnresolvedRevision = settlement.status === 'revision_required'
   const canReleaseConfirmation = currentUser?.role === '대표' || currentUser?.role === '정산 담당자'
   const sellerRequestEditable = Boolean(sellerPaymentRequest && paymentRequestService.canEditPaymentRequest(sellerPaymentRequest))
   const managerRequestEditable = Boolean(managerPaymentRequest && paymentRequestService.canEditPaymentRequest(managerPaymentRequest))
@@ -636,7 +637,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
             <p>{formatKoreanDate(salesImport?.salesStartDate)} ~ {formatKoreanDate(salesImport?.salesEndDate)}</p>
             <p>담당 매니저 {campaign?.managerName ?? '-'} · v{settlement.settlementVersion}</p>
           </div>
-          <div className="settlement-header-actions"><button className="secondary-button" onClick={() => setRevisionRequestOpen(true)} type="button">정산서 수정요청</button>{!settlementConfirmed ? <button className="primary-button" disabled={settlement.status === 'revision_required'} onClick={() => setConfirmationModal('confirm')} type="button">정산서 확정하기</button> : canReleaseConfirmation && <button className="secondary-button" onClick={() => setConfirmationModal('release')} type="button">확정 해제</button>}</div>
+          <div className="settlement-header-actions"><button className="secondary-button" onClick={() => setRevisionRequestOpen(true)} type="button">정산서 수정요청</button>{!settlementConfirmed ? <div className="settlement-confirm-action"><button aria-describedby={hasUnresolvedRevision ? 'settlement-confirm-disabled-help' : undefined} className="primary-button" disabled={hasUnresolvedRevision} onClick={() => setConfirmationModal('confirm')} title={hasUnresolvedRevision ? '수정 요청이 완료되면 정산서를 확정할 수 있습니다.' : undefined} type="button">정산서 확정하기</button>{hasUnresolvedRevision && <small id="settlement-confirm-disabled-help">수정 요청이 완료되면 정산서를 확정할 수 있습니다.</small>}</div> : canReleaseConfirmation && <button className="secondary-button" onClick={() => setConfirmationModal('release')} type="button">확정 해제</button>}</div>
         </div>
 
         {settlementConfirmed ? <div className="settlement-confirmation-state is-confirmed"><strong>✓ 정산서 확정 완료</strong><span>확정일 {formatKoreanDateTime(settlement.settlementConfirmedAt ?? settlement.updatedAt)} · 확정자 {settlement.settlementConfirmedBy ?? settlement.assigneeName}</span></div> : settlement.status === 'revision_required' ? <div className="settlement-confirmation-state is-revision"><strong>⚠ 정산서 수정 요청</strong><span>{settlement.sourceChangeReason}</span><button className="secondary-button" onClick={() => setRevisionViewerOpen(true)} type="button">수정 요청 보기</button></div> : <div className="settlement-confirmation-state"><strong>정산서 검토 대기</strong><span>확정 후 셀러·매니저 지급 요청이 가능합니다.</span></div>}
