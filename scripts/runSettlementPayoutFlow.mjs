@@ -32,8 +32,21 @@ const premiumEvidenceType = getRecommendedEvidenceType(premiumBusinessType)
 sellerSettlementService.saveRule({ ...premiumRule, businessType: premiumBusinessType, recommendedEvidenceType: premiumEvidenceType, confirmedEvidenceType: premiumEvidenceType, evidenceConfirmed: true })
 const refreshedPremiumRule = sellerSettlementService.getSellerSettlementRule('SCH-009')
 const manager = managerPaymentService.getProfile('u-001')
+const premiumSettlement = settlementService.getSettlements().find((item) => item.campaignId === 'SCH-009')
+  ?? settlementService.createSettlementFromSalesData('sales-009', 'review_pending')
 const healthSettlement = settlementService.getSettlements().find((item) => item.campaignId === 'SCH-005')
-if (!healthSettlement) throw new Error('건강식품 공동구매 정산 더미데이터가 없습니다.')
+if (!premiumSettlement || !healthSettlement) throw new Error('정산 더미데이터가 없습니다.')
+
+const premiumManagerValidation = paymentRequestService.validateManagerPaymentRequest({
+  settlementId: premiumSettlement.id, ownerId: 'u-001', businessType: manager.businessType,
+  evidenceTypeConfirmed: true, accountConfirmed: true, calculationCompleted: true,
+  calculationErrors: [], amountConfirmed: premiumSettlement.currentCalculation.managerAmount >= 0,
+  sourceVersion: premiumSettlement.settlementVersion,
+})
+const premiumGross = premiumSettlement.currentCalculation.managerAmount + premiumSettlement.currentCalculation.managerDeductionTotal
+const premiumTax = calculateWithholding(premiumGross, premiumSettlement.currentCalculation.managerDeductionTotal)
+const premiumCompanyAmountBeforeRequest = premiumSettlement.currentCalculation.companyAmount
+const premiumRequest = paymentRequestService.createManagerPaymentRequest(premiumSettlement.id, '테스트', manager.businessType, undefined, { accountConfirmed: true })
 
 const approvedSettlements = settlementService.getSettlements().map((item) => ({ ...item, status: 'approved', accountConfirmed: true }))
 storageService.setItem(STORAGE_KEYS.settlements, approvedSettlements)
@@ -70,6 +83,9 @@ const checks = [
   ['프리미엄 침구 증빙 유형 자동 결정', refreshedPremiumRule?.confirmedEvidenceType === 'tax_invoice' && refreshedPremiumRule.evidenceConfirmed],
   ['사업자 유형 공통 normalization', normalizeSellerBusinessType('corporation') === 'general_business'],
   ['Manager Master 사업자 유형', manager?.businessType === 'freelancer' && managerPaymentService.getBusinessType('허윤정') === 'freelancer'],
+  ['프리미엄 침구 수동 정산 확인 없이 지급 가능', premiumManagerValidation.valid && !premiumManagerValidation.reasons.some((reason) => reason.includes('정산금액이 확정'))],
+  ['프리미엄 침구 지급 요청 최종액 일치', premiumRequest.finalPaymentAmount === premiumTax.finalPaymentAmount && premiumRequest.status === 'approval_pending'],
+  ['회사 귀속 계산 데이터 유지', Number.isFinite(premiumCompanyAmountBeforeRequest) && settlementService.getSettlementById(premiumSettlement.id).currentCalculation.companyAmount === premiumCompanyAmountBeforeRequest],
   ['건강식품 VAT 포함 배분금액', healthTax.grossSettlementAmount === 69_440],
   ['건강식품 원천세 계산', healthTax.withholdingBaseAmount === 63_127 && healthTax.incomeTaxAmount === 1_890 && healthTax.localIncomeTaxAmount === 180 && healthTax.finalPaymentAmount === 61_057],
   ['지급 요청 최종액 일치', request.finalPaymentAmount === healthTax.finalPaymentAmount],

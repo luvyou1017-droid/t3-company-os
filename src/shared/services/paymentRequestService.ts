@@ -7,6 +7,7 @@ import { duplicateBlockingPaymentStatuses, hasDuplicatePaymentRequest } from '..
 import { campaignService } from './campaignService'
 import { paymentEvidenceService } from './paymentEvidenceService'
 import { sellerSettlementService } from './sellerSettlementService'
+import { salesDataService } from './salesDataService'
 import { settlementService } from './settlementService'
 import { STORAGE_KEYS, storageService } from './storageService'
 import { withholdingTaxService } from './withholdingTaxService'
@@ -33,8 +34,25 @@ function validate(input: PaymentRequestValidationInput) {
   const withholding = withholdingTaxService.getBySettlementOwner(input.settlementId, input.ownerType, input.ownerId)
     .some((item) => item.status !== 'canceled')
   const reasons: string[] = []
-  if (!settlement || !['approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) {
-    reasons.push(input.ownerType === 'seller' ? '정산서가 확정되지 않았습니다.' : '매니저 정산금액이 확정되지 않았습니다.')
+  if (input.ownerType === 'seller') {
+    if (!settlement || !['approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) reasons.push('정산서가 확정되지 않았습니다.')
+  } else if (!settlement) {
+    reasons.push('매니저 정산 정보를 찾을 수 없습니다.')
+  } else {
+    const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
+    const calculation = settlement.currentCalculation
+    const finiteAmounts = [
+      calculation.grossCommission, calculation.sellerCommissionAmount,
+      calculation.distributableVendorCommission, calculation.managerAmount,
+      calculation.managerDeductionTotal,
+    ].every(Number.isFinite)
+    const commissionRatesValid = Number.isFinite(calculation.totalCommissionRate) && Number.isFinite(calculation.sellerCommissionRate)
+      && calculation.totalCommissionRate >= calculation.sellerCommissionRate && calculation.sellerCommissionRate >= 0
+    const managerShareValid = Number.isFinite(calculation.managerShareRate) && Number.isFinite(calculation.companyShareRate)
+      && calculation.managerShareRate >= 0 && calculation.managerShareRate <= 100
+      && Math.abs(calculation.managerShareRate + calculation.companyShareRate - 100) < 0.001
+    const managerCalculationReady = salesImport?.reviewStatus === '확정 완료' && finiteAmounts && commissionRatesValid && managerShareValid && calculation.managerAmount >= 0
+    if (!managerCalculationReady) reasons.push('매니저 최종 지급액을 계산할 수 없습니다.')
   }
   if (!input.evidenceTypeConfirmed) reasons.push('증빙 유형이 확인되지 않았습니다.')
   reasons.push(...paymentEvidenceService.getMissingEvidenceReasons(input.settlementId, input.ownerType, input.businessType, withholding))

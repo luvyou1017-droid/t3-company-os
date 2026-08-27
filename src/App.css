@@ -2000,12 +2000,11 @@
 .manager-calculation-deduction td { background: #fce8df !important; color: #9a3412; }
 .manager-distributable-row th,
 .manager-distributable-row td { background: #fff7b8 !important; font-size: 15px !important; font-weight: 900 !important; }
-.manager-company-reference th,
-.manager-company-reference td { background: #f8fafc !important; font-weight: 600 !important; }
 .manager-payment-account { border: 1px solid #9ca3af !important; grid-template-columns: 120px 1fr; padding: 8px 10px !important; }
 .manager-payment-account h3 { align-self: center; }
 .manager-payment-account p { font-size: 11px; margin: 0; }
-.manager-product-table { min-width: 1040px; }
+.manager-product-table { min-width: 960px; }
+.manager-product-table-notice { color: var(--muted); font-size: 11px; margin: -2px 0 8px; }
 
 @media (max-width: 1100px) {
   .settlement-document-comparison { grid-template-columns: 1fr; }
@@ -4578,16 +4577,15 @@
 .settlement-document-column:not(.is-expanded) .seller-document__products th:nth-child(7) { width: 9%; }
 .settlement-document-column:not(.is-expanded) .seller-document__products th:nth-child(8) { width: 13%; }
 .settlement-document-column:not(.is-expanded) .seller-document__products th:nth-child(9) { width: 11%; }
-.settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(1) { width: 13%; }
+.settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(1) { width: 14%; }
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(2) { width: 9%; }
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(3) { width: 8%; }
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(4),
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(5),
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(7) { width: 10%; }
 .settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(6) { width: 9%; }
-.settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(8) { width: 12%; }
-.settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(9) { width: 7%; }
-.settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(10) { width: 12%; }
+.settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(8) { width: 17%; }
+.settlement-document-column:not(.is-expanded) .manager-product-table th:nth-child(9) { width: 13%; }
 .settlement-document-column:not(.is-expanded) .seller-summary-total .amount-cell { color: #d32f2f !important; font-size: 13px !important; }
 
 @media (max-width: 1200px) {
