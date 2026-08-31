@@ -30,6 +30,7 @@ import { ProposalListPage } from './pages/master/proposals/ProposalListPage'
 import { ProposalFormPage } from './pages/master/proposals/ProposalFormPage'
 import { ProposalPreviewPage } from './pages/master/proposals/ProposalPreviewPage'
 import { getCurrentProposalPermission } from './features/proposalMaster/permissions'
+import { AuthGate } from './features/auth/AuthGate'
 
 export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리' | '지급 승인' | '셀러 마스터' | '매니저 마스터' | '브랜드 마스터' | '상품 마스터' | '벤더 마스터' | '제안서 마스터' | '가져오기/내보내기' | '운영 시나리오 테스트' | 'Supabase 파일럿 테스트'
 
@@ -146,6 +147,7 @@ function App() {
   }
 
   return (
+    <AuthGate>
     <AppLayout activePage={activePage} onNavigate={handleNavigate} onOpenRelated={openRelated}>
       {activePage === 'Dashboard' && <DashboardPage />}
       {activePage === 'My Work' && <MyWorkPage />}
@@ -227,6 +229,7 @@ function App() {
         />
       )}
     </AppLayout>
+    </AuthGate>
   )
 }
 

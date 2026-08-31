@@ -1,3 +1,56 @@
+.auth-page {
+  align-items: center;
+  background: linear-gradient(145deg, #f8fafc 0%, #eef2f7 100%);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.auth-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.1);
+  max-width: 440px;
+  padding: 42px;
+  width: 100%;
+}
+
+.auth-card--notice { text-align: center; }
+.auth-brand {
+  align-items: center;
+  background: #111827;
+  border-radius: 12px;
+  color: #ffffff;
+  display: flex;
+  font-size: 22px;
+  font-weight: 800;
+  height: 48px;
+  justify-content: center;
+  margin-bottom: 24px;
+  width: 48px;
+}
+.auth-card--notice .auth-brand { margin-left: auto; margin-right: auto; }
+.auth-eyebrow { color: #2563eb; font-size: 12px; font-weight: 800; letter-spacing: .08em; margin: 0 0 10px; }
+.auth-card h1 { color: #111827; font-size: 26px; letter-spacing: -.03em; margin: 0; }
+.auth-description { color: #6b7280; line-height: 1.6; margin: 12px 0 28px; }
+.auth-form { display: grid; gap: 18px; }
+.auth-form label { color: #374151; display: grid; font-size: 13px; font-weight: 700; gap: 8px; }
+.auth-form input { background: #f9fafb; border: 1px solid #d1d5db; border-radius: 10px; color: #111827; font: inherit; padding: 13px 14px; }
+.auth-form input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); outline: none; }
+.auth-form input[readonly] { color: #6b7280; }
+.auth-message { background: #eff6ff; border-radius: 8px; color: #1d4ed8; font-size: 13px; line-height: 1.5; margin: 0; padding: 10px 12px; }
+.auth-primary-button { background: #111827; border: 0; border-radius: 10px; color: #ffffff; font-size: 15px; font-weight: 800; padding: 14px; }
+.auth-primary-button:disabled { cursor: wait; opacity: .6; }
+.auth-mode-button { background: transparent; border: 0; color: #2563eb; font-size: 13px; font-weight: 700; margin-top: 18px; padding: 8px 0; }
+.auth-security { color: #9ca3af; font-size: 11px; line-height: 1.5; margin: 20px 0 0; text-align: center; }
+
+@media (max-width: 520px) {
+  .auth-card { border-radius: 16px; padding: 30px 22px; }
+  .auth-card h1 { font-size: 23px; }
+}
+
 .app-shell {
   display: flex;
   min-height: 100vh;

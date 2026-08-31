@@ -19,6 +19,31 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- The first production account is provisioned as CEO only for the approved company email.
+create or replace function public.handle_new_company_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  if lower(new.email) = 'solution4834@naver.com' then
+    insert into public.profiles (id, display_name, email, role)
+    values (new.id, '허윤정', lower(new.email), 'ceo')
+    on conflict (id) do update set
+      display_name = excluded.display_name,
+      email = excluded.email,
+      role = excluded.role,
+      active = true;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_company_user();
 -- Auth provisioning 후 display_name만 다음 mock 사용자와 매핑한다:
 -- 허윤정, 허수정, 배민성, 유시철, 김병희, 서주희, 고정원, 이규빈.
 -- 실제 이메일이나 추가 개인정보는 이 migration에 포함하지 않는다.
@@ -254,6 +279,14 @@ begin
     execute format('create trigger set_%I_updated_at before update on public.%I for each row execute function public.set_updated_at()', table_name, table_name);
   end loop;
 end $$;
+
+-- Data API privileges are explicit because "Automatically expose new tables" is disabled.
+-- Anonymous visitors receive no table privileges; authenticated users are still constrained by RLS.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
+alter default privileges in schema public grant select, insert, update, delete on tables to authenticated;
+alter default privileges in schema public grant usage, select on sequences to authenticated;
 
 -- Production baseline: any authenticated active user can read. Write policies below are role-limited.
 create policy "authenticated profiles read" on public.profiles for select to authenticated using (true);
