@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { isSupabaseConfigured, supabase } from '../../shared/lib/supabase'
 
@@ -8,8 +8,26 @@ type AuthGateProps = {
   children: ReactNode
 }
 
+export type CompanyProfile = {
+  id: string
+  display_name: string
+  email: string | null
+  role: 'ceo' | 'settlement_cs' | 'team_lead' | 'md' | 'manager' | 'admin'
+  active: boolean
+  approval_status: 'pending' | 'approved' | 'rejected'
+}
+
+const AuthContext = createContext<{ profile: CompanyProfile; signOut: () => Promise<void> } | null>(null)
+
+export function useCompanyAuth() {
+  const context = useContext(AuthContext)
+  if (!context) throw new Error('useCompanyAuth must be used inside AuthGate')
+  return context
+}
+
 export function AuthGate({ children }: AuthGateProps) {
   const [session, setSession] = useState<Session | null>(null)
+  const [profile, setProfile] = useState<CompanyProfile | null>(null)
   const [checking, setChecking] = useState(true)
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [password, setPassword] = useState('')
@@ -29,11 +47,25 @@ export function AuthGate({ children }: AuthGateProps) {
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
+      if (!nextSession) setProfile(null)
       setChecking(false)
     })
 
     return () => listener.subscription.unsubscribe()
   }, [])
+
+  useEffect(() => {
+    if (!supabase || !session) return
+    setChecking(true)
+    void supabase.from('profiles')
+      .select('id, display_name, email, role, active, approval_status')
+      .eq('id', session.user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        setProfile(data as CompanyProfile | null)
+        setChecking(false)
+      })
+  }, [session])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -55,6 +87,20 @@ export function AuthGate({ children }: AuthGateProps) {
     setSubmitting(false)
   }
 
+  const handleGoogleLogin = async () => {
+    if (!supabase) return
+    setMessage('')
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    })
+    if (error) setMessage(`구글 로그인 연결 중 문제가 생겼어요: ${error.message}`)
+  }
+
+  const signOut = async () => {
+    await supabase?.auth.signOut()
+  }
+
   if (!isSupabaseConfigured()) {
     return <AuthNotice title="데이터베이스 연결 정보가 필요해요" description="관리자에게 환경 설정을 요청해 주세요." />
   }
@@ -63,7 +109,21 @@ export function AuthGate({ children }: AuthGateProps) {
     return <AuthNotice title="로그인 상태를 확인하고 있어요" description="잠시만 기다려 주세요." />
   }
 
-  if (session) return <>{children}</>
+  if (session && (!profile || profile.approval_status !== 'approved' || !profile.active)) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card auth-card--notice">
+          <div className="auth-brand" aria-hidden="true">W</div>
+          <p className="auth-eyebrow">가입 신청 완료</p>
+          <h1>관리자 승인을 기다리고 있어요</h1>
+          <p className="auth-description">{session.user.email} 계정의 신청이 접수됐습니다. 대표님이 승인하면 회사 운영 화면이 열립니다.</p>
+          <button className="auth-mode-button" type="button" onClick={() => void signOut()}>다른 계정으로 로그인</button>
+        </section>
+      </main>
+    )
+  }
+
+  if (session && profile) return <AuthContext.Provider value={{ profile, signOut }}>{children}</AuthContext.Provider>
 
   return (
     <main className="auth-page">
@@ -99,6 +159,11 @@ export function AuthGate({ children }: AuthGateProps) {
             {submitting ? '처리 중…' : mode === 'login' ? '로그인' : '관리자 계정 만들기'}
           </button>
         </form>
+
+        <div className="auth-divider"><span>또는</span></div>
+        <button className="auth-google-button" type="button" onClick={() => void handleGoogleLogin()}>
+          <span aria-hidden="true">G</span> Google 계정으로 로그인
+        </button>
 
         <button className="auth-mode-button" type="button" onClick={() => {
           setMode((current) => current === 'login' ? 'signup' : 'login')

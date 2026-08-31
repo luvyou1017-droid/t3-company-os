@@ -9,6 +9,7 @@ const navigationItems: AppPage[] = [
   '판매 데이터',
   '정산 관리',
   '지급 승인',
+  '사용자 승인',
   ...(import.meta.env.DEV ? ['운영 시나리오 테스트', 'Supabase 파일럿 테스트'] as AppPage[] : []),
 ]
 const masterGroups: Array<{ label: string; items: { label: string; page: AppPage }[] }> = [

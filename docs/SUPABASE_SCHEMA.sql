@@ -19,6 +19,10 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.profiles add column if not exists approval_status text not null default 'pending' check (approval_status in ('pending','approved','rejected'));
+alter table public.profiles add column if not exists requested_at timestamptz not null default now();
+alter table public.profiles add column if not exists approved_at timestamptz;
+alter table public.profiles add column if not exists approved_by uuid references public.profiles(id);
 
 -- The first production account is provisioned as CEO only for the approved company email.
 create or replace function public.handle_new_company_user()
@@ -27,15 +31,19 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
-  if lower(new.email) = 'solution4834@naver.com' then
-    insert into public.profiles (id, display_name, email, role)
-    values (new.id, '허윤정', lower(new.email), 'ceo')
+  insert into public.profiles (id, display_name, email, role, active, approval_status, approved_at)
+    values (
+      new.id,
+      case when lower(new.email) = 'solution4834@naver.com' then '허윤정' else coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)) end,
+      lower(new.email),
+      case when lower(new.email) = 'solution4834@naver.com' then 'ceo' else 'manager' end,
+      lower(new.email) = 'solution4834@naver.com',
+      case when lower(new.email) = 'solution4834@naver.com' then 'approved' else 'pending' end,
+      case when lower(new.email) = 'solution4834@naver.com' then now() else null end
+    )
     on conflict (id) do update set
       display_name = excluded.display_name,
-      email = excluded.email,
-      role = excluded.role,
-      active = true;
-  end if;
+      email = excluded.email;
   return new;
 end;
 $$;
@@ -289,7 +297,21 @@ alter default privileges in schema public grant select, insert, update, delete o
 alter default privileges in schema public grant usage, select on sequences to authenticated;
 
 -- Production baseline: any authenticated active user can read. Write policies below are role-limited.
-create policy "authenticated profiles read" on public.profiles for select to authenticated using (true);
+drop policy if exists "authenticated profiles read" on public.profiles;
+create or replace function public.is_company_admin(user_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles
+    where id = user_id and active and approval_status = 'approved' and role in ('admin','ceo')
+  );
+$$;
+create policy "own or admin profiles read" on public.profiles for select to authenticated using (
+  id = auth.uid() or public.is_company_admin(auth.uid())
+);
+drop policy if exists "ceo admin profile approval" on public.profiles;
+create policy "ceo admin profile approval" on public.profiles for update to authenticated
+using (public.is_company_admin(auth.uid()))
+with check (public.is_company_admin(auth.uid()));
 create policy "authenticated campaigns read" on public.campaigns for select to authenticated using (
   exists (select 1 from public.profiles p where p.id = auth.uid() and p.active)
 );
@@ -302,7 +324,9 @@ do $$ declare table_name text;
 begin
   foreach table_name in array array['sellers','suppliers','products','sales_data_imports','sales_data_rows','settlements','settlement_adjustments','notion_migration_records','seller_settlements','payment_requests','payment_evidence','withholding_tax_items','activity_logs','payment_request_batches']
   loop
-    execute format('create policy "phase1 authenticated read %s" on public.%I for select to authenticated using (true)', table_name, table_name);
+    execute format('drop policy if exists "phase1 authenticated read %s" on public.%I', table_name, table_name);
+    execute format('drop policy if exists "phase1 settlement admin write %s" on public.%I', table_name, table_name);
+    execute format('create policy "phase1 authenticated read %s" on public.%I for select to authenticated using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.active and p.approval_status = ''approved''))', table_name, table_name);
     execute format('create policy "phase1 settlement admin write %s" on public.%I for all to authenticated using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in (''admin'',''settlement_cs'',''ceo''))) with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in (''admin'',''settlement_cs'',''ceo'')))', table_name, table_name);
   end loop;
 end $$;

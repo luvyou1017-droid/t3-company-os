@@ -44,12 +44,30 @@
 .auth-primary-button { background: #111827; border: 0; border-radius: 10px; color: #ffffff; font-size: 15px; font-weight: 800; padding: 14px; }
 .auth-primary-button:disabled { cursor: wait; opacity: .6; }
 .auth-mode-button { background: transparent; border: 0; color: #2563eb; font-size: 13px; font-weight: 700; margin-top: 18px; padding: 8px 0; }
+.auth-divider { align-items: center; color: #9ca3af; display: flex; font-size: 12px; gap: 12px; margin: 20px 0; }
+.auth-divider::before, .auth-divider::after { background: #e5e7eb; content: ''; flex: 1; height: 1px; }
+.auth-google-button { align-items: center; background: #fff; border: 1px solid #d1d5db; border-radius: 10px; color: #1f2937; display: flex; font-size: 14px; font-weight: 700; gap: 12px; justify-content: center; padding: 13px; width: 100%; }
+.auth-google-button span { color: #4285f4; font-size: 18px; font-weight: 900; }
 .auth-security { color: #9ca3af; font-size: 11px; line-height: 1.5; margin: 20px 0 0; text-align: center; }
+
+.approval-page { display: grid; gap: 18px; }
+.approval-count { background: #eff6ff; border-radius: 999px; color: #1d4ed8; font-size: 13px; font-weight: 800; padding: 8px 12px; }
+.approval-empty { background: #fff; border: 1px dashed #d1d5db; border-radius: 14px; color: #6b7280; padding: 48px; text-align: center; }
+.approval-list { display: grid; gap: 12px; }
+.approval-card { align-items: center; background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; display: grid; gap: 16px; grid-template-columns: minmax(220px, 1fr) 180px auto; padding: 18px; }
+.approval-card strong, .approval-card span { display: block; }
+.approval-card span { color: #6b7280; font-size: 13px; margin-top: 4px; }
+.approval-card select { border: 1px solid #d1d5db; border-radius: 9px; padding: 10px; }
+.approval-actions { display: flex; gap: 8px; }
+.approval-actions button { border-radius: 9px; font-weight: 700; padding: 10px 16px; }
+.approval-reject { background: #fff; border: 1px solid #d1d5db; color: #4b5563; }
+.approval-accept { background: #111827; border: 1px solid #111827; color: #fff; }
 
 @media (max-width: 520px) {
   .auth-card { border-radius: 16px; padding: 30px 22px; }
   .auth-card h1 { font-size: 23px; }
 }
+@media (max-width: 760px) { .approval-card { grid-template-columns: 1fr; } }
 
 .app-shell {
   display: flex;
