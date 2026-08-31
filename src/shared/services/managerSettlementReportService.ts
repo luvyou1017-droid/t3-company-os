@@ -15,10 +15,11 @@ export const managerSettlementReportService = {
       productMargin: calculation.vendorCommission,
       actualSalesChannel: snapshot?.actualSalesChannel ?? campaign?.salesChannelType,
       actualPgCost: snapshot?.actualPgCost,
-      managerBaseShare: calculation.managerAmount + calculation.managerDeductionTotal,
+      managerBaseShare: calculation.managerBaseShareAmount,
+      managerReimbursement: calculation.managerReimbursementTotal,
       managerDeductions,
       managerFinalSettlement: calculation.managerAmount,
-      companyBaseShare: calculation.distributableVendorCommission - (calculation.managerAmount + calculation.managerDeductionTotal),
+      companyBaseShare: calculation.companyAmount,
       companyCosts,
       companyFinalContribution: calculation.companyAmount,
     }

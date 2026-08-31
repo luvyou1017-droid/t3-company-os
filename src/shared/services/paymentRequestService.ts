@@ -257,21 +257,23 @@ export const paymentRequestService = {
       : validation.reasons
     if (blockingReasons.length) throw new Error(blockingReasons.join('\n'))
     const deductions = settlement.currentCalculation.managerDeductionTotal
-    const gross = settlement.currentCalculation.managerAmount + deductions
-    const tax = calculateWithholding(gross, deductions)
+    const reimbursement = settlement.currentCalculation.managerReimbursementTotal
+    const taxableGross = settlement.currentCalculation.managerBaseShareAmount
+    const gross = taxableGross + reimbursement
+    const tax = calculateWithholding(taxableGross, deductions)
     let taxItem
     if (businessType === 'freelancer') {
       try {
         taxItem = withholdingTaxService.upsert({
           settlementId, ownerType: 'manager', ownerId: managerId, ownerName: managerName,
-          grossSettlementAmount: gross, deductions, sourceVersion: settlement.settlementVersion, updatedBy: requestedBy,
+          grossSettlementAmount: taxableGross, deductions, sourceVersion: settlement.settlementVersion, updatedBy: requestedBy,
         })
       } catch { throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.') }
       if (!taxItem) throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.')
     }
-    const vatExcluded = Math.round(gross / 1.1)
-    const finalPaymentAmount = businessType === 'freelancer' ? tax.finalPaymentAmount
-      : businessType === 'simplified_business' ? vatExcluded - deductions : gross - deductions
+    const vatExcluded = Math.ceil(taxableGross / 1.1)
+    const finalPaymentAmount = businessType === 'freelancer' ? tax.finalPaymentAmount + reimbursement
+      : businessType === 'simplified_business' ? vatExcluded - deductions + reimbursement : taxableGross - deductions + reimbursement
     const request = save({
       id: `payment-request-${crypto.randomUUID()}`, campaignId: settlement.campaignId, settlementId,
       sellerId: managerId, ownerType: 'manager', ownerId: managerId, ownerName: managerName,

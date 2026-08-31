@@ -815,7 +815,9 @@ function SettlementRevisionModal({ campaign, currentUser, deductions, legacyMana
       const amount = campaignEventOperationService.getConfirmedSettlementCost(confirmed) ?? 0
       const existing = draft.deductions.find((item) => item.linkedData === `event:${event.id}`)
       const isCompanyDirect = confirmed.costHandling === 'company_direct'
-      const eventDeduction: SettlementDeduction = existing ? { ...existing, amount: isCompanyDirect ? amount : 0, costOwner: isCompanyDirect ? 'company' : confirmed.costHandling === 'vendor_free' ? 'brand' : 'manager', applyLocation: isCompanyDirect ? 'net_company_commission' : 'record_only', reflected: isCompanyDirect, updatedAt: new Date().toISOString() } : { id: `deduction-event-${event.id}`, settlementId: settlement.id, campaignId: campaign.id, type: 'event', title: confirmed.eventName || '이벤트 비용', amount: isCompanyDirect ? amount : 0, costOwner: isCompanyDirect ? 'company' : confirmed.costHandling === 'vendor_free' ? 'brand' : 'manager', linkedData: `event:${event.id}`, evidenceStatus: 'confirmed', applyLocation: isCompanyDirect ? 'net_company_commission' : 'record_only', reflected: isCompanyDirect, memo: `${confirmed.plannedQuantity}명 예정 · ${confirmed.confirmedQuantity ?? 0}명 확정${confirmed.costHandling === 'manager_prepaid' ? ` · 승인형 매니저 추가지급 ${amount.toLocaleString('ko-KR')}원` : ''}`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+      const isManagerReimbursement = confirmed.costHandling === 'manager_prepaid' && amount > 0
+      const applyLocation = isCompanyDirect ? 'net_company_commission' : isManagerReimbursement ? 'manager_reimbursement' : 'record_only'
+      const eventDeduction: SettlementDeduction = existing ? { ...existing, amount: isCompanyDirect || isManagerReimbursement ? amount : 0, costOwner: isCompanyDirect ? 'company' : confirmed.costHandling === 'vendor_free' ? 'brand' : 'manager', applyLocation, reflected: isCompanyDirect || isManagerReimbursement, updatedAt: new Date().toISOString() } : { id: `deduction-event-${event.id}`, settlementId: settlement.id, campaignId: campaign.id, type: 'event', title: confirmed.eventName || '이벤트 비용', amount: isCompanyDirect || isManagerReimbursement ? amount : 0, costOwner: isCompanyDirect ? 'company' : confirmed.costHandling === 'vendor_free' ? 'brand' : 'manager', linkedData: `event:${event.id}`, evidenceStatus: 'confirmed', applyLocation, reflected: isCompanyDirect || isManagerReimbursement, memo: `${confirmed.plannedQuantity}명 예정 · ${confirmed.confirmedQuantity ?? 0}명 확정${confirmed.costHandling === 'manager_prepaid' ? ` · 승인형 매니저 선결제 환급 ${amount.toLocaleString('ko-KR')}원` : ''}`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
       setDraft((value) => ({ ...value, deductions: existing ? value.deductions.map((item) => item.id === existing.id ? eventDeduction : item) : [...value.deductions, eventDeduction] }))
       setPreview(null)
       setEventRevision((value) => value + 1)
@@ -836,8 +838,8 @@ function SettlementRevisionModal({ campaign, currentUser, deductions, legacyMana
     difference: signed(afterValue - beforeValue, unit), changeType, changed: beforeValue !== afterValue,
   })
   const textComparison = (category: string, item: string, before: string, after: string): RevisionComparisonRow => ({ category, item, before, after, difference: '-', changeType: 'direct', changed: before !== after })
-  const currentManagerFinal = managerBusinessType === 'freelancer' ? calculateWithholding(settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal, settlement.currentCalculation.managerDeductionTotal).finalPaymentAmount : settlement.currentCalculation.finalPaymentAmount
-  const previewManagerFinal = preview ? managerBusinessType === 'freelancer' ? calculateWithholding(preview.managerAmount + preview.managerDeductionTotal, preview.managerDeductionTotal).finalPaymentAmount : preview.finalPaymentAmount : currentManagerFinal
+  const currentManagerFinal = managerBusinessType === 'freelancer' ? calculateWithholding(settlement.currentCalculation.managerBaseShareAmount, settlement.currentCalculation.managerDeductionTotal).finalPaymentAmount + settlement.currentCalculation.managerReimbursementTotal : settlement.currentCalculation.finalPaymentAmount
+  const previewManagerFinal = preview ? managerBusinessType === 'freelancer' ? calculateWithholding(preview.managerBaseShareAmount, preview.managerDeductionTotal).finalPaymentAmount + preview.managerReimbursementTotal : preview.finalPaymentAmount : currentManagerFinal
   const comparison: RevisionComparisonRow[] = preview ? [
     ...draft.rows.flatMap((row) => { const before = revisionRows.find((item) => item.id === row.id); const label = `${campaign.productName} / ${row.optionName}`; return before ? [
       numericComparison('기본정보', `${label} / 판매수량`, before.quantity, row.quantity, 'count', 'direct'),
@@ -861,7 +863,7 @@ function SettlementRevisionModal({ campaign, currentUser, deductions, legacyMana
     numericComparison('결과', '매니저 최종 정산금액', currentManagerFinal, previewManagerFinal, 'money', 'derived'),
   ].filter((item) => item.changed) : []
   const displayedCalculation = preview ?? settlement.currentCalculation
-  const managerDisplayedFinal = managerBusinessType === 'freelancer' ? calculateWithholding(displayedCalculation.managerAmount + displayedCalculation.managerDeductionTotal, displayedCalculation.managerDeductionTotal).finalPaymentAmount : displayedCalculation.finalPaymentAmount
+  const managerDisplayedFinal = managerBusinessType === 'freelancer' ? calculateWithholding(displayedCalculation.managerBaseShareAmount, displayedCalculation.managerDeductionTotal).finalPaymentAmount + displayedCalculation.managerReimbursementTotal : displayedCalculation.finalPaymentAmount
   return <div className="settlement-modal-backdrop"><section aria-modal="true" className="settlement-revision-modal" role="dialog"><button aria-label="닫기" className="settlement-expanded-close" onClick={onClose} type="button">×</button><header><div><span>v{settlement.settlementVersion} 수정</span><h2>정산서 수정하기</h2><p>현재 적용값을 기준으로 재계산하며, 저장 시 기존 버전은 보존됩니다.</p></div></header>
     {(legacySellerRequest || legacyManagerRequest) && <div className="legacy-payment-recovery legacy-payment-recovery--revision"><div><strong>⚠ 이전 지급요청 정보가 남아 있습니다.</strong><p>입력 중인 수정값은 유지됩니다. 기존 지급요청을 취소한 뒤 수정 저장을 계속해주세요.</p></div><div className="legacy-payment-recovery__requests">{legacySellerRequest && <div><span>셀러 지급요청</span><strong>{paymentStatusLabels[legacySellerRequest.status]}</strong><button className="danger-button" disabled={!paymentRequestService.canRecoverLegacyPaymentRequest(legacySellerRequest)} onClick={() => onRecoverLegacyRequest('seller')} type="button">기존 셀러 지급요청 취소</button></div>}{legacyManagerRequest && <div><span>매니저 지급요청</span><strong>{paymentStatusLabels[legacyManagerRequest.status]}</strong><button className="danger-button" disabled={!paymentRequestService.canRecoverLegacyPaymentRequest(legacyManagerRequest)} onClick={() => onRecoverLegacyRequest('manager')} type="button">기존 매니저 지급요청 취소</button></div>}</div></div>}
     <section><h3>상품/SKU별 수정</h3><div className="table-scroll"><table className="data-table settlement-revision-sku-table"><thead><tr><th>상품명</th><th>SKU</th><th>판매수량</th><th>공구가</th><th>매출액</th><th>총수수료율</th><th>총수수료</th><th>셀러수수료율</th><th>셀러수수료</th></tr></thead><tbody>{draft.rows.map((row) => { const sales = row.quantity * row.unitPrice; return <tr key={row.id}><td>{campaign.productName}</td><td>{row.optionName}</td><td><input min="0" onChange={(event) => updateRow(row.id, { quantity: Number(event.target.value) })} type="number" value={row.quantity} /></td><td><input min="0" onChange={(event) => updateRow(row.id, { unitPrice: Number(event.target.value) })} type="number" value={row.unitPrice} /></td><td>{money(sales)}</td><td><input max="100" min="0" onChange={(event) => updateRow(row.id, { totalCommissionRate: Number(event.target.value) })} type="number" value={row.totalCommissionRate} /></td><td>{money(Math.round(sales * (row.totalCommissionRate ?? draft.totalCommissionRate) / 100))}</td><td><input max="100" min="0" onChange={(event) => updateRow(row.id, { sellerCommissionRate: Number(event.target.value) })} type="number" value={row.sellerCommissionRate} /></td><td>{money(Math.round(sales * (row.sellerCommissionRate ?? draft.sellerCommissionRate) / 100))}</td></tr>})}</tbody></table></div></section>
@@ -983,15 +985,15 @@ function InternalSettlementDocument({ campaignName, rows, settlement }: { campai
   ]
   const ownerText = (items: SettlementDeduction[]) => items.length ? [...new Set(items.map((item) => costOwnerLabel[item.costOwner] ?? item.costOwner))].join(', ') : '-'
   const memoText = (label: string, items: SettlementDeduction[]) => label === '이벤트비' && eventDetail ? eventDetail : items.map((item) => item.memo || item.title).filter(Boolean).join(' / ') || '-'
-  const grossManagerAmount = calculation.managerAmount + calculation.managerDeductionTotal
+  const grossManagerAmount = calculation.managerBaseShareAmount
   const withholding = calculateWithholding(grossManagerAmount, calculation.managerDeductionTotal)
-  const managerFinalPayment = managerBusinessType === 'freelancer' ? withholding.finalPaymentAmount : calculation.finalPaymentAmount
+  const managerFinalPayment = managerBusinessType === 'freelancer' ? withholding.finalPaymentAmount + calculation.managerReimbursementTotal : calculation.finalPaymentAmount
   const validationItems = [
     { label: 'SKU 매출 합계 = 총매출', valid: sellerSubtotal.sales === calculation.grossSales },
     { label: 'SKU 셀러 수수료 합계 = 셀러 수수료', valid: sellerSubtotal.commission === calculation.sellerCommissionAmount },
     { label: 'SKU 총 판매 수수료 합계 = 총수수료', valid: internalSubtotal.commission === calculation.grossCommission },
-    { label: '총수수료 - 셀러수수료 - 비용/차감 = 최종 배분 대상', valid: calculation.grossCommission - calculation.sellerCommissionAmount - calculation.companySampleDeduction - calculation.companyEventDeduction - calculation.companyOtherDeduction === calculation.distributableVendorCommission },
-    { label: '매니저 배분 + 회사 귀속 = 최종 배분 대상', valid: calculation.managerAmount + calculation.companyAmount === calculation.distributableVendorCommission },
+    { label: '총수수료 - 셀러수수료 - 비용/차감 - 선결제 환급 = 최종 배분 대상', valid: calculation.grossCommission - calculation.sellerCommissionAmount - calculation.companySampleDeduction - calculation.companyEventDeduction - calculation.companyOtherDeduction - calculation.managerReimbursementTotal === calculation.distributableVendorCommission },
+    { label: '매니저 기본 배분 + 회사 귀속 = 최종 배분 대상', valid: calculation.managerBaseShareAmount + calculation.companyAmount === calculation.distributableVendorCommission },
   ]
   const validationFailures = validationItems.filter((item) => !item.valid)
   return (
@@ -1011,6 +1013,7 @@ function InternalSettlementDocument({ campaignName, rows, settlement }: { campai
         <Summary label="이벤트비" value={money(settlement.currentCalculation.companyEventDeduction)} amount />
         <Summary label="기타 차감" value={money(settlement.currentCalculation.companyOtherDeduction)} amount />
         <Summary label="최종 배분 대상 금액" value={money(settlement.currentCalculation.distributableVendorCommission)} amount />
+        <Summary label="매니저 선결제 환급" value={money(settlement.currentCalculation.managerReimbursementTotal)} amount />
         <Summary label="매니저 지급액" value={money(settlement.currentCalculation.managerAmount)} amount />
         <Summary label="회사 귀속액" value={money(settlement.currentCalculation.companyAmount)} amount />
       </div>
@@ -1092,11 +1095,11 @@ function ManagerSettlementDocument({ documentRef, exportGeneratedAt, rows, settl
   const report = managerSettlementReportService.getReport(settlement)
   const managerBusinessType = managerPaymentService.getBusinessType(campaign?.managerName ?? '')
   const managerProfile = campaign ? managerPaymentService.getProfile(campaign.managerId) : undefined
-  const grossManagerAmount = settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal
+  const grossManagerAmount = settlement.currentCalculation.managerBaseShareAmount
   const withholdingCalculation = calculateWithholding(grossManagerAmount, settlement.currentCalculation.managerDeductionTotal)
-  const managerFinalPayment = managerBusinessType === 'freelancer' ? withholdingCalculation.finalPaymentAmount
-    : managerBusinessType === 'simplified_business' ? Math.round(grossManagerAmount / 1.1) - settlement.currentCalculation.managerDeductionTotal
-      : grossManagerAmount - settlement.currentCalculation.managerDeductionTotal
+  const managerFinalPayment = managerBusinessType === 'freelancer' ? withholdingCalculation.finalPaymentAmount + settlement.currentCalculation.managerReimbursementTotal
+    : managerBusinessType === 'simplified_business' ? Math.ceil(grossManagerAmount / 1.1) - settlement.currentCalculation.managerDeductionTotal + settlement.currentCalculation.managerReimbursementTotal
+      : grossManagerAmount - settlement.currentCalculation.managerDeductionTotal + settlement.currentCalculation.managerReimbursementTotal
   const srookSnapshots = snapshots.filter((item) => item.actualSalesChannel === 'wise_shop_link')
   const isSrookPayCampaign = srookSnapshots.length > 0 || (!snapshots.length && report.actualSalesChannel === 'wise_shop_link')
   const srookPayAmounts = srookSnapshots.map((item) => item.actualPgCost).filter((amount): amount is number => amount !== undefined)
@@ -1331,10 +1334,10 @@ function PaymentRequestEvidenceModal({ actorName, campaign, existingRequest, man
   const isFreelancer = businessType === 'freelancer'
   const freelancerGrossAmount = isSeller
     ? settlement.currentCalculation.sellerCommissionAmount
-    : settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal
+    : settlement.currentCalculation.managerBaseShareAmount
   const freelancerDeductions = isSeller ? settlement.currentCalculation.sellerDeductionTotal : settlement.currentCalculation.managerDeductionTotal
   const withholdingCalculation = withholding ?? calculateWithholding(freelancerGrossAmount, freelancerDeductions)
-  const amount = isFreelancer ? withholdingCalculation.finalPaymentAmount : isSeller ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount
+  const amount = isFreelancer ? withholdingCalculation.finalPaymentAmount + (isSeller ? 0 : settlement.currentCalculation.managerReimbursementTotal) : isSeller ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount
   const accountConfirmed = Boolean(paymentAccountDraft.bankName.trim() && paymentAccountDraft.accountNumber.trim() && paymentAccountDraft.accountHolder.trim())
   const cancellationAllowed = Boolean(existingRequest && paymentRequestService.canCancelPaymentRequest(existingRequest))
   useEffect(() => () => { if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current) }, [])

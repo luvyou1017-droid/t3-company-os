@@ -18,6 +18,7 @@ export class SupabaseSettlementRepository extends SupabaseRepository<Settlement>
       seller_commission_rate: c.sellerCommissionRate, seller_commission_amount: c.sellerCommissionAmount,
       vendor_commission_amount: c.vendorCommission, deductions_amount: c.deductionTotal,
       distributable_amount: c.distributableVendorCommission, manager_payment_amount: c.managerAmount,
+      manager_base_share_amount: c.managerBaseShareAmount, manager_reimbursement_amount: c.managerReimbursementTotal,
       company_amount: c.companyAmount, source_version: item.settlementVersion,
       calculation_snapshot: item.calculationSnapshot ?? c, approved_by: null, approved_at: null,
       version: item.settlementVersion, updated_at: item.updatedAt, metadata: this.metadata(item),

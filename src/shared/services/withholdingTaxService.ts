@@ -78,7 +78,7 @@ export const withholdingTaxService = {
     }))
     if (managerBusinessType === 'freelancer') synced.push(this.upsert({
       settlementId, ownerType: 'manager', ownerId: campaign.managerId, ownerName: campaign.managerName,
-      grossSettlementAmount: settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal,
+      grossSettlementAmount: settlement.currentCalculation.managerBaseShareAmount,
       deductions: settlement.currentCalculation.managerDeductionTotal, sourceVersion: settlement.settlementVersion,
     }))
     return synced
@@ -95,7 +95,7 @@ export const withholdingTaxService = {
       })
       if (getManagerBusinessType(campaign.managerName) === 'freelancer') withholdingTaxService.upsert({
         settlementId: settlement.id, ownerType: 'manager', ownerId: campaign.managerId, ownerName: campaign.managerName,
-        grossSettlementAmount: settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal,
+        grossSettlementAmount: settlement.currentCalculation.managerBaseShareAmount,
         deductions: settlement.currentCalculation.managerDeductionTotal, sourceVersion: settlement.settlementVersion,
       })
     })

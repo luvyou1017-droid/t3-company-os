@@ -19,6 +19,7 @@ export type SettlementApplyLocation =
   | 'net_company_commission'
   | 'seller_payment'
   | 'manager_payment'
+  | 'manager_reimbursement'
   | 'record_only'
   | 'needs_review'
 
@@ -69,12 +70,15 @@ export type SettlementCalculationSnapshot = {
   sellerDeductionTotal: number
   managerDeduction: number
   managerDeductionTotal: number
+  managerReimbursement: number
+  managerReimbursementTotal: number
   distributableVendorCommission: number
   netCompanyCommission: number
   managerShareRate: number
   companyShareRate: number
   managerRate: number
   companyRate: number
+  managerBaseShareAmount: number
   managerAmount: number
   companyAmount: number
   finalSellerPaymentAmount: number

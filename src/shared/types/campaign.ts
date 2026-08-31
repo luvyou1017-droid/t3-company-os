@@ -67,7 +67,7 @@ export type Campaign = {
   linkCloseTime?: string
   winnerAnnouncementDate?: string
   winnerAnnouncementDateOverride?: boolean
-  notionImportMetadata?: { sourceId?: string; importedAt?: string; provider: 'mock-notion' }
+  notionImportMetadata?: { sourceId?: string; importedAt?: string; provider: 'mock-notion' | 'notion' }
   aiDraftMetadata?: { prompt?: string; confidence?: number; appliedAt?: string; provider: 'mock' }
 }
 

@@ -27,12 +27,14 @@ distributableVendorCommission =
   - companySampleDeduction
   - companyEventDeduction
   - companyOtherDeduction
+  - managerReimbursement
 
 managerAmount =
-  distributableVendorCommission * managerShareRate
+  ceil(distributableVendorCommission * managerShareRate)
   - managerDeduction
+  + managerReimbursement
 
-companyAmount = distributableVendorCommission - managerAmount
+companyAmount = distributableVendorCommission - managerBaseShareAmount
 
 finalSellerPaymentAmount =
   sellerCommissionAmount
@@ -40,7 +42,9 @@ finalSellerPaymentAmount =
   - applicableTax
 ```
 
-`companyAmount` is the reconciliation value so `managerAmount + companyAmount` exactly equals `distributableVendorCommission`. If manager deduction exists, it reduces `managerAmount`; the remaining difference stays in `companyAmount`.
+`companyAmount` is the reconciliation value so `managerBaseShareAmount + companyAmount` exactly equals `distributableVendorCommission`. Manager deduction reduces the manager payment, while manager reimbursement is added only after the base split.
+
+원 단위 지급액은 반올림하지 않고 올림한다. 매니저가 증빙 확인된 비용을 선결제한 경우에는 먼저 벤더 수수료에서 환급액을 제외한 뒤 잔액을 매출 구간 비율로 나누고, 선결제 환급액 전액을 매니저 최종 지급액에 다시 더한다. 환급액은 `manager_reimbursement`로 저장하며 일반 차감과 구분한다.
 
 ## Revenue Tiers
 

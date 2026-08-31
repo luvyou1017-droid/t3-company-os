@@ -63,14 +63,15 @@ export const managerPaymentService = {
       const campaign = campaignService.getCampaignById(settlement.campaignId)
       if (!campaign || campaign.managerId !== managerId) return []
       const businessType = this.getBusinessType(campaign.managerName)
-      const grossManagerAmount = settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal
+      const grossManagerAmount = settlement.currentCalculation.managerBaseShareAmount
+      const reimbursement = settlement.currentCalculation.managerReimbursementTotal
       const tax = businessType === 'freelancer'
         ? calculateWithholding(grossManagerAmount, settlement.currentCalculation.managerDeductionTotal)
         : undefined
-      const finalAmount = businessType === 'freelancer' ? tax!.finalPaymentAmount
+      const finalAmount = businessType === 'freelancer' ? tax!.finalPaymentAmount + reimbursement
         : businessType === 'simplified_business'
-          ? Math.round(grossManagerAmount / 1.1) - settlement.currentCalculation.managerDeductionTotal
-          : grossManagerAmount - settlement.currentCalculation.managerDeductionTotal
+          ? Math.ceil(grossManagerAmount / 1.1) - settlement.currentCalculation.managerDeductionTotal + reimbursement
+          : grossManagerAmount - settlement.currentCalculation.managerDeductionTotal + reimbursement
       const reasons = paymentRequestService.getPaymentRequestBlockReasons({
         settlementId: settlement.id, ownerType: 'manager', ownerId: campaign.managerId, businessType,
         evidenceTypeConfirmed: true, accountConfirmed: Boolean(this.getProfile(campaign.managerId)?.bankName && this.getProfile(campaign.managerId)?.accountNumber && this.getProfile(campaign.managerId)?.accountHolder), calculationCompleted: true,
@@ -121,7 +122,7 @@ export const managerPaymentService = {
       if (businessType !== 'freelancer' || !['manager_reviewed', 'approval_pending', 'approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) return
       withholdingTaxService.upsert({
         settlementId: settlement.id, ownerType: 'manager', ownerId: campaign.managerId, ownerName: campaign.managerName,
-        grossSettlementAmount: settlement.currentCalculation.managerAmount + settlement.currentCalculation.managerDeductionTotal,
+        grossSettlementAmount: settlement.currentCalculation.managerBaseShareAmount,
         deductions: settlement.currentCalculation.managerDeductionTotal,
         sourceVersion: settlement.settlementVersion,
       })
