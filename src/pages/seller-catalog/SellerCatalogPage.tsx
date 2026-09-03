@@ -15,21 +15,14 @@ function priceRange([min, max]: [number, number]) {
 export function SellerCatalogPage({ productId, onOpen, onBackToCatalog, onLeave }: { productId?: string; onOpen: (id: string) => void; onBackToCatalog: () => void; onLeave: () => void }) {
   const [products, setProducts] = useState<SellerCatalogProduct[]>([])
   const [query, setQuery] = useState('')
-  const [brand, setBrand] = useState('')
   const [category, setCategory] = useState('')
-  const [status, setStatus] = useState('')
-  const [sampleOnly, setSampleOnly] = useState(false)
-  const [badge, setBadge] = useState('')
 
   useEffect(() => { void productService.listSellerCatalog().then(setProducts) }, [])
   const current = productId ? products.find((product) => product.id === productId) : undefined
-  const brands = useMemo(() => [...new Set(products.map((product) => product.brandName))], [products])
   const categories = useMemo(() => [...new Set(products.map((product) => product.category).filter(Boolean))] as string[], [products])
   const filtered = products.filter((product) => {
     const text = `${product.brandName} ${product.productName} ${product.category ?? ''} ${product.sellerDescription ?? ''} ${product.options.map((option) => option.optionName).join(' ')}`.toLowerCase()
-    return (!query || text.includes(query.toLowerCase())) && (!brand || product.brandName === brand)
-      && (!category || product.category === category) && (!status || product.sellerPortalStatus === status)
-      && (!sampleOnly || product.sampleAvailable) && (!badge || product.badges.includes(badge as ProductBadge))
+    return (!query || text.includes(query.toLowerCase())) && (!category || product.category === category)
   })
 
   if (productId && products.length > 0 && !current) {
@@ -43,11 +36,7 @@ export function SellerCatalogPage({ productId, onOpen, onBackToCatalog, onLeave 
       <header className="catalog-hero"><div><p className="page-eyebrow">T3 PRODUCT CATALOG</p><h1>진행 가능한 공동구매 상품</h1><p>구매나 즉시 신청을 위한 쇼핑몰이 아닙니다. 궁금한 상품은 담당 매니저와 상의해주세요.</p></div><ManagerCard /></header>
       <div className="catalog-filters">
         <input aria-label="상품 검색" placeholder="브랜드, 상품, 옵션, 카테고리 검색" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <select aria-label="브랜드별 보기" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">전체 브랜드</option>{brands.map((item) => <option key={item}>{item}</option>)}</select>
         <select aria-label="카테고리별 보기" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">전체 카테고리</option>{categories.map((item) => <option key={item}>{item}</option>)}</select>
-        <select aria-label="공구 가능 상태" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">전체 진행 상태</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
-        <select aria-label="추천 분류" value={badge} onChange={(event) => setBadge(event.target.value)}><option value="">전체 상품</option>{Object.entries(badgeLabels).map(([value, label]) => <option value={value} key={value}>{label} 상품</option>)}</select>
-        <label className="catalog-sample-filter"><input type="checkbox" checked={sampleOnly} onChange={(event) => setSampleOnly(event.target.checked)} />샘플 가능만 보기</label>
       </div>
       <div className="catalog-result-head"><strong>전체 상품 {filtered.length}개</strong><span>담당 매니저와 조건 확인 후 실제 진행이 확정됩니다.</span></div>
       {filtered.length ? <div className="catalog-grid">{filtered.map((product) => <button className="catalog-card" key={product.id} onClick={() => onOpen(product.id)}>
@@ -59,10 +48,10 @@ export function SellerCatalogPage({ productId, onOpen, onBackToCatalog, onLeave 
 }
 
 function PortalShell({ children, onLeave }: { children: React.ReactNode; onLeave: () => void }) {
-  return <div className="seller-portal"><nav><strong>T3 셀러 상품 카탈로그</strong><button onClick={onLeave}>내부 운영 화면</button></nav><main>{children}</main></div>
+  return <div className="seller-portal"><nav><strong>와이즈벤더 상품 카탈로그</strong><button onClick={onLeave}>운영자 로그인</button></nav><main>{children}</main></div>
 }
 
-function ManagerCard({ name = '김병희' }: { name?: string }) {
+function ManagerCard({ name = '와이즈벤더 담당 매니저' }: { name?: string }) {
   return <aside className="catalog-manager"><span>담당 매니저</span><strong>{name}</strong><p>궁금한 상품이 있으면 담당 매니저에게 편하게 문의해주세요.</p></aside>
 }
 
