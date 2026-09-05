@@ -1,4 +1,5 @@
 import type { CampaignSalesChannelType } from '../../shared/types/campaign'
+import type { CommissionCalculationType } from '../../shared/types/commission'
 
 export type ProductPgSupportRate = 1 | 2 | 3 | 4 | 5
 export type SupplierLinkPgPolicy = 'supplier_bears_pg' | 'deduct_from_commission_rate' | 'manual'
@@ -6,6 +7,7 @@ export type PolicySource = 'vendor' | 'brand' | 'product' | 'sku'
 export type SellerPortalStatus = 'available' | 'coming_soon' | 'paused' | 'sold_out' | 'closed'
 export type ProductBadge = 'new' | 'popular' | 'recommended' | 'recently_successful'
 export type ProductStockStatus = 'available' | 'limited' | 'out_of_stock' | 'discontinued'
+export type ProductSkuPricingType = 'fixed' | 'quantity_tier'
 
 export interface ProductPolicy {
   regularPrice: number
@@ -34,8 +36,13 @@ export interface ProductSku {
   id: string
   skuCode: string
   productId: string
+  productName?: string
+  category?: string
   optionName: string
   optionValues?: Record<string, string>
+  pricingType?: ProductSkuPricingType
+  minimumQuantity?: number
+  maximumQuantity?: number
   policyOverrides?: ProductPolicyOverrides
   regularPrice: number
   groupBuyPrice: number
@@ -86,6 +93,15 @@ export interface Proposal {
   updatedAt: string
 }
 
+export interface ProductCampaignReference {
+  id: string
+  sellerName: string
+  campaignDate?: string
+  salesAmount?: number
+  note?: string
+  linkUrl?: string
+}
+
 export interface ProductMaster {
   id: string
   productCode: string
@@ -98,6 +114,7 @@ export interface ProductMaster {
   subCategory?: string
   imageUrl?: string
   representativeImageUrl?: string
+  productUrl?: string
   additionalImageUrls?: string[]
   internalDescription?: string
   sellerDescription?: string
@@ -110,6 +127,7 @@ export interface ProductMaster {
   totalCommissionRate: number
   sellerCommissionRate: number
   companyCommissionRate: number
+  commissionCalculationType?: CommissionCalculationType
   defaultSalesChannelType: CampaignSalesChannelType
   supplierLinkAvailable?: boolean
   supplierLinkPgPolicy?: SupplierLinkPgPolicy
@@ -133,11 +151,19 @@ export interface ProductMaster {
   defaultPolicy?: ProductPolicy
   skus: ProductSku[]
   sellerPortalVisible: boolean
+  partnerPortalVisible?: boolean
+  partnerDescription?: string
+  partnerMinimumOrder?: string
+  partnerSupplyNote?: string
+  sourceFileName?: string
+  sourceSpreadsheetUrl?: string
+  sourceImportedAt?: string
   sellerPortalStatus: SellerPortalStatus
   badges?: ProductBadge[]
   sampleAvailable: boolean
   managerName?: string
   managerContact?: string
+  campaignReferences?: ProductCampaignReference[]
   active: boolean
   testData?: boolean
   createdAt: string
@@ -165,6 +191,7 @@ export interface SellerCatalogProduct {
   productName: string
   category?: string
   representativeImageUrl?: string
+  productUrl?: string
   additionalImageUrls: string[]
   sellerDescription?: string
   regularPriceRange: [number, number]
@@ -174,6 +201,23 @@ export interface SellerCatalogProduct {
   sellerPortalStatus: SellerPortalStatus
   badges: ProductBadge[]
   options: Array<{ id: string; optionName: string; regularPrice: number; groupBuyPrice: number; stockStatus: ProductStockStatus }>
+  managerName: string
+  managerContact?: string
+}
+
+/** Approved partner-vendor DTO. Seller fees and company margin must never be added here. */
+export interface PartnerCatalogProduct {
+  id: string
+  brandName: string
+  productName: string
+  category?: string
+  representativeImageUrl?: string
+  productUrl?: string
+  description?: string
+  shippingGuide: string
+  minimumOrder?: string
+  supplyNote?: string
+  options: Array<{ id: string; optionName: string; groupBuyPrice: number; supplyPrice: number; stockStatus: ProductStockStatus }>
   managerName: string
   managerContact?: string
 }

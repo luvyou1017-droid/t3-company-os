@@ -3,7 +3,7 @@ import { supabase } from '../../../shared/lib/supabase'
 import { LocalProductRepository } from '../repositories/LocalProductRepository'
 import { SupabaseProductRepository } from '../repositories/SupabaseProductRepository'
 import type { ProductRepository } from '../repositories/productRepository'
-import type { BrandMaster, CampaignProductMasterSnapshot, ProductMaster, ProductMasterInput, ProductPolicy, ProductPolicyOverrides, ProductSku, ResolvedProductPolicy, SellerCatalogProduct, VendorMaster } from '../types'
+import type { BrandMaster, CampaignProductMasterSnapshot, PartnerCatalogProduct, ProductMaster, ProductMasterInput, ProductPolicy, ProductPolicyOverrides, ProductSku, ResolvedProductPolicy, SellerCatalogProduct, VendorMaster } from '../types'
 
 const repository: ProductRepository = getDataProviderMode() === 'supabase' && supabase
   ? new SupabaseProductRepository(supabase)
@@ -20,6 +20,20 @@ export function validateProductPolicy(product: Pick<ProductMaster, 'defaultSales
 }
 
 function validateSkuPolicies(product: ProductMaster) {
+  const quantityTiersByProduct = new Map<string, ProductSku[]>()
+  product.skus.filter((sku) => sku.active && sku.pricingType === 'quantity_tier').forEach((sku) => {
+    const key = (sku.productName || product.productName).trim().toLowerCase()
+    quantityTiersByProduct.set(key, [...(quantityTiersByProduct.get(key) ?? []), sku])
+  })
+  for (const quantityTiers of quantityTiersByProduct.values()) {
+    quantityTiers.sort((left, right) => (left.minimumQuantity ?? 0) - (right.minimumQuantity ?? 0))
+    for (const [index, sku] of quantityTiers.entries()) {
+      if (!sku.minimumQuantity || sku.minimumQuantity < 1) return `${sku.optionName}: 수량 구간의 최소 수량을 입력해주세요.`
+      if (sku.maximumQuantity && sku.maximumQuantity < sku.minimumQuantity) return `${sku.optionName}: 최대 수량은 최소 수량보다 크거나 같아야 합니다.`
+      const next = quantityTiers[index + 1]
+      if (next && (!sku.maximumQuantity || sku.maximumQuantity >= (next.minimumQuantity ?? 0))) return `${sku.optionName}: 다음 수량 구간과 범위가 겹칩니다.`
+    }
+  }
   for (const sku of product.skus) {
     const policy = resolveProductPolicy(undefined, undefined, product, sku)
     if (policy.defaultSalesChannelType.value === 'wise_shop_link' && !policy.wiseShopAvailable.value) return `${sku.optionName}: 와이즈샵을 기본 링크로 사용하려면 사용 가능 상태여야 합니다.`
@@ -103,7 +117,7 @@ export function toSellerCatalogProduct(product: ProductMaster): SellerCatalogPro
   const visibleSkus = product.skus.filter((sku) => sku.active && sku.sellerPortalVisible !== false)
   return {
     id: product.id, brandName: product.brandName, productName: product.productName, category: product.category,
-    representativeImageUrl: product.representativeImageUrl ?? product.imageUrl,
+    representativeImageUrl: product.representativeImageUrl ?? product.imageUrl, productUrl: product.productUrl,
     additionalImageUrls: product.additionalImageUrls ?? [], sellerDescription: product.sellerDescription,
     regularPriceRange: range(visibleSkus.map((sku) => sku.regularPrice), product.regularPrice),
     groupBuyPriceRange: range(visibleSkus.map((sku) => sku.groupBuyPrice), product.salePrice),
@@ -115,16 +129,43 @@ export function toSellerCatalogProduct(product: ProductMaster): SellerCatalogPro
   }
 }
 
+export function toPartnerCatalogProduct(product: ProductMaster): PartnerCatalogProduct | null {
+  if (!product.active || !product.partnerPortalVisible) return null
+  const visibleSkus = product.skus.filter((sku) => sku.active)
+  return {
+    id: product.id,
+    brandName: product.brandName,
+    productName: product.productName,
+    category: product.category,
+    representativeImageUrl: product.representativeImageUrl ?? product.imageUrl,
+    productUrl: product.productUrl,
+    description: product.partnerDescription || product.sellerDescription,
+    shippingGuide: product.shippingFee === 0 ? '무료배송' : `배송비 ${product.shippingFee.toLocaleString('ko-KR')}원`,
+    minimumOrder: product.partnerMinimumOrder,
+    supplyNote: product.partnerSupplyNote,
+    options: visibleSkus.map((sku) => ({
+      id: sku.id,
+      optionName: sku.optionName,
+      groupBuyPrice: sku.groupBuyPrice,
+      supplyPrice: sku.supplyPrice,
+      stockStatus: sku.stockStatus ?? 'available',
+    })),
+    managerName: product.managerName || '와이즈벤더 담당자',
+    managerContact: product.managerContact,
+  }
+}
+
 export const productService = {
   listProducts: () => repository.listProducts(),
   getProductById: (id: string) => repository.getProductById(id),
   searchProductsByBrand: (brandId: string, query?: string) => repository.searchProductsByBrand(brandId, query),
   async createProduct(input: ProductMasterInput) {
     const now = new Date().toISOString()
+    const id = crypto.randomUUID()
     const product: ProductMaster = {
-      ...input, id: crypto.randomUUID(), companyCommissionRate: input.totalCommissionRate - input.sellerCommissionRate,
+      ...input, id, skus: input.skus.map((sku) => ({ ...sku, productId: id })), companyCommissionRate: input.totalCommissionRate - input.sellerCommissionRate,
       brandPgSupportRate: input.brandPgSupportAvailable ? input.brandPgSupportRate : undefined,
-      skus: input.skus ?? [], sellerPortalVisible: input.sellerPortalVisible ?? false,
+      sellerPortalVisible: input.sellerPortalVisible ?? false,
       sellerPortalStatus: input.sellerPortalStatus ?? 'closed', sampleAvailable: input.sampleAvailable ?? false,
       createdAt: now, updatedAt: now, version: 1,
     }
@@ -136,7 +177,7 @@ export const productService = {
     const current = await repository.getProductById(id)
     if (!current) throw new Error('상품을 찾을 수 없습니다.')
     const product: ProductMaster = {
-      ...current, ...input, id, companyCommissionRate: input.totalCommissionRate - input.sellerCommissionRate,
+      ...current, ...input, id, skus: input.skus.map((sku) => ({ ...sku, productId: id })), companyCommissionRate: input.totalCommissionRate - input.sellerCommissionRate,
       brandPgSupportRate: input.brandPgSupportAvailable ? input.brandPgSupportRate : undefined,
       updatedAt: new Date().toISOString(), version: current.version + 1,
     }
@@ -152,6 +193,15 @@ export const productService = {
   async getSellerCatalogProduct(id: string) {
     const product = await repository.getProductById(id)
     return product ? toSellerCatalogProduct(product) : null
+  },
+  async listPartnerCatalog() {
+    if (getDataProviderMode() === 'supabase' && supabase) {
+      const { data, error } = await supabase.rpc('list_partner_catalog')
+      if (error) throw error
+      return (Array.isArray(data) ? data : []) as PartnerCatalogProduct[]
+    }
+    const products = await repository.listProducts()
+    return products.map(toPartnerCatalogProduct).filter((product): product is PartnerCatalogProduct => Boolean(product))
   },
   resolveProductPolicy,
   createCampaignProductSnapshot,

@@ -67,3 +67,4 @@ function SellerProductDetail({ product, onBack }: { product: SellerCatalogProduc
     <section className="catalog-contact"><ManagerCard name={product.managerName} /><div><h2>이 상품이 궁금하신가요?</h2><p>실제 진행 가능 일정과 세부 조건은 담당 매니저가 카카오톡 또는 전화로 안내해드립니다.</p><button className="primary-button" onClick={() => window.alert(`${product.managerName} 매니저에게 문의해주세요.${product.managerContact ? `\\n${product.managerContact}` : ''}`)}>담당 매니저에게 문의</button></div></section>
   </section>
 }
+
