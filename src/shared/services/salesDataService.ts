@@ -7,6 +7,39 @@ import { workService } from './workService'
 
 const now = () => '2026-07-16 14:30'
 
+function koreaToday() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
+function createPendingImport(campaign: ReturnType<typeof campaignService.getCampaigns>[number]): SalesDataImport {
+  return {
+    id: `sales-awaiting-${campaign.id}`,
+    campaignId: campaign.id,
+    fileName: '',
+    fileSize: 0,
+    sourceType: 'file',
+    uploadedBy: '',
+    uploadedAt: '',
+    reviewStatus: '업로드 대기',
+    settlementStatus: '정산 전',
+    totalQuantity: 0,
+    totalSalesAmount: 0,
+    notes: '공동구매 종료일 기준으로 판매 데이터 업로드 대상이 자동 생성되었습니다.',
+    uploadedProductName: campaign.productName,
+    salesStartDate: campaign.startDate,
+    salesEndDate: campaign.endDate,
+    reviewerId: campaign.mdId,
+    reviewerName: campaign.mdName,
+    totalCommissionRate: campaign.totalCommissionRate,
+    sellerCommissionRate: campaign.sellerCommissionRate,
+  }
+}
+
 function getCampaignText(campaignId: string) {
   const campaign = campaignService.getCampaignById(campaignId)
   return {
@@ -65,6 +98,20 @@ export const salesDataService = {
   },
   saveRows(rows: SalesDataRow[]) {
     storageService.setItem(STORAGE_KEYS.salesDataRows, rows)
+  },
+  syncEndedCampaignImports() {
+    const imports = this.getSalesDataImports()
+    const registeredCampaignIds = new Set(imports.map((item) => item.campaignId))
+    const today = koreaToday()
+    const pendingImports = campaignService.getCampaigns()
+      .filter((campaign) => Boolean(campaign.endDate) && campaign.endDate <= today && !registeredCampaignIds.has(campaign.id))
+      .sort((a, b) => b.endDate.localeCompare(a.endDate))
+      .map(createPendingImport)
+
+    if (!pendingImports.length) return imports
+    const nextImports = [...pendingImports, ...imports]
+    this.saveImports(nextImports)
+    return nextImports
   },
   getSalesDataByCampaignId(campaignId: string) {
     const imports = this.getSalesDataImports().filter((item) => item.campaignId === campaignId)

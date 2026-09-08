@@ -51,14 +51,14 @@ function StatusBadge({ label, tone }: { label: string; tone: string }) {
 }
 
 export function SalesDataPage({ initialImportId }: { initialImportId?: string | null }) {
-  const [imports, setImports] = useState(() => salesDataService.getSalesDataImports())
+  const [imports, setImports] = useState(() => salesDataService.syncEndedCampaignImports())
   const [rows, setRows] = useState(() => salesDataService.getSalesDataRows())
   const [quick, setQuick] = useState<SalesQuickFilter>('전체')
   const [selectedImportId, setSelectedImportId] = useState<string | null>(initialImportId ?? null)
   const [manualTarget, setManualTarget] = useState<SalesDataImport | null>(null)
 
   const sync = () => {
-    setImports(salesDataService.getSalesDataImports())
+    setImports(salesDataService.syncEndedCampaignImports())
     setRows(salesDataService.getSalesDataRows())
   }
 
