@@ -259,8 +259,7 @@ function withRecalculation(settlement: Settlement, reason = '계산 실행'): Se
 export const settlementService = {
   getSettlements() {
     const stored = storageService.getItem<Settlement[]>(STORAGE_KEYS.settlements, [])
-    if (stored.length) return this.refreshRevisionFlags(stored)
-    return this.seedInitialSettlements()
+    return this.refreshRevisionFlags(stored)
   },
   saveSettlements(settlements: Settlement[]) {
     storageService.setItem(STORAGE_KEYS.settlements, settlements)
@@ -427,6 +426,8 @@ export const settlementService = {
     if (!salesImport || !isEligibleSalesData(salesImport)) return undefined
     const campaign = campaignService.getCampaignById(salesImport.campaignId)
     const id = `settlement-${salesImport.id}`
+    const existing = storageService.getItem<Settlement[]>(STORAGE_KEYS.settlements, []).find((item) => item.id === id)
+    if (existing) return existing
     const createdAt = now()
     const deductions = [...createSampleDeductions(id, salesImport.campaignId, sampleService.getSamplesByCampaignId(salesImport.campaignId)), ...createSalesDeductions(id, salesImport)]
     const taxType = taxTypeFromBusinessType(campaign?.businessType)
@@ -467,6 +468,11 @@ export const settlementService = {
     createSettlementNotification(settlement, '정산 초안이 생성되었습니다.', `${getCampaignText(settlement.campaignId).campaignName} 정산서를 확인하세요.`)
     salesDataService.markSettlementReady(salesImport.id)
     return settlement
+  },
+  confirmSalesDataAndCreateSettlement(salesDataImportId: string, confirmedBy = '허수정') {
+    const confirmed = salesDataService.confirmSalesData(salesDataImportId, confirmedBy)
+    if (!confirmed) return undefined
+    return this.createSettlementFromSalesData(salesDataImportId)
   },
   recalculateSettlement(settlementId: string, reason = '재계산') {
     const settlement = this.getSettlementById(settlementId)

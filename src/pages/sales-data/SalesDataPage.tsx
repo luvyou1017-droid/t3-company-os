@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
 import { campaignService } from '../../shared/services/campaignService'
 import { salesDataService } from '../../shared/services/salesDataService'
+import { settlementService } from '../../shared/services/settlementService'
 import type { SalesDataImport, SalesDataRow, SalesReviewStatus, SalesSettlementStatus } from '../../shared/types/salesData'
 import { buildSalesAnalysis, calculateSalesRow, calculateSalesTotals, formatCurrency, formatFileSize } from '../../shared/utils/salesData'
-import { parseSalesDataFile } from '../../shared/utils/salesDataFileParser'
+import { parseSalesDataFile, type ParsedSalesFile } from '../../shared/utils/salesDataFileParser'
 import { openCampaignDetail } from '../../shared/utils/campaignNavigation'
 
 type SalesQuickFilter = '전체' | '오늘 수신' | '업로드 대기' | '검수 대기' | '오류 확인 필요' | '확정 완료' | '정산 대기'
@@ -165,6 +166,7 @@ export function SalesDataPage({ initialImportId }: { initialImportId?: string | 
 function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: { salesImport: SalesDataImport | null; rows: SalesDataRow[]; onClose: () => void; onManualInput: (salesImport: SalesDataImport) => void; onSync: () => void }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [uploadError, setUploadError] = useState('')
+  const [pendingSelection, setPendingSelection] = useState<{ file: File; parsed: ParsedSalesFile } | null>(null)
   if (!salesImport) return null
 
   const campaign = getImportCampaign(salesImport)
@@ -177,6 +179,20 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
     setUploadError('')
     try {
       const parsed = await parseSalesDataFile(file, salesImport.id, salesImport.campaignId)
+      if (parsed.paymentPendingQuantity > 0 && parsed.paymentPendingAmount > 0) {
+        setPendingSelection({ file, parsed })
+        return
+      }
+      saveParsedFile(file, parsed, 'included')
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : '파일을 읽는 중 오류가 발생했습니다.')
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const saveParsedFile = (file: File, parsed: ParsedSalesFile, policy: 'included' | 'excluded') => {
+      const selectedRows = policy === 'excluded' ? parsed.rows.filter((row) => row.orderStatus?.replace(/\s+/g, '') !== '결제대기') : parsed.rows
       const nextImport = salesDataService.updateSalesDataImport({
         ...salesImport,
         fileName: file.name,
@@ -191,16 +207,15 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
         totalCommissionRate: parsed.totalCommissionRate ?? salesImport.totalCommissionRate ?? campaign?.totalCommissionRate,
         sellerCommissionRate: salesImport.sellerCommissionRate ?? campaign?.sellerCommissionRate,
         commissionRate: salesImport.commissionRate ?? campaign?.sellerCommissionRate,
-        notes: `${parsed.sheetName} 시트에서 ${parsed.rows.length}개 구성을 읽었습니다.`,
+        paymentPendingPolicy: policy,
+        paymentPendingQuantity: parsed.paymentPendingQuantity,
+        paymentPendingAmount: parsed.paymentPendingAmount,
+        notes: `${parsed.sheetName} 시트에서 ${selectedRows.length}개 구성을 읽었습니다. 결제 대기 ${policy === 'included' ? '포함' : '제외'}로 확정 대기 중입니다.`,
       })
-      salesDataService.addSalesDataRows(salesImport.id, parsed.rows)
+      salesDataService.addSalesDataRows(salesImport.id, selectedRows)
       salesDataService.validateSalesData(nextImport.id)
+      setPendingSelection(null)
       onSync()
-    } catch (error) {
-      setUploadError(error instanceof Error ? error.message : '파일을 읽는 중 오류가 발생했습니다.')
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
   }
 
   const updateStatus = (nextImport: SalesDataImport) => {
@@ -246,6 +261,14 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           <button className="secondary-button" onClick={() => fileInputRef.current?.click()} type="button">파일 선택</button>
         </section>
 
+        {pendingSelection ? <section className="sales-ai-card" role="alert">
+          <div className="checklist-head"><div><h3>결제 대기 주문을 매출에 포함할까요?</h3><p>결제 대기 {pendingSelection.parsed.paymentPendingQuantity.toLocaleString('ko-KR')}개 · {formatCurrency(pendingSelection.parsed.paymentPendingAmount)}가 발견되었습니다. 선택한 기준은 이 판매 데이터에 저장됩니다.</p></div></div>
+          <div className="action-row">
+            <button className="primary-button" onClick={() => saveParsedFile(pendingSelection.file, pendingSelection.parsed, 'excluded')} type="button">결제 대기 제외</button>
+            <button className="secondary-button" onClick={() => saveParsedFile(pendingSelection.file, pendingSelection.parsed, 'included')} type="button">결제 대기 포함</button>
+          </div>
+        </section> : null}
+
         <section className="sales-summary-grid">
           <SummaryItem label="총 판매수량" value={`${totals.totalQuantity.toLocaleString('ko-KR')}개`} />
           <SummaryItem label="총매출" value={formatCurrency(totals.totalSalesAmount)} />
@@ -258,6 +281,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           <SummaryItem label="샘플비 차감 예정" value={formatCurrency(salesImport.sampleDeductionAmount ?? 0)} />
           <SummaryItem label="이벤트비 차감 예정" value={formatCurrency(salesImport.eventDeductionAmount ?? 0)} />
           <SummaryItem label="회사 잔여 수수료 예상" value={formatCurrency(totals.companyRemainingCommission)} />
+          {salesImport.paymentPendingPolicy ? <SummaryItem label="결제 대기 처리 기준" value={`${salesImport.paymentPendingPolicy === 'included' ? '포함' : '제외'} · ${salesImport.paymentPendingQuantity ?? 0}개 / ${formatCurrency(salesImport.paymentPendingAmount ?? 0)}`} /> : null}
         </section>
 
         <section className="sales-ai-card">
@@ -286,7 +310,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           <button className="secondary-button" onClick={() => onManualInput(salesImport)} type="button">수기 입력</button>
           <button className="secondary-button" onClick={() => { salesDataService.validateSalesData(salesImport.id); onSync() }} type="button">검수 시작</button>
           <button className="secondary-button" onClick={() => updateStatus({ ...salesImport, reviewStatus: '오류 확인 필요' })} type="button">오류 표시</button>
-          <button className="primary-button" disabled={hasError} onClick={() => salesDataService.confirmSalesData(salesImport.id) && onSync()} type="button">판매 데이터 확정</button>
+          <button className="primary-button" disabled={hasError || Boolean(pendingSelection)} onClick={() => settlementService.confirmSalesDataAndCreateSettlement(salesImport.id) && onSync()} type="button">판매 데이터 확정</button>
           <button className="secondary-button" onClick={() => salesDataService.markSettlementReady(salesImport.id) && onSync()} type="button">정산 생성 준비</button>
           <button className="secondary-button" onClick={() => openCampaignDetail(salesImport.campaignId, 'sales')} type="button">공동구매 상세 보기</button>
         </div>

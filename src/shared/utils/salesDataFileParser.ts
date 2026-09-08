@@ -20,6 +20,8 @@ export type ParsedSalesFile = {
   rows: SalesDataRow[]
   sheetName: string
   totalCommissionRate?: number
+  paymentPendingQuantity: number
+  paymentPendingAmount: number
 }
 
 /** 업체별 배치가 달라도 공통 열 이름을 찾아 실제 판매 합계를 읽습니다. */
@@ -35,7 +37,8 @@ export async function parseSalesDataFile(file: File, salesDataImportId: string, 
       const productColumn = findColumn(headers, ['상품명', '제품명'])
       const quantityColumn = findColumn(headers, ['수량', '판매수량', '주문수량'])
       const unitPriceColumn = findColumn(headers, ['옵션 판매가', '판매가', '공구가', '단가'])
-      const salesColumn = findColumn(headers, ['최종매출', '순매출', '총매출', '총주문금액', '옵션별총액'])
+      const salesColumn = findColumn(headers, ['최종매출', '순매출', '총매출', '총주문금액', '옵션별총액', '총판매가'])
+      const orderStatusColumn = findColumn(headers, ['주문상태', '결제상태', '상태'])
       if (quantityColumn < 0 || salesColumn < 0 || (optionColumn < 0 && productColumn < 0)) continue
 
       const rows: SalesDataRow[] = []
@@ -46,6 +49,7 @@ export async function parseSalesDataFile(file: File, salesDataImportId: string, 
         const product = String(sourceRow[productColumn] ?? '').trim()
         if (!quantity || !grossSales || (!option && !product)) return
         const unitPrice = unitPriceColumn >= 0 ? numberValue(sourceRow[unitPriceColumn]) : grossSales / quantity
+        const orderStatus = orderStatusColumn >= 0 ? String(sourceRow[orderStatusColumn] ?? '').trim() : ''
         rows.push({
           id: `${salesDataImportId}-file-${index + 1}`,
           salesDataImportId,
@@ -60,6 +64,7 @@ export async function parseSalesDataFile(file: File, salesDataImportId: string, 
           netSales: grossSales,
           validationStatus: 'valid',
           validationMessage: `${sheetName} 시트에서 읽음`,
+          orderStatus: orderStatus || undefined,
         })
       })
       if (rows.length) {
@@ -67,7 +72,14 @@ export async function parseSalesDataFile(file: File, salesDataImportId: string, 
         const statementRows = statementSheet ? XLSX.utils.sheet_to_json<Cell[]>(statementSheet, { header: 1, defval: null, raw: true }) : []
         const statementText = statementRows.flat().map((cell) => String(cell ?? '')).join(' ')
         const rateMatch = statementText.match(/(\d+(?:\.\d+)?)\s*%\s*수수료/)
-        return { rows, sheetName, totalCommissionRate: rateMatch ? Number(rateMatch[1]) : undefined }
+        const paymentPendingRows = rows.filter((row) => normalize(row.orderStatus) === normalize('결제대기'))
+        return {
+          rows,
+          sheetName,
+          totalCommissionRate: rateMatch ? Number(rateMatch[1]) : undefined,
+          paymentPendingQuantity: paymentPendingRows.reduce((sum, row) => sum + row.quantity, 0),
+          paymentPendingAmount: paymentPendingRows.reduce((sum, row) => sum + row.grossSales, 0),
+        }
       }
     }
   }

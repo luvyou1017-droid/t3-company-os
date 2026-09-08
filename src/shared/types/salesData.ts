@@ -37,6 +37,9 @@ export type SalesDataImport = {
   commissionRate?: number
   sampleDeductionAmount?: number
   eventDeductionAmount?: number
+  paymentPendingPolicy?: 'included' | 'excluded'
+  paymentPendingQuantity?: number
+  paymentPendingAmount?: number
 }
 
 export type SalesDataRow = {
@@ -55,6 +58,7 @@ export type SalesDataRow = {
   netSales: number
   validationStatus: SalesValidationStatus
   validationMessage: string
+  orderStatus?: string
 }
 
 export type SalesDataTotals = {
