@@ -88,7 +88,7 @@ export function calculateDistributableVendorCommission(vendorCommission: number,
 
 export function calculateManagerBaseShare(distributableVendorCommission: number, managerShareRate: number) {
   const base = safeAmount(distributableVendorCommission, '최종 배분 대상 금액')
-  return Math.ceil(base * (safeRate(managerShareRate, '매니저 배분율') / 100))
+  return Math.ceil(base * (safeRate(managerShareRate, '매니저 배분율', true) / 100))
 }
 
 export function calculateManagerAmount(distributableVendorCommission: number, managerShareRate: number, managerDeduction = 0, managerReimbursement = 0) {
@@ -132,9 +132,12 @@ export function calculateSettlement(
   const vendorCommission = calculateVendorCommission(grossCommission, sellerCommissionAmount)
   const deductionTotals = calculateDeductions(deductions)
   const distributableVendorCommission = calculateDistributableVendorCommission(vendorCommission, deductionTotals.companySampleTotal, deductionTotals.companyEventTotal, deductionTotals.companyOtherTotal, deductionTotals.managerReimbursementTotal)
-  const rates = getShareRates(grossSales)
-  const managerBaseShareAmount = calculateManagerBaseShare(distributableVendorCommission, rates.managerRate)
-  const managerAmount = calculateManagerAmount(distributableVendorCommission, rates.managerRate, deductionTotals.managerTotal, deductionTotals.managerReimbursementTotal)
+  const managerSettlementRequired = salesImport.managerSettlementRequired !== false
+  const rates = managerSettlementRequired
+    ? getShareRates(grossSales)
+    : { tier: getRevenueTier(grossSales), tierLabel: '회사 직영 셀러', managerRate: 0, companyRate: 100 }
+  const managerBaseShareAmount = managerSettlementRequired ? calculateManagerBaseShare(distributableVendorCommission, rates.managerRate) : 0
+  const managerAmount = managerSettlementRequired ? calculateManagerAmount(distributableVendorCommission, rates.managerRate, deductionTotals.managerTotal, deductionTotals.managerReimbursementTotal) : 0
   const companyAmount = calculateCompanyAmount(distributableVendorCommission, managerBaseShareAmount)
   const sellerTaxBase = Math.max(sellerCommissionAmount - deductionTotals.sellerTotal, 0)
   const taxAmount = taxType === 'withholding_3_3' ? calculateWithholdingTax(sellerTaxBase) : 0
@@ -220,7 +223,7 @@ export function validateSettlement(settlement: Settlement): SettlementValidation
 
 export function createCalculationSteps(snapshot: SettlementCalculationSnapshot): SettlementCalculationStep[] {
   const now = snapshot.calculatedAt
-  const rates = getShareRates(snapshot.grossSales)
+  const rates = { tierLabel: snapshot.managerShareRate === 0 && snapshot.companyShareRate === 100 ? '회사 직영 셀러' : getShareRates(snapshot.grossSales).tierLabel }
   const companyDeductions = snapshot.deductions.filter((item) => item.reflected && item.applyLocation === 'net_company_commission')
   const sellerDeductions = snapshot.deductions.filter((item) => item.reflected && item.applyLocation === 'seller_payment')
   const managerDeductions = snapshot.deductions.filter((item) => item.reflected && item.applyLocation === 'manager_payment')

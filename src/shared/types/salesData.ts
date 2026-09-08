@@ -40,6 +40,7 @@ export type SalesDataImport = {
   paymentPendingPolicy?: 'included' | 'excluded'
   paymentPendingQuantity?: number
   paymentPendingAmount?: number
+  managerSettlementRequired?: boolean
 }
 
 export type SalesDataRow = {

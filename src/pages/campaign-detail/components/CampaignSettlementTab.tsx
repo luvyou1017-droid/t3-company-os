@@ -61,7 +61,7 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.vendorCommission)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.deductionTotal)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.distributableVendorCommission)}</td>
-                <td className="amount-cell">{formatCurrency(settlement.currentCalculation.managerAmount)}</td>
+                <td className="amount-cell">{settlement.currentCalculation.managerShareRate === 0 ? '대상 아님' : formatCurrency(settlement.currentCalculation.managerAmount)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.companyAmount)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.finalSellerPaymentAmount)}</td>
                 <td>{settlement.evidenceStatus === 'confirmed' ? '확인 완료' : '미확인'}</td>
@@ -84,7 +84,8 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
           const campaign = campaignService.getCampaignById(settlement.campaignId)
           if (!campaign) return []
           const sellerRule = sellerSettlementService.getSellerSettlementRule(campaign.id)
-          return (['seller', 'manager'] as const).map((recipientType) => {
+          const recipientTypes = settlement.currentCalculation.managerShareRate === 0 ? (['seller'] as const) : (['seller', 'manager'] as const)
+          return recipientTypes.map((recipientType) => {
             const isSeller = recipientType === 'seller'
             const recipientId = isSeller ? campaign.sellerId : campaign.managerId
             const recipientName = isSeller ? campaign.sellerName : campaign.managerName

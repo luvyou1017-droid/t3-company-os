@@ -332,6 +332,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const logs = settlementService.getActivityLogsBySettlementId(settlement.id)
   const validation = validateSettlement(settlement)
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
+  const managerSettlementRequired = salesImport?.managerSettlementRequired !== false && settlement.currentCalculation.managerShareRate > 0
   const salesRows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
   const salesDataConfirmed = salesImport?.reviewStatus === '확정 완료'
   const sellerRule = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)
@@ -342,7 +343,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const hasManagerAccount = Boolean(managerProfile?.bankName?.trim() && managerProfile.accountNumber?.trim() && managerProfile.accountHolder?.trim())
   const managerBusinessType = managerPaymentService.getBusinessType(campaign?.managerName ?? '')
   const sellerPaymentRequest = campaign ? paymentRequestService.getActivePaymentRequestForRecipient(settlement.id, 'seller', campaign.sellerId) : undefined
-  const managerPaymentRequest = campaign ? paymentRequestService.getActivePaymentRequestForRecipient(settlement.id, 'manager', campaign.managerId) : undefined
+  const managerPaymentRequest = campaign && managerSettlementRequired ? paymentRequestService.getActivePaymentRequestForRecipient(settlement.id, 'manager', campaign.managerId) : undefined
   const settlementConfirmed = settlementService.isSettlementConfirmed(settlement)
   const hasLegacyPaymentConflict = !settlementConfirmed && Boolean(sellerPaymentRequest || managerPaymentRequest)
   const pendingRevisionRequest = settlementService.getPendingRevisionRequest(settlement.id)
@@ -393,7 +394,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   if (!checklist.eventCostReflected) settlementPreparationWarnings.push({ id: 'event', message: '이벤트비 반영 확인이 필요합니다.', actionLabel: '비용/차감 확인', severity: 'non-blocking', action: () => setReadinessModal('costs') })
   if (!checklist.otherDeductionsConfirmed) settlementPreparationWarnings.push({ id: 'other', message: '기타 차감 확인이 필요합니다.', actionLabel: '비용/차감 확인', severity: 'non-blocking', action: () => setReadinessModal('costs') })
   if (unresolvedCostOwners.length > 0) settlementPreparationWarnings.push({ id: 'owners', message: '비용 부담자 확인이 필요합니다.', actionLabel: '비용/차감 확인', severity: 'non-blocking', action: () => setReadinessModal('costs') })
-  if (!checklist.managerShareConfirmed || !managerShareValid) settlementPreparationWarnings.push({ id: 'share', message: '매니저 배분율 확인이 필요합니다.', actionLabel: '배분율 확인', severity: managerShareValid ? 'non-blocking' : 'blocking', action: () => setReadinessModal('share') })
+  if (managerSettlementRequired && (!checklist.managerShareConfirmed || !managerShareValid)) settlementPreparationWarnings.push({ id: 'share', message: '매니저 배분율 확인이 필요합니다.', actionLabel: '배분율 확인', severity: managerShareValid ? 'non-blocking' : 'blocking', action: () => setReadinessModal('share') })
   if (!effectiveSellerBusinessType) settlementPreparationWarnings.push({ id: 'business', message: '사업자 유형이 등록되지 않았습니다.', actionLabel: '셀러 정보 등록', severity: 'non-blocking', action: () => { setBusinessNameDraft(sellerProfile?.businessName ?? ''); setReadinessModal('business') } })
   if (!effectiveSellerBusinessType) settlementPreparationWarnings.push({ id: 'evidence', message: '증빙 유형 확인이 필요합니다.', actionLabel: '증빙 확인', severity: 'non-blocking', action: () => { setBusinessNameDraft(sellerProfile?.businessName ?? ''); setReadinessModal('business') } })
   if (!hasSellerAccount) settlementPreparationWarnings.push({ id: 'account', message: '셀러 지급 계좌가 등록되지 않았습니다.', actionLabel: '계좌 등록', severity: 'non-blocking', action: () => { setAccountDraft({ bankName: sellerProfile?.bankName ?? '', accountNumber: sellerProfile?.accountNumber ?? '', accountHolder: sellerProfile?.accountHolder ?? '' }); setReadinessModal('account') } })
@@ -734,7 +735,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
                 <SettlementDocumentActions hasRequest={settlementConfirmed && !hasUnresolvedRevision && Boolean(sellerPaymentRequest)} statusNotice={settlementConfirmed && !hasUnresolvedRevision ? sellerStatusNotice : unconfirmedStatusNotice} warnings={settlementConfirmed && !hasUnresolvedRevision ? sellerWarningActions : []} onCopyImage={copySellerDocumentImage} onCopyMessage={copySellerMessage} onInfo={openSellerInfo} onPreview={() => setExpandedDocument('seller')} onRequestPayment={() => setPaymentRequestTarget('seller')} onSaveImage={saveSellerDocumentImage} paymentDisabled={!settlementConfirmed || hasUnresolvedRevision || sellerButtonBlockReasons.length > 0} />
                 <SellerSettlementDocument exportGeneratedAt={sellerExportGeneratedAt} rows={salesRows} sellerDocumentRef={sellerDocumentRef} settlement={settlement} />
               </article>
-              {canAccessManagerDocument && <article className={`settlement-document-column ${expandedDocument === 'manager' ? 'is-expanded' : ''}`} id="manager-settlement-document">
+              {canAccessManagerDocument && managerSettlementRequired && <article className={`settlement-document-column ${expandedDocument === 'manager' ? 'is-expanded' : ''}`} id="manager-settlement-document">
                 <div className="settlement-document-column__heading"><h3>매니저 정산서</h3>{expandedDocument === 'manager' && <button aria-label="닫기" className="settlement-expanded-close no-print" onClick={() => setExpandedDocument(null)} type="button">×</button>}</div>
                 <ManagerDocumentActions hasRequest={settlementConfirmed && !hasUnresolvedRevision && Boolean(managerPaymentRequest)} statusNotice={settlementConfirmed && !hasUnresolvedRevision ? managerStatusNotice : unconfirmedStatusNotice} warnings={settlementConfirmed && !hasUnresolvedRevision ? managerWarningActions : []} onAccount={openManagerAccount} onCopy={copyManagerDocumentImage} onPreview={() => setExpandedDocument('manager')} onRequestPayment={() => setPaymentRequestTarget('manager')} onSave={saveManagerDocumentImage} paymentDisabled={!settlementConfirmed || hasUnresolvedRevision || managerButtonBlockReasons.length > 0} />
                 <ManagerSettlementDocument documentRef={managerDocumentRef} exportGeneratedAt={managerExportGeneratedAt} rows={salesRows} settlement={settlement} />

@@ -38,6 +38,12 @@ import { workService } from './workService'
 const now = () => new Date().toISOString()
 const paymentDueDate = '2026-07-22'
 
+function withManagerSettlementPolicy(salesImport: SalesDataImport): SalesDataImport {
+  const campaign = campaignService.getCampaignById(salesImport.campaignId)
+  const managerSettlementRequired = campaign?.managerSettlementRequired ?? campaign?.sellerName.trim() !== '드엘리사'
+  return { ...salesImport, managerSettlementRequired }
+}
+
 const defaultChecklist: SettlementReviewChecklist = {
   salesMatches: false,
   commissionRateConfirmed: false,
@@ -248,7 +254,7 @@ function withRecalculation(settlement: Settlement, reason = '계산 실행'): Se
   if (!salesImport) return settlement
   const rows = salesDataService.getRowsByImportId(salesImport.id)
   const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
-  const currentCalculation = calculateSettlement(salesImport, rows, deductions, settlement.taxType)
+  const currentCalculation = calculateSettlement(withManagerSettlementPolicy(salesImport), rows, deductions, settlement.taxType)
   const calculationSteps = createCalculationSteps(currentCalculation)
   const next: Settlement = { ...settlement, currentCalculation, calculationSteps, updatedAt: now() }
   settlementService.saveSettlements(settlementService.getSettlements().map((item) => (item.id === next.id ? next : item)))
@@ -344,7 +350,7 @@ export const settlementService = {
       const itemDeductions = [...createSampleDeductions(id, salesImport.campaignId, sampleService.getSamplesByCampaignId(salesImport.campaignId)), ...createSalesDeductions(id, salesImport)]
       const status: SettlementStatus = index === 2 ? 'approved' : index === 1 ? 'review_pending' : 'draft'
       const taxType = taxTypeFromBusinessType(campaign?.businessType)
-      const currentCalculation = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), itemDeductions, taxType)
+      const currentCalculation = calculateSettlement(withManagerSettlementPolicy(salesImport), salesDataService.getRowsByImportId(salesImport.id), itemDeductions, taxType)
       const snapshot = status === 'approved' ? currentCalculation : undefined
       const settlement: Settlement = {
         id,
@@ -412,7 +418,7 @@ export const settlementService = {
       if (!salesImport) return settlement
       const deductions = this.getDeductionsBySettlementId(settlement.id)
       markSamplesReflected(settlement.id, deductions)
-      const current = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), deductions, settlement.taxType)
+      const current = calculateSettlement(withManagerSettlementPolicy(salesImport), salesDataService.getRowsByImportId(salesImport.id), deductions, settlement.taxType)
       if (!settlement.calculationSnapshot || settlement.status === 'revision_required') return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current) }
       if (settlement.settlementConfirmed === false) return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current), hasSourceChanged: false }
       const changed = current.grossSales !== settlement.calculationSnapshot.grossSales || current.grossCommission !== settlement.calculationSnapshot.grossCommission || current.sellerCommissionAmount !== settlement.calculationSnapshot.sellerCommissionAmount || current.deductionTotal !== settlement.calculationSnapshot.deductionTotal
@@ -431,7 +437,9 @@ export const settlementService = {
     const createdAt = now()
     const deductions = [...createSampleDeductions(id, salesImport.campaignId, sampleService.getSamplesByCampaignId(salesImport.campaignId)), ...createSalesDeductions(id, salesImport)]
     const taxType = taxTypeFromBusinessType(campaign?.businessType)
-    const currentCalculation = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), deductions, taxType)
+    const policySalesImport = withManagerSettlementPolicy(salesImport)
+    if (salesImport.managerSettlementRequired !== policySalesImport.managerSettlementRequired) salesDataService.updateSalesDataImport(policySalesImport)
+    const currentCalculation = calculateSettlement(policySalesImport, salesDataService.getRowsByImportId(salesImport.id), deductions, taxType)
     const snapshot = initialStatus === 'draft' || initialStatus === 'review_pending' ? undefined : currentCalculation
     const settlement: Settlement = {
       id,
@@ -486,7 +494,7 @@ export const settlementService = {
       const netQuantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0)
       return { ...row, grossSales: row.quantity * row.unitPrice, netQuantity, netSales: netQuantity * row.unitPrice }
     })
-    return calculateSettlement({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate }, rows, input.deductions, settlement.taxType, calculatedBy)
+    return calculateSettlement(withManagerSettlementPolicy({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate }), rows, input.deductions, settlement.taxType, calculatedBy)
   },
   saveRevision(input: SettlementRevisionDraft, changedBy: string, role: AppUserRole) {
     const settlement = this.getSettlementById(input.settlementId)

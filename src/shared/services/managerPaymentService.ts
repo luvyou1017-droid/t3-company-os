@@ -5,6 +5,7 @@ import { createPaymentBatchId, summarizePaymentBatch } from '../utils/paymentBat
 import { campaignService } from './campaignService'
 import { paymentRequestService } from './paymentRequestService'
 import { settlementService } from './settlementService'
+import { salesDataService } from './salesDataService'
 import { STORAGE_KEYS, storageService } from './storageService'
 import { withholdingTaxService } from './withholdingTaxService'
 
@@ -52,6 +53,8 @@ export const managerPaymentService = {
     return settlementService.getSettlements().flatMap((settlement) => {
       const campaign = campaignService.getCampaignById(settlement.campaignId)
       if (!campaign || campaign.managerId !== managerId) return []
+      const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
+      if (salesImport?.managerSettlementRequired === false || settlement.currentCalculation.managerShareRate === 0) return []
       const businessType = this.getBusinessType(campaign.managerName)
       const grossManagerAmount = settlement.currentCalculation.managerBaseShareAmount
       const reimbursement = settlement.currentCalculation.managerReimbursementTotal
