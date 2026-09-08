@@ -87,9 +87,7 @@ export function AdminRecoveryPage() {
   const inventory = useMemo(() => snapshot ? inventoryOf(snapshot.localStorage) : [], [snapshot])
   const recoveryCandidates = inventory.filter((item) => item.signals.length > 0)
 
-  if (profile.role !== 'ceo' && profile.role !== 'admin') {
-    return <section className="master-preparing-page"><h1>접근 권한이 없습니다</h1><p>데이터 복구 점검은 대표 관리자만 확인할 수 있습니다.</p></section>
-  }
+  const canDownloadFullBackup = profile.role === 'ceo' || profile.role === 'admin'
 
   const downloadBackup = () => {
     if (!snapshot) return
@@ -105,7 +103,7 @@ export function AdminRecoveryPage() {
   return <main className="recovery-page">
     <header className="recovery-header">
       <div><p className="eyebrow">ADMIN RECOVERY</p><h1>운영 데이터 복구 점검</h1><p>현재 공식 도메인의 브라우저 저장 자료를 읽기 전용으로 점검합니다. 이 화면은 데이터를 삭제하거나 변경하지 않습니다.</p></div>
-      <button className="primary-button" disabled={!snapshot} onClick={downloadBackup} type="button">전체 원본 백업 받기</button>
+      {canDownloadFullBackup && <button className="primary-button" disabled={!snapshot} onClick={downloadBackup} type="button">전체 원본 백업 받기</button>}
     </header>
     {!snapshot ? <section className="recovery-card"><p>저장 자료를 확인하고 있습니다…</p></section> : <>
       <section className="recovery-summary">
@@ -118,7 +116,7 @@ export function AdminRecoveryPage() {
         <h2>셀러·거래처·첨부파일 복구 후보</h2>
         {recoveryCandidates.length === 0 ? <p className="recovery-warning">현재 도메인의 브라우저 저장소에서 관련 후보를 찾지 못했습니다. 이전 도메인 또는 다른 PC에서 등록했는지 추가 확인이 필요합니다.</p> : <table className="recovery-table"><thead><tr><th>저장 키</th><th>분류</th><th>건수</th><th>용량</th><th>확인된 이름 예시</th></tr></thead><tbody>{recoveryCandidates.map((item) => <tr key={item.key}><td>{item.key}</td><td>{item.signals.join(', ')}</td><td>{item.count ?? '-'}</td><td>{item.bytes.toLocaleString('ko-KR')} B</td><td>{item.sampleNames.join(', ') || '-'}</td></tr>)}</tbody></table>}
       </section>
-      <section className="recovery-card"><details><summary>전체 저장 항목 보기</summary><table className="recovery-table"><thead><tr><th>저장 키</th><th>형식</th><th>건수</th><th>용량</th></tr></thead><tbody>{inventory.map((item) => <tr key={item.key}><td>{item.key}</td><td>{item.kind}</td><td>{item.count ?? '-'}</td><td>{item.bytes.toLocaleString('ko-KR')} B</td></tr>)}</tbody></table></details><p className="muted-text">점검 시각 {new Date(snapshot.createdAt).toLocaleString('ko-KR')} · {snapshot.origin}</p></section>
+      <section className="recovery-card"><details><summary>전체 저장 항목 보기</summary><table className="recovery-table"><thead><tr><th>저장 키</th><th>형식</th><th>건수</th><th>용량</th></tr></thead><tbody>{inventory.map((item) => <tr key={item.key}><td>{item.key}</td><td>{item.kind}</td><td>{item.count ?? '-'}</td><td>{item.bytes.toLocaleString('ko-KR')} B</td></tr>)}</tbody></table></details><p className="muted-text">점검 시각 {new Date(snapshot.createdAt).toLocaleString('ko-KR')} · {snapshot.origin}</p>{!canDownloadFullBackup && <p className="muted-text">직원 계정은 저장 항목과 건수만 확인할 수 있으며 전체 원본 백업은 대표 관리자만 받을 수 있습니다.</p>}</section>
     </>}
   </main>
 }
