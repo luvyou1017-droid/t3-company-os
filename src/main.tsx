@@ -2,6 +2,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { removeInitialDemoData } from './shared/services/storageService.ts'
+
+removeInitialDemoData()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

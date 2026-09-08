@@ -22,17 +22,7 @@ export interface ManagerMasterProfile {
   taxRegistrationNumber?: string
 }
 
-const managerProfiles: ManagerMasterProfile[] = [
-  { id: 'u-001', name: '허윤정', businessName: '허윤정', businessType: 'freelancer', bankName: '국민은행', accountNumber: '123456-01-123456', accountHolder: '허윤정', taxRegistrationNumber: 'mock-tax-u-001' },
-  { id: 'u-005', name: '김병희', businessName: '김병희', businessType: 'freelancer', bankName: '신한은행', accountNumber: '110-123-456789', accountHolder: '김병희', taxRegistrationNumber: 'mock-tax-u-005' },
-  { id: 'manager-SCH-003', name: '오세린', businessName: '오세린컴퍼니', businessType: 'general_business', bankName: '우리은행', accountNumber: '1002-003-003003', accountHolder: '오세린컴퍼니' },
-  { id: 'manager-SCH-004', name: '박지훈', businessName: '박지훈', businessType: 'simplified_business', bankName: '하나은행', accountNumber: '004-004004-00404', accountHolder: '박지훈' },
-  { id: 'manager-SCH-006', name: '최유진', businessName: '최유진', businessType: 'freelancer', bankName: '카카오뱅크', accountNumber: '3333-06-0606060', accountHolder: '최유진', taxRegistrationNumber: 'mock-tax-sch-006' },
-  { id: 'manager-SCH-008', name: '윤태호', businessName: '(주)윤태호컴퍼니', businessType: 'general_business', bankName: '기업은행', accountNumber: '008-008008-01-008', accountHolder: '(주)윤태호컴퍼니' },
-  { id: 'manager-SCH-010', name: '오세린', businessName: '오세린컴퍼니', businessType: 'general_business', bankName: '우리은행', accountNumber: '1002-003-003003', accountHolder: '오세린컴퍼니' },
-  { id: 'manager-SCH-011', name: '박지훈', businessName: '박지훈', businessType: 'simplified_business', bankName: '하나은행', accountNumber: '004-004004-00404', accountHolder: '박지훈' },
-  { id: 'manager-SCH-012', name: '최유진', businessName: '최유진', businessType: 'freelancer', bankName: '카카오뱅크', accountNumber: '3333-06-0606060', accountHolder: '최유진', taxRegistrationNumber: 'mock-tax-sch-012' },
-]
+const managerProfiles: ManagerMasterProfile[] = []
 
 export const managerPaymentService = {
   getProfiles() {

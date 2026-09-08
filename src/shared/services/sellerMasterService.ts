@@ -15,12 +15,7 @@ export interface SellerMaster {
   accountHolder?: string
 }
 
-const sellers: SellerMaster[] = [
-  { id: 'seller-kim-minji', name: '김민지', businessType: 'simplified_business', defaultMdId: 'u-004', defaultManagerId: 'u-005' },
-  { id: 'seller-yoon-market', name: '윤정마켓', businessType: 'general_business', defaultMdId: 'u-004', defaultManagerId: 'u-006' },
-  { id: 'seller-daily-joo', name: '데일리주희', businessType: 'freelancer', defaultMdId: 'u-004', defaultManagerId: 'u-007' },
-  { id: 'seller-incomplete', name: '정보확인 셀러', defaultMdId: 'u-004', defaultManagerId: 'u-008' },
-]
+const sellers: SellerMaster[] = []
 
 function getSellers() {
   return storageService.getItem<SellerMaster[]>(STORAGE_KEYS.sellerMasters, sellers)
