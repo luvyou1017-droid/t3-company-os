@@ -37,6 +37,7 @@ function createPendingImport(campaign: ReturnType<typeof campaignService.getCamp
     reviewerName: campaign.mdName,
     totalCommissionRate: campaign.totalCommissionRate,
     sellerCommissionRate: campaign.sellerCommissionRate,
+    commissionRate: campaign.sellerCommissionRate,
   }
 }
 

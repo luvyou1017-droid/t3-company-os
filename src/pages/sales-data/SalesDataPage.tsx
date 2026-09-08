@@ -1,9 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
 import { campaignService } from '../../shared/services/campaignService'
 import { salesDataService } from '../../shared/services/salesDataService'
-import type { Campaign } from '../../shared/types/campaign'
 import type { SalesDataImport, SalesDataRow, SalesReviewStatus, SalesSettlementStatus } from '../../shared/types/salesData'
 import { buildSalesAnalysis, calculateSalesRow, calculateSalesTotals, formatCurrency, formatFileSize } from '../../shared/utils/salesData'
+import { parseSalesDataFile } from '../../shared/utils/salesDataFileParser'
 import { openCampaignDetail } from '../../shared/utils/campaignNavigation'
 
 type SalesQuickFilter = '전체' | '오늘 수신' | '업로드 대기' | '검수 대기' | '오류 확인 필요' | '확정 완료' | '정산 대기'
@@ -35,15 +35,6 @@ function matchesQuick(salesImport: SalesDataImport, quick: SalesQuickFilter) {
   if (quick === '검수 대기') return salesImport.reviewStatus === '업로드 완료' || salesImport.reviewStatus === '검수 중'
   if (quick === '정산 대기') return salesImport.settlementStatus === '정산 가능'
   return salesImport.reviewStatus === quick
-}
-
-function makeMockRows(salesImport: SalesDataImport, campaign?: Campaign): SalesDataRow[] {
-  const baseName = campaign?.options?.[0] ?? '기본'
-  const secondName = campaign?.options?.[1] ?? '추가 옵션'
-  return [
-    calculateSalesRow({ id: crypto.randomUUID(), salesDataImportId: salesImport.id, campaignId: salesImport.campaignId, optionName: baseName, quantity: 32, unitPrice: 19_900, canceledQuantity: 1, refundedQuantity: 0 }),
-    calculateSalesRow({ id: crypto.randomUUID(), salesDataImportId: salesImport.id, campaignId: salesImport.campaignId, optionName: secondName, quantity: 21, unitPrice: 19_900, canceledQuantity: 0, refundedQuantity: 1 }),
-  ]
 }
 
 function StatusBadge({ label, tone }: { label: string; tone: string }) {
@@ -173,6 +164,7 @@ export function SalesDataPage({ initialImportId }: { initialImportId?: string | 
 
 function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: { salesImport: SalesDataImport | null; rows: SalesDataRow[]; onClose: () => void; onManualInput: (salesImport: SalesDataImport) => void; onSync: () => void }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [uploadError, setUploadError] = useState('')
   if (!salesImport) return null
 
   const campaign = getImportCampaign(salesImport)
@@ -180,22 +172,35 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
   const analysis = buildSalesAnalysis(salesImport, rows, campaign)
   const hasError = analysis.validation.status === 'error'
 
-  const uploadFile = (file?: File) => {
+  const uploadFile = async (file?: File) => {
     if (!file) return
-    const nextImport = salesDataService.updateSalesDataImport({
-      ...salesImport,
-      fileName: file.name,
-      fileSize: file.size,
-      sourceType: 'file',
-      uploadedBy: '허수정',
-      uploadedAt: '2026-07-16 14:30',
-      reviewStatus: '업로드 완료',
-      uploadedProductName: campaign?.productName,
-      salesStartDate: campaign?.startDate,
-      salesEndDate: campaign?.endDate,
-    })
-    salesDataService.addSalesDataRows(salesImport.id, makeMockRows(nextImport, campaign))
-    onSync()
+    setUploadError('')
+    try {
+      const parsed = await parseSalesDataFile(file, salesImport.id, salesImport.campaignId)
+      const nextImport = salesDataService.updateSalesDataImport({
+        ...salesImport,
+        fileName: file.name,
+        fileSize: file.size,
+        sourceType: 'file',
+        uploadedBy: '허수정',
+        uploadedAt: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16),
+        reviewStatus: '업로드 완료',
+        uploadedProductName: campaign?.productName,
+        salesStartDate: campaign?.startDate,
+        salesEndDate: campaign?.endDate,
+        totalCommissionRate: parsed.totalCommissionRate ?? salesImport.totalCommissionRate ?? campaign?.totalCommissionRate,
+        sellerCommissionRate: salesImport.sellerCommissionRate ?? campaign?.sellerCommissionRate,
+        commissionRate: salesImport.commissionRate ?? campaign?.sellerCommissionRate,
+        notes: `${parsed.sheetName} 시트에서 ${parsed.rows.length}개 구성을 읽었습니다.`,
+      })
+      salesDataService.addSalesDataRows(salesImport.id, parsed.rows)
+      salesDataService.validateSalesData(nextImport.id)
+      onSync()
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : '파일을 읽는 중 오류가 발생했습니다.')
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
   }
 
   const updateStatus = (nextImport: SalesDataImport) => {
@@ -230,6 +235,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
         <section className="sales-upload-box" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); uploadFile(event.dataTransfer.files[0]) }}>
           <strong>파일 업로드</strong>
           <p>xlsx, xls, csv 메타데이터만 저장합니다. 파일 자체는 저장하지 않습니다.</p>
+          {uploadError ? <p className="form-error" role="alert">{uploadError}</p> : null}
           <dl>
             <div><dt>파일명</dt><dd>{salesImport.fileName || '-'}</dd></div>
             <div><dt>파일 크기</dt><dd>{formatFileSize(salesImport.fileSize)}</dd></div>
