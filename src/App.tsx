@@ -32,8 +32,9 @@ import { ProposalPreviewPage } from './pages/master/proposals/ProposalPreviewPag
 import { getCurrentProposalPermission } from './features/proposalMaster/permissions'
 import { AuthGate } from './features/auth/AuthGate'
 import { UserApprovalPage } from './pages/user-approval/UserApprovalPage'
+import { AdminRecoveryPage } from './pages/admin-recovery/AdminRecoveryPage'
 
-export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리' | '지급 승인' | '사용자 승인' | '셀러 마스터' | '매니저 마스터' | '브랜드 마스터' | '상품 마스터' | '벤더 마스터' | '제안서 마스터' | '가져오기/내보내기' | '운영 시나리오 테스트' | 'Supabase 파일럿 테스트'
+export type AppPage = 'Dashboard' | 'My Work' | '공동구매 일정' | 'CS 관리' | '샘플 관리' | '판매 데이터' | '정산 관리' | '지급 승인' | '사용자 승인' | '셀러 마스터' | '매니저 마스터' | '브랜드 마스터' | '상품 마스터' | '벤더 마스터' | '제안서 마스터' | '가져오기/내보내기' | '데이터 복구' | '운영 시나리오 테스트' | 'Supabase 파일럿 테스트'
 
 function App() {
   const sellerRoute = parseSellerRoute()
@@ -45,7 +46,7 @@ function App() {
   const settlementRoute = parseSettlementRoute()
   const isPaymentRoute = window.location.pathname.startsWith('/payments')
   const masterRoute = parseMasterRoute()
-  const [activePage, setActivePage] = useState<AppPage>(settlementRoute ? '정산 관리' : route || window.location.pathname === '/campaigns/new' ? '공동구매 일정' : isPaymentRoute ? '지급 승인' : masterRoute?.page ?? 'Dashboard')
+  const [activePage, setActivePage] = useState<AppPage>(window.location.pathname === '/admin/recovery' ? '데이터 복구' : settlementRoute ? '정산 관리' : route || window.location.pathname === '/campaigns/new' ? '공동구매 일정' : isPaymentRoute ? '지급 승인' : masterRoute?.page ?? 'Dashboard')
   const [productId, setProductId] = useState<string | undefined>(masterRoute?.productId)
   const [proposalId, setProposalId] = useState<string | undefined>(proposalRoute?.mode === 'edit' ? proposalRoute.proposalId : undefined)
   const [paymentRouteKey, setPaymentRouteKey] = useState(0)
@@ -173,6 +174,7 @@ function App() {
       }} />}
       {activePage === '지급 승인' && <PaymentRequestPage key={paymentRouteKey} />}
       {activePage === '사용자 승인' && <UserApprovalPage />}
+      {activePage === '데이터 복구' && <AdminRecoveryPage />}
       {activePage === '상품 마스터' && !productId && <ProductListPage permission={productMasterPermission} onOpen={(id) => {
         const path = id ? `/master/products/${encodeURIComponent(id)}` : '/master/products/new'
         window.history.pushState({}, '', path)
