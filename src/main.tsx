@@ -1,18 +1,10 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
-import { removeInitialDemoData } from './shared/services/storageService.ts'
-import { restoreRemoteCampaigns } from './shared/services/campaignRecoveryService.ts'
 
-async function startApp() {
-  removeInitialDemoData()
-  await restoreRemoteCampaigns()
-  createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  )
-}
-
-void startApp()
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <Suspense fallback={<div className="page-loading" role="status">화면을 불러오는 중입니다…</div>}><App /></Suspense>
+  </StrictMode>,
+)

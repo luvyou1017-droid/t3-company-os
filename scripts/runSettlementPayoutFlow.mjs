@@ -24,6 +24,7 @@ const { sensitiveIdentityService } = await vite.ssrLoadModule('/src/shared/servi
 const { campaignEventOperationService } = await vite.ssrLoadModule('/src/shared/services/campaignEventOperationService.ts')
 const { campaignService } = await vite.ssrLoadModule('/src/shared/services/campaignService.ts')
 const { canEditSettlement } = await vite.ssrLoadModule('/src/shared/data/users.ts')
+const { isCompanyDirectManager } = await vite.ssrLoadModule('/src/shared/utils/managerPayment.ts')
 
 const transientResidentNumber = ['900101', '1', '234567'].join('')
 sensitiveIdentityService.stage('seller', 'seller-sensitive-test', transientResidentNumber)
@@ -198,6 +199,35 @@ const cancellationState = settlementService.getSettlementById(cancellationSettle
 const releasedAfterCancellation = settlementService.releaseSettlementConfirmation(cancellationSettlement.id, '지급요청 취소 후 확정 해제', '허수정', '정산 담당자')
 const cancellationLog = settlementService.getActivityLogsBySettlementId(cancellationSettlement.id).find((item) => item.action === 'manager_payment_request_canceled')
 
+const reportedWithoutCaptureSettlement = { ...approvedHealth, id: `${approvedHealth.id}-reported-without-capture`, settlementConfirmed: true, settlementConfirmedAt: approvedHealth.updatedAt, settlementConfirmedBy: '허수정', sellerPaymentRequestStatus: undefined, managerPaymentRequestStatus: undefined, sellerPaymentCompleted: false, managerPaymentCompleted: false }
+storageService.setItem(STORAGE_KEYS.settlements, [...settlementService.getSettlements(), reportedWithoutCaptureSettlement])
+const reportedWithoutCaptureRequest = paymentRequestService.createManagerPaymentRequest(reportedWithoutCaptureSettlement.id, '예외 증빙 테스트', 'simplified_business', undefined, { accountConfirmed: true, reportedIssuedWithoutCapture: true, bankNameSnapshot: manager.bankName, accountNumberSnapshot: manager.accountNumber, accountHolderSnapshot: manager.accountHolder })
+
+const skuRateCampaignId = 'campaign-sku-rate-payment-test'
+const skuRateSettlementId = 'settlement-sku-rate-payment-test'
+const skuRateImportId = 'sales-sku-rate-payment-test'
+const skuRateSellerId = 'seller-sku-rate-payment-test'
+const skuRateSourceCampaign = campaignService.getCampaignById(approvedHealth.campaignId)
+const skuRateSourceImport = salesDataService.getSalesDataImportById(approvedHealth.salesDataImportId)
+const skuRateSourceRows = salesDataService.getRowsByImportId(approvedHealth.salesDataImportId).slice(0, 2)
+if (!skuRateSourceCampaign || !skuRateSourceImport || skuRateSourceRows.length < 2) throw new Error('SKU별 지급요청 테스트 데이터를 만들 수 없습니다.')
+campaignService.saveCampaigns([{ ...skuRateSourceCampaign, id: skuRateCampaignId, campaignCode: skuRateCampaignId, sellerId: skuRateSellerId, sellerName: 'SKU 수수료 테스트 셀러', salesChannelType: 'supplier_link' }, ...campaignService.getCampaigns()])
+salesDataService.saveImports([{ ...skuRateSourceImport, id: skuRateImportId, campaignId: skuRateCampaignId, sellerCommissionRate: 17 }, ...salesDataService.getSalesDataImports()])
+const initialSkuRateRows = skuRateSourceRows.map((row, index) => ({ ...row, id: `${row.id}-sku-rate-${index}`, salesDataImportId: skuRateImportId, campaignId: skuRateCampaignId, sellerCommissionRate: 17 }))
+salesDataService.saveRows([...initialSkuRateRows, ...salesDataService.getSalesDataRows()])
+const skuRateSettlement = { ...approvedHealth, id: skuRateSettlementId, campaignId: skuRateCampaignId, salesDataImportId: skuRateImportId, settlementConfirmed: true, sellerPaymentRequestStatus: undefined, managerPaymentRequestStatus: undefined, sellerPaymentCompleted: false, managerPaymentCompleted: false, currentCalculation: { ...approvedHealth.currentCalculation, sellerDeductionTotal: 0, sellerDeduction: 0 } }
+storageService.setItem(STORAGE_KEYS.settlements, [...settlementService.getSettlements(), skuRateSettlement])
+sellerMasterService.saveSellerProfile({ id: skuRateSellerId, name: 'SKU 수수료 테스트 셀러', businessName: 'SKU 수수료 테스트', businessType: 'general_business', defaultMdId: skuRateSourceCampaign.mdId, defaultManagerId: skuRateSourceCampaign.managerId, bankName: '테스트은행', accountNumber: '000-000', accountHolder: 'SKU 수수료 테스트' })
+sellerSettlementService.saveRule({ ...sellerSettlementService.ensureSellerSettlementRule(skuRateCampaignId), salesChannelType: 'supplier_link', moneyCollector: 'supplier', settlementDirection: 'company_pays_seller', businessType: 'general_business', sellerCommissionRate: 17, externalMallExtraRate: 0, confirmedEvidenceType: 'tax_invoice', recommendedEvidenceType: 'tax_invoice', evidenceConfirmed: true })
+const staleSkuRateDocument = sellerSettlementService.createSellerDocument(skuRateSettlementId)
+const variableSkuRateRows = initialSkuRateRows.map((row, index) => ({ ...row, sellerCommissionRate: index === 0 ? 5 : 15 }))
+salesDataService.saveRows([...variableSkuRateRows, ...salesDataService.getSalesDataRows().filter((row) => row.salesDataImportId !== skuRateImportId)])
+const expectedVariableSkuPayment = variableSkuRateRows.reduce((sum, row) => sum + Math.round(row.netQuantity * row.unitPrice * row.sellerCommissionRate / 100), 0)
+const variableSkuPaymentRequest = paymentRequestService.createPaymentRequest(skuRateSettlementId, 'SKU별 수수료 테스트', { accountConfirmed: true, allowEvidencePending: true })
+storageService.setItem(STORAGE_KEYS.paymentRequests, paymentRequestService.getPaymentRequests().map((item) => item.id === variableSkuPaymentRequest.id ? { ...item, amount: 1_118_160, finalPaymentAmount: 1_118_160 } : item))
+const recreatedSkuPaymentRequest = paymentRequestService.recreatePaymentRequestAtCurrentAmount(variableSkuPaymentRequest.id, 'SKU별 수수료 반영 금액 정정', '허수정')
+const canceledStaleSkuPaymentRequest = paymentRequestService.getPaymentRequestById(variableSkuPaymentRequest.id)
+
 paymentRequestService.approvePaymentRequest(premiumRequest.id, '대표 테스트')
 const approvedCancellationBlocked = (() => { try { paymentRequestService.cancelPaymentRequest(premiumRequest.id, '승인 후 취소', '허수정'); return false } catch (error) { return error instanceof Error && error.message.includes('대표 승인이 완료') } })()
 const approvedEditBlocked = (() => {
@@ -249,7 +279,8 @@ const checks = [
   ['프리미엄 침구 Master/정산 규칙 동기화', premiumBusinessType === 'general_business' && refreshedPremiumRule?.businessType === 'general_business'],
   ['프리미엄 침구 증빙 유형 자동 결정', refreshedPremiumRule?.confirmedEvidenceType === 'tax_invoice' && refreshedPremiumRule.evidenceConfirmed],
   ['사업자 유형 공통 normalization', normalizeSellerBusinessType('corporation') === 'general_business'],
-  ['Manager Master 사업자 유형', manager?.businessType === 'freelancer' && managerPaymentService.getBusinessType('허윤정') === 'freelancer'],
+  ['Manager Master 사업자 유형', manager?.businessType === 'corporation' && managerPaymentService.getBusinessType('허윤정', 'u-001') === 'corporation'],
+  ['대표 직속 셀러 매니저 지급신청 제외', isCompanyDirectManager('u-001', '허윤정') && managerPaymentService.getScheduledItems('u-001').length === 0],
   ['프리미엄 침구 수동 정산 확인 없이 지급 가능', premiumManagerValidation.valid && !premiumManagerValidation.reasons.some((reason) => reason.includes('정산금액이 확정'))],
   ['셀러 미확정/증빙 사전 경고 없이 지급 가능', premiumSellerValidation.valid && !premiumSellerValidation.reasons.some((reason) => reason.includes('확정') || reason.includes('증빙') || reason.includes('캡처본'))],
   ['프리미엄 침구 지급 요청 최종액 일치', premiumRequest.finalPaymentAmount === premiumTax.finalPaymentAmount && premiumRequest.status === 'approval_pending'],
@@ -284,6 +315,9 @@ const checks = [
   ['이전 version active 지급요청 중복 방지', !crossVersionDuplicateValidation.valid && crossVersionDuplicateValidation.reasons.includes('이미 지급 요청이 생성되어 있습니다.')],
   ['지급요청 취소 이력·대상 독립 복원', canceledManagerRequest.status === 'canceled' && canceledManagerRequest.cancellationReason === '정산 수정 전 요청 취소' && canceledManagerRequest.previousStatusBeforeCancellation === 'approval_pending' && cancellationState.managerPaymentRequestStatus === 'canceled' && cancellationState.sellerPaymentRequestStatus === undefined && cancellationState.settlementConfirmed === true && Boolean(cancellationLog)],
   ['지급요청 취소 후 확정 해제 재시도', releasedAfterCancellation.settlementConfirmed === false],
+  ['캡처본 미수령 예외 지급요청·추후 확인 이력', reportedWithoutCaptureRequest.status === 'approval_pending' && reportedWithoutCaptureRequest.evidenceStatus === 'pending' && reportedWithoutCaptureRequest.documentCheckStatus === 'reported_issued' && reportedWithoutCaptureRequest.taxInvoiceFollowUpRequired === true && reportedWithoutCaptureRequest.taxInvoiceFinalConfirmed === false && reportedWithoutCaptureRequest.documentCheckHistory?.some((item) => item.memo === '발급했다고 전달받았으나 캡처본 미수령')],
+  ['SKU별 수수료 정산서·지급요청 금액 일치', staleSkuRateDocument.calculation.finalSellerPaymentAmount !== expectedVariableSkuPayment && variableSkuPaymentRequest.finalPaymentAmount === expectedVariableSkuPayment && variableSkuPaymentRequest.amount === expectedVariableSkuPayment],
+  ['구버전 지급요청 취소 이력·현재 금액 재생성', canceledStaleSkuPaymentRequest?.status === 'canceled' && canceledStaleSkuPaymentRequest.cancellationReason === 'SKU별 수수료 반영 금액 정정' && recreatedSkuPaymentRequest.id !== variableSkuPaymentRequest.id && recreatedSkuPaymentRequest.finalPaymentAmount === expectedVariableSkuPayment],
   ['대표 승인·지급 완료 취소 제한', approvedCancellationBlocked && completedCancellationBlocked],
   ['일괄 입금 완료 batch·실지급액 기록', completedBatchRequests.length === 2 && new Set(completedBatchRequests.map((item) => item.id)).size === 2 && Boolean(completedBatchRequests[0].payoutBatchId) && completedBatchRequests.every((item) => item.status === 'payment_completed' && item.payoutBatchId === completedBatchRequests[0].payoutBatchId && item.actualPaidAmount === item.finalPaymentAmount && item.completedBy === '지급 담당자' && Boolean(item.completedAt))],
   ['일괄 입금 완료 정산 대상 독립 동기화', completedBatchSettlementA?.managerPaymentCompleted === true && completedBatchSettlementA.managerPaymentRequestStatus === 'payment_completed' && completedBatchSettlementA.sellerPaymentCompleted === false && completedBatchSettlementB?.managerPaymentCompleted === true && completedBatchSettlementB.managerPaymentRequestStatus === 'payment_completed' && completedBatchSettlementB.sellerPaymentCompleted === false],

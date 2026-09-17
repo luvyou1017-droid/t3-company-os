@@ -16,6 +16,11 @@ function deriveStatus(record: NotionIntegratedListRecord, today: string): Campai
   return record.inputCompleted ? 'preparing' : 'draft'
 }
 
+function notionCampaignCode(sourceId: string) {
+  const normalized = sourceId.replace(/-/g, '').toUpperCase()
+  return `NT-${normalized.slice(0, 8)}-${normalized.slice(-8)}`
+}
+
 export function mapNotionIntegratedListRecord(record: NotionIntegratedListRecord, options: { today?: string; migratedAt?: string } = {}): NotionCampaignMigrationPreview {
   const migratedAt = options.migratedAt ?? new Date().toISOString()
   const today = options.today ?? migratedAt.slice(0, 10)
@@ -27,7 +32,7 @@ export function mapNotionIntegratedListRecord(record: NotionIntegratedListRecord
 
   const campaign: Campaign = {
     id: `notion-${record.sourceId}`,
-    campaignCode: `NT-${record.sourceId.replace(/-/g, '').slice(0, 10).toUpperCase()}`,
+    campaignCode: notionCampaignCode(record.sourceId),
     campaignName: record.title,
     sellerId: record.sellerId,
     sellerName: record.sellerName,

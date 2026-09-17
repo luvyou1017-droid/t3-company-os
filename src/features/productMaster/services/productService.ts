@@ -9,6 +9,65 @@ const repository: ProductRepository = getDataProviderMode() === 'supabase' && su
   ? new SupabaseProductRepository(supabase)
   : new LocalProductRepository()
 
+const normalizeProductName = (value?: string) => String(value ?? '').toLowerCase().replace(/[^0-9a-z가-힣]/g, '')
+const foodSaverSkuNames = new Set([
+  '20cm진공밀봉롤',
+  '28cm진공밀봉롤',
+  '슬림진공포장기vs0185',
+  '하이엔드진공포장기fm5460',
+].map(normalizeProductName))
+let foodSaverRepair: Promise<ProductMaster[]> | undefined
+
+async function listProductsWithLegacyRepairs() {
+  if (foodSaverRepair) return foodSaverRepair
+  foodSaverRepair = (async () => {
+    let products = await repository.listProducts()
+    const inactiveMigrationMarker = '[MAYERHOME_DEDICATED_DRYER_UNUSED_20260915]'
+    const dedicatedMayerhomeDryers = products.filter((product) => normalizeProductName(product.productName).includes(normalizeProductName('마이어홈'))
+      && normalizeProductName(product.productName).includes(normalizeProductName('드라이기'))
+      && !product.internalMemo?.includes(inactiveMigrationMarker))
+    for (const product of dedicatedMayerhomeDryers) await repository.updateProduct({ ...product, active: false, internalMemo: `${product.internalMemo ?? ''} ${inactiveMigrationMarker}`.trim(), updatedAt: new Date().toISOString(), version: product.version + 1 })
+    if (dedicatedMayerhomeDryers.length) products = await repository.listProducts()
+    const splitProducts = products.filter((product) => product.active
+      && normalizeProductName(product.brandName) === normalizeProductName('푸드세이버')
+      && (normalizeProductName(product.productName) === normalizeProductName('푸드세이버') || foodSaverSkuNames.has(normalizeProductName(product.productName))))
+    if (splitProducts.length <= 1) return products
+
+    const canonical = splitProducts.find((product) => normalizeProductName(product.productName) === normalizeProductName('푸드세이버')) ?? splitProducts[0]
+    const now = new Date().toISOString()
+    const skuEntries = splitProducts.flatMap((product) => product.skus.map((sku): [string, ProductSku] => [sku.id, {
+      ...sku,
+      productId: canonical.id,
+      productName: sku.productName || product.productName,
+      updatedAt: now,
+    }]))
+    const skus = [...new Map<string, ProductSku>(skuEntries).values()]
+    const representative = skus.find((sku) => sku.representative) ?? skus[0]
+    const commissionPolicies = new Set(skus.map((sku) => `${sku.totalCommissionRate}:${sku.sellerCommissionRate}`))
+    const campaignReferences = [...new Map(splitProducts.flatMap((product) => product.campaignReferences ?? []).map((reference) => [reference.id, reference])).values()]
+    await repository.updateProduct({
+      ...canonical,
+      productName: '푸드세이버',
+      regularPrice: representative?.regularPrice ?? canonical.regularPrice,
+      salePrice: representative?.groupBuyPrice ?? canonical.salePrice,
+      supplyPrice: representative?.supplyPrice ?? canonical.supplyPrice,
+      totalCommissionRate: representative?.totalCommissionRate ?? canonical.totalCommissionRate,
+      sellerCommissionRate: representative?.sellerCommissionRate ?? canonical.sellerCommissionRate,
+      companyCommissionRate: (representative?.totalCommissionRate ?? canonical.totalCommissionRate) - (representative?.sellerCommissionRate ?? canonical.sellerCommissionRate),
+      commissionCalculationType: commissionPolicies.size > 1 ? 'sku' : canonical.commissionCalculationType,
+      skus,
+      campaignReferences,
+      updatedAt: now,
+      version: canonical.version + 1,
+    })
+    for (const duplicate of splitProducts) {
+      if (duplicate.id !== canonical.id) await repository.deactivateProduct(duplicate.id)
+    }
+    return repository.listProducts()
+  })().finally(() => { foodSaverRepair = undefined })
+  return foodSaverRepair
+}
+
 export function validateProductPolicy(product: Pick<ProductMaster, 'defaultSalesChannelType' | 'supplierLinkAvailable' | 'supplierLinkPgPolicy' | 'supplierLinkPgDeductionRate' | 'wiseShopAvailable' | 'sellerCheckoutAvailable' | 'brandPgSupportAvailable' | 'brandPgSupportRate'>) {
   if (product.defaultSalesChannelType === 'supplier_link' && product.supplierLinkAvailable === false) return '업체링크를 기본 링크로 선택하려면 사용 가능 상태여야 합니다.'
   if (product.supplierLinkAvailable && !product.supplierLinkPgPolicy) return '업체링크 PG 비용 처리 정책을 선택해주세요.'
@@ -156,7 +215,7 @@ export function toPartnerCatalogProduct(product: ProductMaster): PartnerCatalogP
 }
 
 export const productService = {
-  listProducts: () => repository.listProducts(),
+  listProducts: () => listProductsWithLegacyRepairs(),
   getProductById: (id: string) => repository.getProductById(id),
   searchProductsByBrand: (brandId: string, query?: string) => repository.searchProductsByBrand(brandId, query),
   async createProduct(input: ProductMasterInput) {
@@ -186,6 +245,7 @@ export const productService = {
     return repository.updateProduct(product)
   },
   deactivateProduct: (id: string) => repository.deactivateProduct(id),
+  setProductActive: (id: string, active: boolean) => repository.setProductActive(id, active),
   async listSellerCatalog() {
     const products = await repository.listProducts()
     return products.map(toSellerCatalogProduct).filter((product): product is SellerCatalogProduct => Boolean(product))

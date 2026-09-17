@@ -1,13 +1,21 @@
+import { cloudSyncService } from '../../shared/services/cloudSyncService'
+import { STORAGE_KEYS } from '../../shared/services/storageService'
 import { useState } from 'react'
 import { campaignService } from '../../shared/services/campaignService'
 import { csService } from '../../shared/services/csService'
 import { salesDataService } from '../../shared/services/salesDataService'
 import { sampleService } from '../../shared/services/sampleService'
 import { settlementService } from '../../shared/services/settlementService'
+import { sellerSettlementService } from '../../shared/services/sellerSettlementService'
 import { workService } from '../../shared/services/workService'
+import { getSalesChannelTypeLabel } from '../../shared/services/campaignCreationService'
 import type { CampaignTab } from '../../shared/types/campaignWorkspace'
+import type { CampaignSalesChannelType, LinkOwner } from '../../shared/types/campaign'
 import type { WorkItem } from '../../features/myWork/types'
 import { CampaignDetailTabs } from './components/CampaignDetailTabs'
+import { useCompanyAuth } from '../../features/auth/AuthGate'
+import { canAccessCampaignTab } from '../../features/auth/pagePermissions'
+import { SupabaseCampaignRepository } from '../../shared/repositories/campaignRepository'
 import {
   CampaignSettlementReference, CommunicationsTab, CsTab, FilesTab, HistoryTab, OverviewTab, SalesTab,
   SamplesTab, SettlementTab, TimelineTab, WorkTab,
@@ -17,6 +25,9 @@ const validTabs: CampaignTab[] = ['overview','timeline','work','files','communic
 const today = () => new Date().toISOString().slice(0, 10)
 const plusDays = (days: number) => { const date = new Date(); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10) }
 const money = (value: number) => `${Math.round(value).toLocaleString('ko-KR')}원`
+const linkOwnerByChannel: Record<CampaignSalesChannelType, LinkOwner> = { supplier_link: '브랜드사', wise_shop_link: '자사', seller_checkout: '셀러' }
+const moneyCollectorByChannel = { supplier_link: 'supplier', wise_shop_link: 'company', seller_checkout: 'seller' } as const
+const activePaymentRequestStatuses = ['evidence_pending', 'request_ready', 'approval_pending', 'approved', 'sent', 'on_hold']
 
 function getDday(startDate: string, endDate: string) {
   const now = new Date(`${today()}T00:00:00Z`).getTime()
@@ -50,14 +61,32 @@ type Props = {
   onBack: () => void
   onNavigateTab?: (tab: CampaignTab) => void
   onOpenRelated?: (type: string, id?: string) => void
+  onDeleted?: () => void
 }
 
-export function CampaignDetailPage({ scheduleId, initialTab = 'overview', onBack, onNavigateTab, onOpenRelated = () => undefined }: Props) {
-  const [activeTab, setActiveTab] = useState<CampaignTab>(validTabs.includes(initialTab) ? initialTab : 'overview')
+export function CampaignDetailPage({ scheduleId, initialTab = 'overview', onBack, onNavigateTab, onOpenRelated = () => undefined, onDeleted = onBack }: Props) {
+  const { profile } = useCompanyAuth()
+  const initialAllowedTab = validTabs.includes(initialTab) && canAccessCampaignTab(profile.role, initialTab) ? initialTab : 'overview'
+  const [activeTab, setActiveTab] = useState<CampaignTab>(initialAllowedTab)
   const [, setNonce] = useState(0)
+  const [editingSchedule, setEditingSchedule] = useState(false)
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [salesChannelType, setSalesChannelType] = useState<CampaignSalesChannelType>('supplier_link')
+  const [vendorSupply, setVendorSupply] = useState(false)
+  const [vendorName, setVendorName] = useState('')
+  const [scheduleError, setScheduleError] = useState('')
+  const [scheduleNotice, setScheduleNotice] = useState('')
+  const [savingSchedule, setSavingSchedule] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const campaign = campaignService.getCampaignById(scheduleId)
   const refresh = () => setNonce((value) => value + 1)
-  const selectTab = (tab: CampaignTab) => { setActiveTab(tab); onNavigateTab?.(tab) }
+  const selectTab = (tab: CampaignTab) => {
+    const nextTab = canAccessCampaignTab(profile.role, tab) ? tab : 'overview'
+    setActiveTab(nextTab)
+    onNavigateTab?.(nextTab)
+  }
 
   const data = (() => {
     if (!campaign) return undefined
@@ -77,12 +106,95 @@ export function CampaignDetailPage({ scheduleId, initialTab = 'overview', onBack
   const completed = data.works.filter((item) => item.status === 'completed').length
   const overdue = data.works.filter((item) => item.status !== 'completed' && item.dueDate < today()).length
   const unresolvedCs = data.cs.filter((item) => item.status !== '처리 완료').length
-  const salesImport = data.sales.imports[0]
-  const grossSales = salesImport?.totalSalesAmount ?? data.settlement?.currentCalculation.grossSales ?? 0
+  const salesImport = data.settlement
+    ? data.sales.imports.find((item) => item.id === data.settlement?.salesDataImportId) ?? data.sales.imports[0]
+    : data.sales.imports[0]
+  // Once settlement has been created, its calculation snapshot is the reviewed source of truth.
+  // The upload header can include a stale or supplier-side amount that should not replace it.
+  const grossSales = data.settlement?.currentCalculation.grossSales ?? salesImport?.totalSalesAmount ?? 0
   const upcoming = data.works.filter((item) => item.status !== 'completed').sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]
   const todayWorks = data.works.filter(isTodayWork).sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-  const primary = status === '시작 전' ? '일정 준비 확인' : status === '진행 중' ? '오늘 업무 보기' : status === '정산 중' ? '정산 상세 보기' : '판매 데이터 확인'
-  const primaryTab: CampaignTab = status === '정산 중' ? 'settlement' : status === '진행 중' || status === '시작 전' ? 'work' : 'sales'
+  const primary = status === '시작 전' ? '일정 준비 확인' : status === '진행 중' ? '오늘 업무 보기' : status === '정산 중' ? '정산 상세 보기' : profile.role === 'md' ? '일정 요약 보기' : '판매 데이터 확인'
+  const primaryTab: CampaignTab = status === '정산 중' ? 'settlement' : status === '진행 중' || status === '시작 전' ? 'work' : profile.role === 'md' ? 'overview' : 'sales'
+  const openPrimaryAction = () => {
+    if (status === '정산 중' && data.settlement) {
+      onOpenRelated('settlement', data.settlement.id)
+      return
+    }
+    selectTab(primaryTab)
+  }
+  const canDelete = profile.role === 'ceo' || profile.role === 'admin'
+  const hasOperationalData = data.samples.length > 0 || data.cs.length > 0 || data.sales.rows.length > 0 || Boolean(data.settlement)
+
+  const openScheduleEditor = () => {
+    setStartDate(campaign.startDate)
+    setEndDate(campaign.endDate)
+    setSalesChannelType(campaign.salesChannelType ?? (campaign.linkOwner === '셀러' ? 'seller_checkout' : campaign.linkOwner === '자사' ? 'wise_shop_link' : 'supplier_link'))
+    setVendorSupply(campaign.supplyAudience === 'vendor')
+    setVendorName(campaign.settlementVendorName ?? '')
+    setScheduleError('')
+    setScheduleNotice('')
+    setEditingSchedule(true)
+  }
+
+  const saveSchedule = async () => {
+    if (!startDate || !endDate) { setScheduleError('판매 시작일과 종료일을 입력해주세요.'); return }
+    if (startDate > endDate) { setScheduleError('판매 종료일은 시작일보다 빠를 수 없습니다.'); return }
+    if (vendorSupply && !vendorName.trim()) { setScheduleError('벤더 공급인 경우 정산 벤더명을 입력해주세요.'); return }
+    if (data.settlement && settlementService.isSettlementConfirmed(data.settlement)) { setScheduleError('이미 확정된 정산서입니다. 정산 관리에서 확정을 해제한 뒤 수정해주세요.'); return }
+    if (data.settlement && [data.settlement.sellerPaymentRequestStatus, data.settlement.managerPaymentRequestStatus].some((value) => value && activePaymentRequestStatuses.includes(value))) { setScheduleError('지급요청이 진행 중인 정산 건은 일정을 수정할 수 없습니다. 지급요청 상태를 먼저 확인해주세요.'); return }
+
+    setSavingSchedule(true)
+    setScheduleError('')
+    setScheduleNotice('')
+    try {
+      const supplyAudience = vendorSupply ? 'vendor' as const : 'seller' as const
+      const settlementVendorName = vendorSupply ? vendorName.trim() : undefined
+      const linkOwner = linkOwnerByChannel[salesChannelType]
+      const sellerExtraPgRate = salesChannelType === 'seller_checkout' ? (campaign.sellerExtraPgRate ?? 0) : 0
+      const updatedAt = new Date().toISOString()
+      const proposalSnapshots = campaign.proposalSnapshots?.map((snapshot) => {
+        const supplierDeduction = salesChannelType === 'supplier_link' && snapshot.supplierLinkPgPolicy === 'deduct_from_commission_rate' ? (snapshot.supplierLinkPgDeductionRate ?? 0) : 0
+        const actualCommissionRate = Math.max(snapshot.totalCommissionRate - supplierDeduction, 0)
+        const actualSellerCommissionRate = snapshot.sellerCommissionRate + sellerExtraPgRate
+        return { ...snapshot, selectedSalesChannelType: salesChannelType, actualSalesChannel: salesChannelType, sellerExtraPgRate, extraPgSupportRate: sellerExtraPgRate, effectiveSellerCommissionRate: actualSellerCommissionRate, actualSellerCommissionRate, actualCommissionRate, companyCommissionRate: Math.max(actualCommissionRate - actualSellerCommissionRate, 0), salesChannelOverridden: true, salesChannelOverrideReason: '일정 수정에서 직접 변경' }
+      })
+      campaignService.saveCampaigns(campaignService.getCampaigns().map((item) => item.id === campaign.id ? { ...item, startDate, endDate, linkOwner, salesChannelType, salesChannelSource: 'manual', salesChannelManuallyOverridden: true, sellerExtraPgRate, supplyAudience, settlementVendorName, proposalSnapshots, updatedAt } : item))
+      data.sales.imports.forEach((item) => salesDataService.updateSalesDataImport({ ...item, supplyAudience, settlementVendorName, salesStartDate: startDate, salesEndDate: endDate, settlementTerms: item.settlementTerms ? { ...item.settlementTerms, salesChannelType, moneyCollector: moneyCollectorByChannel[salesChannelType] } : item.settlementTerms }))
+      const rule = sellerSettlementService.getSellerSettlementRule(campaign.id)
+      if (rule) sellerSettlementService.saveRule({ ...rule, salesChannelType, moneyCollector: salesChannelType === 'wise_shop_link' ? 'wise_shop' : moneyCollectorByChannel[salesChannelType], settlementDirection: salesChannelType === 'seller_checkout' ? 'seller_pays_company' : 'company_pays_seller', externalMallExtraRate: salesChannelType === 'seller_checkout' ? rule.externalMallExtraRate : 0, externalMallExtraReason: salesChannelType === 'seller_checkout' ? rule.externalMallExtraReason : '', externalMallExtraApprovedBy: salesChannelType === 'seller_checkout' ? rule.externalMallExtraApprovedBy : '', externalMallExtraApprovedAt: salesChannelType === 'seller_checkout' ? rule.externalMallExtraApprovedAt : '', updatedAt })
+      if (data.settlement) settlementService.recalculateSettlement(data.settlement.id, '일정 수정: 판매 기간·링크 주체·공급 대상 변경')
+      await cloudSyncService.syncKeys([STORAGE_KEYS.campaigns, STORAGE_KEYS.salesDataImports, STORAGE_KEYS.sellerSettlementRules, STORAGE_KEYS.settlements, STORAGE_KEYS.settlementActivityLogs])
+      setEditingSchedule(false)
+      setScheduleNotice(data.settlement ? '일정이 저장되었고 기존 정산 초안도 새 조건으로 재계산되었습니다.' : '일정이 저장되었습니다.')
+      refresh()
+    } catch (error) {
+      setScheduleError(error instanceof Error ? error.message : '저장하지 못했습니다. 다시 시도해주세요.')
+    } finally {
+      setSavingSchedule(false)
+    }
+  }
+
+  const deleteCampaign = async () => {
+    if (hasOperationalData) {
+      setDeleteError('샘플·CS·판매 내역 또는 정산이 연결된 일정은 안전을 위해 삭제할 수 없습니다. 연결 자료를 먼저 확인해주세요.')
+      return
+    }
+    if (!window.confirm(`“${campaign.campaignName}” 일정을 삭제할까요?\n\n공용 DB에서 삭제되어 모든 직원 화면에서 사라지며, 되돌릴 수 없습니다.`)) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await new SupabaseCampaignRepository().deleteById(campaign.id)
+      campaignService.saveCampaigns(campaignService.getCampaigns().filter((item) => item.id !== campaign.id))
+      salesDataService.removeEmptyCampaignImports(campaign.id)
+      workService.saveWorkItems(workService.getWorkItems().filter((item) => item.campaignId !== campaign.id))
+      campaignService.saveChecklistItems(campaignService.getChecklistItems().filter((item) => item.campaignId !== campaign.id))
+      onDeleted()
+    } catch (error) {
+      setDeleteError(`일정을 삭제하지 못했습니다. ${error instanceof Error ? error.message : ''}`.trim())
+      setDeleting(false)
+    }
+  }
 
   const renderTab = () => {
     if (activeTab === 'overview') return <OverviewTab campaign={campaign} onTab={selectTab} />
@@ -100,7 +212,10 @@ export function CampaignDetailPage({ scheduleId, initialTab = 'overview', onBack
   return <section className="campaign-workspace">
     <header className="workspace-hero">
       <div className="workspace-breadcrumb"><button onClick={onBack} type="button">← 목록으로</button><span>{campaign.campaignCode || campaign.id}</span></div>
-      <div className="workspace-title-row"><div><div className="title-with-status"><h1>{campaign.campaignName || '이름 없는 Campaign'}</h1><span className={`status-badge ${status === '최종 완료' ? 'done' : status === '정산 중' ? 'settlement' : status === '진행 중' ? 'progress' : 'waiting'}`}>{status}</span></div><p>{campaign.sellerName || '-'} · {campaign.brandName || '-'} · {campaign.productName || '-'}</p></div><div className="hero-actions"><button className="secondary-button" onClick={() => alert('일정 수정은 기존 일정 편집 흐름과 연결될 예정입니다.')} type="button">일정 수정</button><button className="secondary-button" disabled={!campaign.contact?.startsWith('http')} onClick={() => campaign.contact && window.open(campaign.contact, '_blank', 'noopener,noreferrer')} type="button">관련 링크 열기</button><button className="primary-action" onClick={() => selectTab(primaryTab)} type="button">{primary}</button></div></div>
+      {editingSchedule && <section className="workspace-card"><h3>일정 수정</h3><div className="inline-form"><label>판매 시작일<input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label>판매 종료일<input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label><label>판매 링크 유형<select value={salesChannelType} onChange={(event) => setSalesChannelType(event.target.value as CampaignSalesChannelType)}><option value="supplier_link">{getSalesChannelTypeLabel('supplier_link')} · 링크 주체 브랜드사</option><option value="wise_shop_link">{getSalesChannelTypeLabel('wise_shop_link')} · 링크 주체 자사</option><option value="seller_checkout">{getSalesChannelTypeLabel('seller_checkout')} · 링크 주체 셀러</option></select></label><label>공급 대상<select value={vendorSupply ? 'vendor' : 'seller'} onChange={(event) => setVendorSupply(event.target.value === 'vendor')}><option value="seller">셀러 직공급</option><option value="vendor">벤더 공급</option></select></label>{vendorSupply && <label>정산 벤더명<input value={vendorName} onChange={(event) => setVendorName(event.target.value)} placeholder="예: 소셜라운지" /></label>}</div><p>판매 데이터는 삭제되지 않습니다. 확정 전 정산 초안이 있으면 변경한 조건으로 자동 재계산됩니다.</p>{scheduleError && <p className="campaign-delete-error" role="alert">{scheduleError}</p>}<div className="button-row"><button type="button" disabled={savingSchedule} onClick={() => void saveSchedule()}>{savingSchedule ? '저장 중…' : '저장'}</button><button type="button" disabled={savingSchedule} onClick={() => setEditingSchedule(false)}>닫기</button></div></section>}
+      <div className="workspace-title-row"><div><div className="title-with-status"><h1>{campaign.campaignName || '이름 없는 Campaign'}</h1><span className={`status-badge ${status === '최종 완료' ? 'done' : status === '정산 중' ? 'settlement' : status === '진행 중' ? 'progress' : 'waiting'}`}>{status}</span></div><p>{campaign.sellerName || '-'} · {campaign.brandName || '-'} · {campaign.productName || '-'}</p></div><div className="hero-actions">{canDelete && <button className="danger-button" disabled={deleting} onClick={() => void deleteCampaign()} type="button">{deleting ? '삭제 중…' : '일정 삭제'}</button>}{canDelete && <button className="secondary-button" onClick={openScheduleEditor} type="button">일정 수정</button>}<button className="secondary-button" disabled={!campaign.contact?.startsWith('http')} onClick={() => campaign.contact && window.open(campaign.contact, '_blank', 'noopener,noreferrer')} type="button">관련 링크 열기</button><button className="primary-action" onClick={openPrimaryAction} type="button">{primary}</button></div></div>
+      {scheduleNotice && <p className="success-text" role="status">{scheduleNotice}</p>}
+      {deleteError && <p className="campaign-delete-error" role="alert">{deleteError}</p>}
       <dl className="hero-meta"><div><dt>담당 매니저</dt><dd>{campaign.managerName || '-'}</dd></div><div><dt>MD</dt><dd>{campaign.mdName || '-'}</dd></div><div><dt>판매 기간</dt><dd>{campaign.startDate || '-'} ~ {campaign.endDate || '-'}</dd></div><div><dt>링크 주체</dt><dd>{campaign.linkOwner || '-'}</dd></div><div><dt>사업자 유형</dt><dd>{campaign.businessType || '-'}</dd></div><div><dt>마지막 수정</dt><dd>{campaign.updatedAt?.slice(0, 10) || '-'}</dd></div></dl>
     </header>
 

@@ -6,7 +6,7 @@ type UserRole = CompanyProfile['role']
 type PendingProfile = CompanyProfile & { requested_at?: string | null }
 
 const roleLabels: Record<UserRole, string> = {
-  ceo: '대표', admin: '관리자', settlement_cs: '정산·CS', team_lead: '팀장', md: 'MD', manager: '매니저',
+  ceo: '대표', admin: '관리자', settlement_cs: '정산·CS', team_lead: '팀장', md: 'MD', manager: '매니저', partner_vendor: '협력 벤더',
 }
 
 export function UserApprovalPage() {

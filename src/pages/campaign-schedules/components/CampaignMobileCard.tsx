@@ -1,8 +1,10 @@
 import {
   getCampaignStatus,
-  getDday,
 } from '../../../features/campaignSchedules/scheduleStatus'
 import type { CampaignSchedule } from '../../../features/campaignSchedules/types'
+import { CampaignTimingBadge } from '../../../shared/components/CampaignTimingBadge'
+import { LandingPageBadge } from '../../../shared/components/LandingPageBadge'
+import { ManagerBadge } from '../../../shared/components/ManagerBadge'
 import { CampaignStatusBadge } from './CampaignStatusBadge'
 
 type CampaignMobileCardProps = {
@@ -19,25 +21,17 @@ export function CampaignMobileCard({ schedule, onClick }: CampaignMobileCardProp
     <button className="schedule-mobile-card" onClick={() => onClick(schedule)} type="button">
       <div className="schedule-mobile-card__top">
         <strong>{schedule.campaignName}</strong>
-        <span>{getDday(schedule)}</span>
+        <CampaignTimingBadge endDate={schedule.endDate} startDate={schedule.startDate} />
       </div>
       <CampaignStatusBadge status={status} />
       <dl>
         <div>
-          <dt>셀러</dt>
-          <dd>{schedule.sellerName}</dd>
-        </div>
-        <div>
-          <dt>브랜드·상품</dt>
-          <dd>
-            {schedule.brandName} · {schedule.productName}
-          </dd>
-        </div>
-        <div>
           <dt>담당</dt>
-          <dd>
-            {schedule.managerName} / {schedule.mdName}
-          </dd>
+          <dd><ManagerBadge name={schedule.managerName} /></dd>
+        </div>
+        <div>
+          <dt>랜딩페이지</dt>
+          <dd><LandingPageBadge landingPageType={schedule.landingPageType} linkOwner={schedule.linkOwner} /></dd>
         </div>
         <div>
           <dt>오늘 할 일</dt>

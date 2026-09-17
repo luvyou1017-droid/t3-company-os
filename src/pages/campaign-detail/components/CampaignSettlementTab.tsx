@@ -8,6 +8,7 @@ import { settlementService } from '../../../shared/services/settlementService'
 import { statusLabel } from '../../../shared/utils/settlement'
 import { formatCurrency } from '../../../shared/utils/salesData'
 import { openPaymentDetail } from '../../../shared/utils/paymentNavigation'
+import { isCompanyDirectManager } from '../../../shared/utils/managerPayment'
 
 type CampaignSettlementTabProps = {
   campaignId: string
@@ -15,13 +16,20 @@ type CampaignSettlementTabProps = {
 }
 
 export function CampaignSettlementTab({ campaignId, onOpenSettlement }: CampaignSettlementTabProps) {
+  const [creationError, setCreationError] = useState('')
   const settlements = settlementService.getSettlementByCampaignId(campaignId)
   const readySales = salesDataService.getSalesDataByCampaignId(campaignId).imports.find((item) => item.reviewStatus === '확정 완료' && item.settlementStatus === '정산 가능')
 
   const createSettlement = () => {
     if (!readySales) return
-    const settlement = settlementService.createSettlementFromSalesData(readySales.id)
-    if (settlement) onOpenSettlement?.(settlement.id)
+    setCreationError('')
+    try {
+      const settlement = settlementService.createSettlementFromSalesData(readySales.id)
+      if (!settlement) throw new Error('정산 생성 조건을 충족하지 못했습니다. 판매데이터 검수 상태를 확인해주세요.')
+      onOpenSettlement?.(settlement.id)
+    } catch (error) {
+      setCreationError(error instanceof Error ? error.message : '정산을 생성하지 못했습니다.')
+    }
   }
 
   if (!settlements.length) {
@@ -34,6 +42,7 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
           </div>
           <button className="primary-button" disabled={!readySales} onClick={createSettlement} type="button">정산 생성</button>
         </div>
+        {creationError && <div className="inline-notice settlement-warning"><strong>정산 생성 실패</strong><span>{creationError}</span></div>}
         <div className="empty-state"><strong>판매 데이터 확정 후 정산을 생성할 수 있습니다.</strong><span>{readySales ? '정산 생성 버튼으로 초안을 만들 수 있습니다.' : '정산 가능한 Sales Data가 없습니다.'}</span></div>
       </section>
     )
@@ -48,6 +57,7 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
         </div>
         <button className="primary-button" disabled={!readySales} onClick={createSettlement} type="button">정산 생성</button>
       </div>
+      {creationError && <div className="inline-notice settlement-warning"><strong>정산 생성 실패</strong><span>{creationError}</span></div>}
       <div className="comparison-table-wrap">
         <table className="comparison-table campaign-settlement-table">
           <thead><tr><th>상태</th><th>버전</th><th>총매출</th><th>총수수료</th><th>벤더 수수료</th><th>차감 합계</th><th>최종 배분 대상 금액</th><th>매니저 지급액</th><th>회사 귀속액</th><th>셀러 지급액</th><th>증빙 상태</th><th>지급 상태</th><th>액션</th></tr></thead>
@@ -61,7 +71,7 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.vendorCommission)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.deductionTotal)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.distributableVendorCommission)}</td>
-                <td className="amount-cell">{settlement.currentCalculation.managerShareRate === 0 ? '대상 아님' : formatCurrency(settlement.currentCalculation.managerAmount)}</td>
+                <td className="amount-cell">{formatCurrency(settlement.currentCalculation.managerAmount)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.companyAmount)}</td>
                 <td className="amount-cell">{formatCurrency(settlement.currentCalculation.finalSellerPaymentAmount)}</td>
                 <td>{settlement.evidenceStatus === 'confirmed' ? '확인 완료' : '미확인'}</td>
@@ -84,12 +94,12 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
           const campaign = campaignService.getCampaignById(settlement.campaignId)
           if (!campaign) return []
           const sellerRule = sellerSettlementService.getSellerSettlementRule(campaign.id)
-          const recipientTypes = settlement.currentCalculation.managerShareRate === 0 ? (['seller'] as const) : (['seller', 'manager'] as const)
-          return recipientTypes.map((recipientType) => {
+          return (['seller', 'manager'] as const).map((recipientType) => {
             const isSeller = recipientType === 'seller'
             const recipientId = isSeller ? campaign.sellerId : campaign.managerId
             const recipientName = isSeller ? campaign.sellerName : campaign.managerName
-            const businessType = isSeller ? sellerRule?.businessType ?? 'general_business' : managerPaymentService.getBusinessType(campaign.managerName)
+            const companyDirect = !isSeller && isCompanyDirectManager(campaign.managerId, campaign.managerName)
+            const businessType = isSeller ? sellerRule?.businessType ?? 'general_business' : managerPaymentService.getBusinessType(campaign.managerName, campaign.managerId)
             const evidence = paymentEvidenceService.getEvidenceBySettlementId(settlement.id, recipientType)
             const managerProfile = !isSeller ? managerPaymentService.getProfile(campaign.managerId) : undefined
             const reasons = paymentRequestService.getPaymentRequestBlockReasons({
@@ -100,19 +110,19 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
             })
             const request = paymentRequestService.getPaymentRequestForRecipient(settlement.id, recipientType, recipientId, settlement.settlementVersion)
             return <article className="readiness-card" key={`${settlement.id}-${recipientType}`}>
-              <span className="status-badge waiting">{isSeller ? '셀러 지급요청' : '매니저 지급요청'}</span>
+              <span className={`status-badge ${companyDirect ? 'done' : 'waiting'}`}>{isSeller ? '셀러 지급요청' : companyDirect ? '대표 직속 정산' : '매니저 지급요청'}</span>
               <h3>{recipientName}</h3>
               <dl>
                 <div><dt>사업자·증빙</dt><dd>{businessType} · {isSeller ? sellerRule?.confirmedEvidenceType ?? '미확정' : businessType === 'freelancer' ? 'withholding_3_3' : businessType === 'simplified_business' ? 'cash_receipt' : 'tax_invoice'}</dd></div>
-                <div><dt>증빙 상태</dt><dd>{businessType === 'freelancer' ? '지급 요청 시 원천세 자동 등록' : evidence.some((item) => item.reviewStatus === 'approved') ? '승인' : '대기'}</dd></div>
-                <div><dt>최종 지급액</dt><dd>{formatCurrency(isSeller ? settlement.currentCalculation.finalSellerPaymentAmount : settlement.currentCalculation.managerAmount)}</dd></div>
-                <div><dt>지급요청 상태</dt><dd>{request?.status ?? '요청 전'}</dd></div>
+                <div><dt>증빙 상태</dt><dd>{companyDirect ? '불필요' : businessType === 'freelancer' ? '지급 요청 시 원천세 자동 등록' : evidence.some((item) => item.reviewStatus === 'approved') ? '승인' : '대기'}</dd></div>
+                <div><dt>{companyDirect ? '회사 귀속 확인액' : '최종 지급액'}</dt><dd>{formatCurrency(isSeller ? settlement.currentCalculation.finalSellerPaymentAmount : companyDirect ? settlement.currentCalculation.companyAmount + settlement.currentCalculation.managerAmount : settlement.currentCalculation.managerAmount)}</dd></div>
+                <div><dt>지급요청 상태</dt><dd>{companyDirect ? '신청 불필요' : request?.status ?? '요청 전'}</dd></div>
               </dl>
               <div className="button-row">
-                <button className="secondary-button" onClick={() => openPaymentDetail(settlement.id, recipientType, { from: `/campaigns/${encodeURIComponent(campaign.id)}?tab=settlement`, label: '공동구매 상세' })} type="button">지급 상세</button>
-                <button className="secondary-button" disabled={Boolean(reasons.length)} onClick={() => openPaymentDetail(settlement.id, recipientType, { from: `/campaigns/${encodeURIComponent(campaign.id)}?tab=settlement`, label: '공동구매 상세' })} type="button">{isSeller ? '셀러 지급요청' : '매니저 지급요청'}</button>
+                <button className="secondary-button" onClick={() => companyDirect ? onOpenSettlement?.(settlement.id) : openPaymentDetail(settlement.id, recipientType, { from: `/campaigns/${encodeURIComponent(campaign.id)}?tab=settlement`, label: '공동구매 상세' })} type="button">{companyDirect ? '정산서 보기' : '지급 상세'}</button>
+                {!companyDirect && <button className="secondary-button" disabled={Boolean(reasons.length)} onClick={() => openPaymentDetail(settlement.id, recipientType, { from: `/campaigns/${encodeURIComponent(campaign.id)}?tab=settlement`, label: '공동구매 상세' })} type="button">{isSeller ? '셀러 지급요청' : '매니저 지급요청'}</button>}
               </div>
-              {reasons.length > 0 && <small>{reasons.join(' · ')}</small>}
+              {!companyDirect && reasons.length > 0 && <small>{reasons.join(' · ')}</small>}
             </article>
           })
         })}
@@ -120,3 +130,4 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
     </section>
   )
 }
+import { useState } from 'react'

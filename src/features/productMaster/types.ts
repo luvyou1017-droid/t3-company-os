@@ -103,6 +103,8 @@ export interface ProductCampaignReference {
 }
 
 export interface ProductMaster {
+  supplyAudience?: 'seller' | 'vendor'
+  settlementVendorName?: string
   id: string
   productCode: string
   vendorId?: string

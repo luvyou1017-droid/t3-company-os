@@ -11,7 +11,6 @@ import {
   calculateEffectiveSellerCommissionRate,
   calculateFinalSellerPayment,
   calculateProductSalesAmount,
-  calculateSellerCommissionAmount,
   calculateSellerRemittanceToCompany,
   calculateShippingAmount,
   calculateSupplierCostAmount,
@@ -20,6 +19,7 @@ import {
   calculateVendorCommissionAmount,
   getRecommendedEvidenceType,
 } from '../utils/sellerSettlement'
+import { calculateSellerProductSubtotal } from '../utils/settlementDocument'
 import { campaignService } from './campaignService'
 import { salesDataService } from './salesDataService'
 import { settlementService } from './settlementService'
@@ -30,7 +30,8 @@ const channelCollector = { supplier_link: 'supplier', wise_shop_link: 'wise_shop
 
 function salesChannelForCampaign(campaignId: string): SalesChannelType {
   const campaign = campaignService.getCampaignById(campaignId)
-  return campaign?.salesChannelType ?? campaign?.proposalSnapshots?.[0]?.actualSalesChannel ?? 'supplier_link'
+  const savedTerms = salesDataService.getSalesDataByCampaignId(campaignId).imports.find((item) => item.settlementTerms)?.settlementTerms
+  return savedTerms?.salesChannelType ?? campaign?.salesChannelType ?? campaign?.proposalSnapshots?.[0]?.actualSalesChannel ?? 'supplier_link'
 }
 
 function businessTypeForCampaign(campaignId: string): SellerBusinessType {
@@ -74,16 +75,23 @@ function calculate(rule: SellerSettlementRule, settlementId: string): SellerSett
   const rows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
   if (!sales) throw new Error('판매 데이터를 찾을 수 없습니다.')
   const items = rows.map((row) => ({ optionName: row.optionName, quantity: row.netQuantity, unitPrice: row.unitPrice, amount: row.netSales }))
+  const sellerSubtotal = calculateSellerProductSubtotal(rows, settlement.currentCalculation.sellerCommissionRate)
   const productSalesAmount = calculateProductSalesAmount(items)
   const shippingAmount = calculateShippingAmount(rule.shippingAmount)
-  const totalCommissionRate = sales.totalCommissionRate ?? settlement.currentCalculation.totalCommissionRate
-  const effectiveSellerCommissionRate = calculateEffectiveSellerCommissionRate(rule.sellerCommissionRate, rule.externalMallExtraRate)
-  const totalCommissionAmount = calculateTotalCommissionAmount(productSalesAmount, totalCommissionRate)
-  const sellerCommissionAmount = calculateSellerCommissionAmount(productSalesAmount, effectiveSellerCommissionRate)
+  const totalCommissionRate = sales.settlementTerms ? settlement.currentCalculation.totalCommissionRate : sales.totalCommissionRate ?? settlement.currentCalculation.totalCommissionRate
+  const effectiveSellerCommissionRate = productSalesAmount > 0
+    ? sellerSubtotal.commissionAmount / productSalesAmount * 100
+    : calculateEffectiveSellerCommissionRate(rule.sellerCommissionRate, rule.externalMallExtraRate)
+  const totalCommissionAmount = sales.settlementTerms ? settlement.currentCalculation.grossCommission : calculateTotalCommissionAmount(productSalesAmount, totalCommissionRate)
+  const sellerCommissionAmount = sales.settlementTerms ? settlement.currentCalculation.sellerCommissionAmount : sellerSubtotal.commissionAmount
   const vendorCommissionAmount = calculateVendorCommissionAmount(totalCommissionAmount, sellerCommissionAmount)
   const supplierCostAmount = calculateSupplierCostAmount(productSalesAmount, totalCommissionAmount)
   const sellerRemittanceToCompany = calculateSellerRemittanceToCompany(productSalesAmount, sellerCommissionAmount, shippingAmount)
-  const tax = calculateFinalSellerPayment(sellerCommissionAmount, rule.businessType, rule.sellerDeductions)
+  const sellerDeductions = settlement.currentCalculation.sellerDeductionTotal
+  const additionalPayments = settlementService.getDeductionsBySettlementId(settlementId)
+    .filter((item) => item.applyLocation === 'seller_payment' && item.type === 'promotion')
+    .reduce((sum, item) => sum + item.amount, 0)
+  const tax = calculateFinalSellerPayment(sellerCommissionAmount, rule.businessType, sellerDeductions)
   return {
     productSalesAmount, shippingAmount,
     totalCollectedAmount: calculateTotalCollectedAmount(productSalesAmount, shippingAmount),
@@ -92,7 +100,7 @@ function calculate(rule: SellerSettlementRule, settlementId: string): SellerSett
     externalMallExtraRate: rule.externalMallExtraRate,
     effectiveSellerCommissionRate,
     sellerCommissionAmount, vendorCommissionAmount,
-    sellerDeductions: rule.sellerDeductions,
+    sellerDeductions,
     supplierInvoiceAmount: totalCommissionAmount,
     sellerGrossSettlementAmount: sellerCommissionAmount,
     supplierCostAmount,
@@ -100,6 +108,7 @@ function calculate(rule: SellerSettlementRule, settlementId: string): SellerSett
     sellerRemittanceToCompany,
     companyRemittanceToSupplier: calculateCompanyRemittanceToSupplier(supplierCostAmount, shippingAmount),
     ...tax,
+    finalSellerPaymentAmount: tax.finalSellerPaymentAmount + additionalPayments,
   }
 }
 

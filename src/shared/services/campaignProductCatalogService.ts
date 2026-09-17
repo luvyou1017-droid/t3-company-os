@@ -11,7 +11,7 @@ export function validateProductSalesLinkPolicy(product?: ProductMaster) {
 }
 
 let products: ProductMaster[] = [
-  { id: 'prd-lock-001', brandId: 'brand-locknlock', brandName: '락앤락', productName: '밀폐용기 6종 세트', regularPrice: 69000, salePrice: 39900, shippingAmount: 0, supplyPrice: 25500, totalCommissionRate: 25, sellerCommissionRate: 17, extraPgSupportRate: 2, notes: '무료배송 · 색상 혼합 구성', version: 3, defaultSalesChannelType: 'wise_shop_link', supplierLinkAvailable: true, supplierLinkPgPolicy: 'supplier_bears_pg', wiseShopAvailable: true, wiseSrookPgRate: 3.4, sellerCheckoutAvailable: true, brandPgSupportAvailable: true, brandPgSupportRate: 4 },
+  { id: 'prd-lock-001', brandId: 'brand-locknlock', brandName: '락앤락', productName: '밀폐용기 6종 세트', regularPrice: 69000, salePrice: 39900, shippingAmount: 0, supplyPrice: 25500, totalCommissionRate: 25, sellerCommissionRate: 17, extraPgSupportRate: 2, notes: '무료배송 · 색상 혼합 구성', version: 3, defaultSalesChannelType: 'wise_shop_link', supplierLinkAvailable: true, supplierLinkPgPolicy: 'supplier_bears_pg', wiseShopAvailable: true, wiseSrookPgRate: 3.08, sellerCheckoutAvailable: true, brandPgSupportAvailable: true, brandPgSupportRate: 4 },
   { id: 'prd-lock-002', brandId: 'brand-locknlock', brandName: '락앤락', productName: '메트로 텀블러', regularPrice: 42000, salePrice: 29900, shippingAmount: 3000, supplyPrice: 19000, totalCommissionRate: 24, sellerCommissionRate: 16, extraPgSupportRate: 1, notes: '배송비에는 수수료 미적용', version: 2, defaultSalesChannelType: 'wise_shop_link', wiseShopAvailable: true, sellerCheckoutAvailable: false, brandPgSupportAvailable: true, brandPgSupportRate: 4 },
   { id: 'prd-lock-003', brandId: 'brand-locknlock', brandName: '락앤락', productName: '비스프리 모듈러', regularPrice: 89000, salePrice: 54900, shippingAmount: 0, supplyPrice: 36000, totalCommissionRate: 26, sellerCommissionRate: 18, extraPgSupportRate: 0, notes: '4개 구성', version: 1, defaultSalesChannelType: 'supplier_link', supplierLinkAvailable: true, supplierLinkPgPolicy: 'deduct_from_commission_rate', supplierLinkPgDeductionRate: 5, wiseShopAvailable: false, sellerCheckoutAvailable: true, brandPgSupportAvailable: false },
   { id: 'prd-fit-001', brandId: 'brand-fit', brandName: 'Fit Table', productName: '단백질 쉐이크', regularPrice: 48000, salePrice: 34900, shippingAmount: 3000, supplyPrice: 21000, totalCommissionRate: 25, sellerCommissionRate: 17, extraPgSupportRate: 0, notes: '초코·곡물 옵션', version: 4, defaultSalesChannelType: 'seller_checkout', wiseShopAvailable: false, sellerCheckoutAvailable: true, brandPgSupportAvailable: true, brandPgSupportRate: 3 },
@@ -23,7 +23,8 @@ let recentBrandIds: string[] = []
 function toCampaignProduct(product: ManagedProductMaster): ProductMaster {
   const representativeSku = product.skus.find((sku) => sku.representative && sku.active) ?? product.skus.find((sku) => sku.active)
   return {
-    id: product.id,
+    id: product.id, supplyAudience: product.supplyAudience, settlementVendorName: product.settlementVendorName,
+    skuConditions: product.skus.filter((sku) => sku.active).map((sku) => ({ skuId: sku.id, productId: product.id, productName: sku.productName || product.productName, optionName: sku.optionName, groupBuyPrice: sku.groupBuyPrice, totalCommissionRate: sku.totalCommissionRate ?? product.totalCommissionRate, sellerCommissionRate: sku.sellerCommissionRate ?? product.sellerCommissionRate })),
     brandId: product.brandId,
     brandName: product.brandName,
     productName: product.productName,
@@ -50,7 +51,7 @@ function toCampaignProduct(product: ManagedProductMaster): ProductMaster {
 export const campaignProductCatalogService = {
   registerProductMasters(managedProducts: ManagedProductMaster[]) {
     const activeProducts = managedProducts.filter((product) => product.active)
-    const managedIds = new Set(activeProducts.map((product) => product.id))
+    const managedIds = new Set(managedProducts.map((product) => product.id))
     products = [...activeProducts.map(toCampaignProduct), ...products.filter((product) => !managedIds.has(product.id))]
     return activeProducts.length
   },
@@ -76,7 +77,8 @@ export const campaignProductCatalogService = {
     return products.filter((product) => product.brandId === brandId && (!normalized || product.productName.toLowerCase().includes(normalized)))
   },
   getProduct(productId: string) { return products.find((product) => product.id === productId) },
-  getProductManagementPath(productId: string) { return `/products/${encodeURIComponent(productId)}` },
+  getProductManagementPath(productId: string) { return `/master/products/${encodeURIComponent(productId)}` },
+  getProductRegistrationPath() { return '/master/products/new' },
   hasCompletePolicy(productId: string) {
     const product = this.getProduct(productId)
     return Boolean(product && product.totalCommissionRate && product.sellerCommissionRate !== undefined)

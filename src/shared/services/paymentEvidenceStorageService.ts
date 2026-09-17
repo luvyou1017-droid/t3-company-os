@@ -1,6 +1,7 @@
 import { getDataProviderMode } from '../lib/dataProvider'
 import { supabase } from '../lib/supabase'
 import type { EvidenceOwnerType } from '../types/paymentEvidence'
+import { toDatabaseUuid } from '../utils/databaseId'
 
 export const PAYMENT_EVIDENCE_BUCKET = 'payment-evidence'
 export const MAX_PAYMENT_EVIDENCE_FILE_SIZE = 10 * 1024 * 1024
@@ -21,7 +22,7 @@ function safeFileName(name: string) {
 function storageError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   if (message.toLowerCase().includes('jwt')) return new Error('세션이 만료되었습니다. 다시 로그인해주세요.')
-  if (message.toLowerCase().includes('permission') || message.toLowerCase().includes('policy')) return new Error('증빙파일 접근 권한이 없습니다.')
+  if (message.toLowerCase().includes('permission') || message.toLowerCase().includes('policy') || message.toLowerCase().includes('row-level security')) return new Error('증빙파일을 업로드할 권한이 없습니다. 매니저는 본인이 담당한 공동구매 정산 건의 매니저 증빙만 등록할 수 있습니다. 담당자 지정이 맞는지 확인해주세요.')
   return new Error(`증빙파일 업로드에 실패했습니다. 네트워크 연결을 확인해주세요. (${message})`)
 }
 
@@ -34,7 +35,7 @@ export const paymentEvidenceStorageService = {
     return { valid: true as const }
   },
   buildStoragePath(context: UploadContext, fileName: string) {
-    return `campaigns/${context.campaignId}/settlements/${context.settlementId}/${context.ownerType}/${context.ownerId}/${context.evidenceId}/${safeFileName(fileName)}`
+    return `campaigns/${toDatabaseUuid(context.campaignId)}/settlements/${toDatabaseUuid(context.settlementId)}/${context.ownerType}/${toDatabaseUuid(context.ownerId)}/${toDatabaseUuid(context.evidenceId)}/${safeFileName(fileName)}`
   },
   buildPilotStoragePath(testRunId: string, campaignId: string, settlementId: string, evidenceId: string, fileName: string) {
     return `test-runs/${testRunId}/campaigns/${campaignId}/settlements/${settlementId}/${evidenceId}/${safeFileName(fileName)}`

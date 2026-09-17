@@ -4,6 +4,7 @@ import { productService, validateProductPolicy } from '../../../features/product
 import type { ProductCampaignReference, ProductMasterInput, ProductPgSupportRate, ProductSku, SellerPortalStatus, SupplierLinkPgPolicy } from '../../../features/productMaster/types'
 import type { ProductMasterPermission } from '../../../features/productMaster/permissions'
 import { parseWiseProposalFile } from '../../../features/productMaster/utils/wiseProposalParser'
+import { DEFAULT_SROOKPAY_FEE_RATE } from '../../../shared/utils/srookPay'
 
 type Errors = Record<string, string>
 const channelLabels = { supplier_link: '업체링크', wise_shop_link: '와이즈 스룩링크', seller_checkout: '셀러 자체 결제창' }
@@ -17,7 +18,7 @@ const initial: ProductMasterInput = {
   totalCommissionRate: 0, sellerCommissionRate: 0, companyCommissionRate: 0,
   commissionCalculationType: 'sku',
   defaultSalesChannelType: 'supplier_link', supplierLinkAvailable: true, supplierLinkPgPolicy: 'supplier_bears_pg', supplierLinkPgDeductionRate: undefined,
-  wiseShopAvailable: false, wiseSrookPgRate: undefined, sellerCheckoutAvailable: false,
+  wiseShopAvailable: false, wiseSrookPgRate: DEFAULT_SROOKPAY_FEE_RATE, sellerCheckoutAvailable: false,
   brandPgSupportAvailable: false, courierName: '', jejuExtraFee: 0, islandExtraFee: 0,
   bundleShippingAvailable: false, orderDeadlineTime: '', sampleSupportType: '', manufactureInfo: '',
   shelfLifeInfo: '', orderMemo: '', settlementMemo: '', internalMemo: '', skus: [], sellerPortalVisible: false,
@@ -307,7 +308,7 @@ export function ProductFormPage({ productId, onBack, permission }: { productId?:
       {form.supplierLinkAvailable && <label className="product-field"><span>업체링크 PG 비용 처리</span><select value={form.supplierLinkPgPolicy ?? 'manual'} onChange={(e) => patch('supplierLinkPgPolicy', e.target.value as SupplierLinkPgPolicy)}><option value="supplier_bears_pg">업체가 전액 부담</option><option value="deduct_from_commission_rate">총 수수료율에서 차감</option><option value="manual">기타/수기</option></select></label>}
       {form.supplierLinkAvailable && form.supplierLinkPgPolicy === 'deduct_from_commission_rate' && <label className="product-field"><span>총 수수료율 차감 (%p)</span><input min="0" max="100" step="0.1" type="number" value={form.supplierLinkPgDeductionRate ?? ''} onChange={(e) => patch('supplierLinkPgDeductionRate', number(e.target.value))} /><small>{rateText(calculatedTotalCommissionRate)} - {form.supplierLinkPgDeductionRate ?? 0}%p = {rateText(Math.max(calculatedTotalCommissionRate - (form.supplierLinkPgDeductionRate ?? 0), 0))}</small></label>}
       <BooleanSelect label="와이즈 스룩링크 사용 가능 *" value={form.wiseShopAvailable} onChange={(value) => patch('wiseShopAvailable', value)} />
-      {form.wiseShopAvailable && <label className="product-field"><span>기본 스룩페이 PG 수수료율 (%)</span><input min="0" step="0.1" type="number" value={form.wiseSrookPgRate ?? ''} onChange={(e) => patch('wiseSrookPgRate', number(e.target.value))} /></label>}
+      {form.wiseShopAvailable && <label className="product-field"><span>기본 스룩페이 PG 수수료율 (%)</span><input min="0" step="0.01" type="number" value={form.wiseSrookPgRate ?? ''} onChange={(e) => patch('wiseSrookPgRate', number(e.target.value))} /></label>}
       <BooleanSelect label="셀러 결제창 사용 가능 *" value={form.sellerCheckoutAvailable} onChange={(value) => patch('sellerCheckoutAvailable', value)} />
       <BooleanSelect label="브랜드 PG 수수료 지원" value={form.brandPgSupportAvailable} yesLabel="PG 수수료 지원 가능 / 있음" noLabel="PG 수수료 지원 불가 / 없음" onChange={(value) => patch('brandPgSupportAvailable', value)} />
       {form.brandPgSupportAvailable && <label className="product-field"><span>브랜드 PG 지원율 *</span><select value={form.brandPgSupportRate ?? ''} onChange={(e) => patch('brandPgSupportRate', Number(e.target.value) as ProductPgSupportRate)}><option value="">선택</option>{[1,2,3,4,5].map((rate) => <option key={rate} value={rate}>{rate}%</option>)}</select></label>}
@@ -367,4 +368,3 @@ export function ProductFormPage({ productId, onBack, permission }: { productId?:
 function BooleanSelect({ label, value, onChange, yesLabel = '사용 가능 / 있음', noLabel = '사용 불가 / 없음' }: { label: string; value: boolean; onChange: (value: boolean) => void; yesLabel?: string; noLabel?: string }) {
   return <label className="product-field"><span>{label}</span><select value={value ? 'yes' : 'no'} onChange={(e) => onChange(e.target.value === 'yes')}><option value="yes">{yesLabel}</option><option value="no">{noLabel}</option></select></label>
 }
-

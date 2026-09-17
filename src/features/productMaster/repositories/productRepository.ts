@@ -6,5 +6,6 @@ export interface ProductRepository {
   createProduct(product: ProductMaster): Promise<ProductMaster>
   updateProduct(product: ProductMaster): Promise<ProductMaster>
   deactivateProduct(id: string): Promise<ProductMaster>
+  setProductActive(id: string, active: boolean): Promise<ProductMaster>
   searchProductsByBrand(brandId: string, query?: string): Promise<ProductMaster[]>
 }

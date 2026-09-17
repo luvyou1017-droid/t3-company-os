@@ -1,4 +1,5 @@
 import { formatKoreanDate, formatKoreanDateTime } from './koreanDate.ts'
+import type { SellerBusinessType } from '../types/sellerSettlement.ts'
 
 export type HolidayProvider = {
   isHoliday(date: Date): boolean | undefined
@@ -72,6 +73,26 @@ export function calculateManagerProductRow(row: SellerProductSubtotalRow, totalC
     supplyPrice,
     unitCommission,
     salesCommission: unitCommission * quantity,
+  }
+}
+
+export function calculateManagerPayoutBreakdown(
+  grossAmount: number,
+  businessType: SellerBusinessType,
+  deductions = 0,
+  reimbursement = 0,
+) {
+  const values = [grossAmount, deductions, reimbursement]
+  if (values.some((value) => !Number.isFinite(value) || value < 0)) throw new Error('매니저 지급 계산 금액은 0 이상의 유한한 숫자여야 합니다.')
+  const vatExcludedAmount = businessType === 'simplified_business' ? Math.ceil(grossAmount / 1.1) : grossAmount
+  const vatAmount = businessType === 'simplified_business' ? grossAmount - vatExcludedAmount : 0
+  return {
+    grossAmount,
+    vatExcludedAmount,
+    vatAmount,
+    deductions,
+    reimbursement,
+    finalPaymentAmount: Math.max(vatExcludedAmount - deductions + reimbursement, 0),
   }
 }
 

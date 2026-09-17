@@ -11,5 +11,5 @@ export const companySettlementProfile = {
   taxInvoiceEmail: 'wisevendor.tax@gmail.com',
   settlementBankName: '신한은행',
   settlementBankAccount: '100-038-387940',
-  settlementAccountHolder: '주식회사 솔루션파트너스 허윤정',
+  settlementAccountHolder: '주식회사 솔루션파트너스',
 } as const

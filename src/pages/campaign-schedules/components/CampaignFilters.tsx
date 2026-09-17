@@ -53,12 +53,12 @@ export function CampaignFilters({ filters, schedules, onChange }: CampaignFilter
       </label>
 
       <label>
-        <span>링크 주체</span>
+        <span>랜딩페이지</span>
         <select onChange={(event) => updateFilter('linkOwner', event.target.value)} value={filters.linkOwner}>
           <option value="">전체</option>
           {linkOwners.map((linkOwner) => (
             <option key={linkOwner} value={linkOwner}>
-              {linkOwner}
+              {linkOwner === '자사' ? '와이즈' : linkOwner === '브랜드사' ? '공급사' : '셀러'}
             </option>
           ))}
         </select>

@@ -341,17 +341,67 @@ values ('payment-evidence', 'payment-evidence', false, 10485760, array['image/pn
 on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 create policy "authorized evidence read" on storage.objects for select to authenticated using (
-  bucket_id = 'payment-evidence' and exists (
-    select 1 from public.profiles p where p.id = auth.uid() and p.active and p.role in ('admin','ceo','settlement_cs','manager')
+  bucket_id = 'payment-evidence' and (
+    exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid() and p.active and p.approval_status = 'approved'
+        and p.role in ('admin','ceo','settlement_cs')
+    )
+    or exists (
+      select 1
+      from public.profiles p
+      join public.campaigns c on c.manager_id = p.id
+        or regexp_replace(lower(c.manager_name), '\s+', '', 'g') = regexp_replace(lower(p.display_name), '\s+', '', 'g')
+      join public.settlements s on s.campaign_id = c.id
+      where p.id = auth.uid() and p.active and p.approval_status = 'approved' and p.role = 'manager'
+        and (storage.foldername(name))[1] = 'campaigns'
+        and c.id = case when (storage.foldername(name))[2] ~* '^[0-9a-f-]{36}$' then (storage.foldername(name))[2]::uuid end
+        and (storage.foldername(name))[3] = 'settlements'
+        and s.id = case when (storage.foldername(name))[4] ~* '^[0-9a-f-]{36}$' then (storage.foldername(name))[4]::uuid end
+        and (storage.foldername(name))[5] = 'manager'
+        and c.manager_id = case when (storage.foldername(name))[6] ~* '^[0-9a-f-]{36}$' then (storage.foldername(name))[6]::uuid end
+    )
   )
 );
 create policy "settlement evidence upload" on storage.objects for insert to authenticated with check (
-  bucket_id = 'payment-evidence' and exists (
-    select 1 from public.profiles p where p.id = auth.uid() and p.active and p.role in ('admin','settlement_cs')
+  bucket_id = 'payment-evidence' and (
+    exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid() and p.active and p.approval_status = 'approved'
+        and p.role in ('admin','ceo','settlement_cs')
+    )
+    or exists (
+      select 1
+      from public.profiles p
+      join public.campaigns c on c.manager_id = p.id
+        or regexp_replace(lower(c.manager_name), '\s+', '', 'g') = regexp_replace(lower(p.display_name), '\s+', '', 'g')
+      join public.settlements s on s.campaign_id = c.id
+      where p.id = auth.uid() and p.active and p.approval_status = 'approved' and p.role = 'manager'
+        and (storage.foldername(name))[1] = 'campaigns'
+        and c.id = case when (storage.foldername(name))[2] ~* '^[0-9a-f-]{36}$' then (storage.foldername(name))[2]::uuid end
+        and (storage.foldername(name))[3] = 'settlements'
+        and s.id = case when (storage.foldername(name))[4] ~* '^[0-9a-f-]{36}$' then (storage.foldername(name))[4]::uuid end
+        and (storage.foldername(name))[5] = 'manager'
+        and c.manager_id = case when (storage.foldername(name))[6] ~* '^[0-9a-f-]{36}$' then (storage.foldername(name))[6]::uuid end
+    )
   )
 );
 create policy "settlement evidence delete" on storage.objects for delete to authenticated using (
   bucket_id = 'payment-evidence' and exists (
-    select 1 from public.profiles p where p.id = auth.uid() and p.active and p.role in ('admin','settlement_cs')
+    select 1 from public.profiles p where p.id = auth.uid() and p.active and p.approval_status = 'approved' and p.role in ('admin','ceo','settlement_cs')
+  )
+);
+
+create policy "manager evidence insert" on public.payment_evidence for insert to authenticated with check (
+  owner_type = 'manager' and exists (
+    select 1
+    from public.profiles p
+    join public.campaigns c on c.manager_id = p.id
+      or regexp_replace(lower(c.manager_name), '\s+', '', 'g') = regexp_replace(lower(p.display_name), '\s+', '', 'g')
+    join public.settlements s on s.campaign_id = c.id
+    where p.id = auth.uid() and p.active and p.approval_status = 'approved' and p.role = 'manager'
+      and c.id = payment_evidence.campaign_id
+      and s.id = payment_evidence.settlement_id
+      and c.manager_id = payment_evidence.owner_id
   )
 );

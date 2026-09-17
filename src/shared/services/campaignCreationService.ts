@@ -1,6 +1,7 @@
 import type { Campaign } from '../types/campaign'
 import type { AiCampaignDraft, CampaignEvent, CampaignImportProvider, CampaignProductProposalSnapshot, CampaignProductSelection } from '../types/campaignCreation'
 import { campaignProductCatalogService } from './campaignProductCatalogService.ts'
+import { DEFAULT_SROOKPAY_FEE_RATE } from '../utils/srookPay.ts'
 
 export function generateCampaignName({ sellerName, selectedProducts }: { sellerName: string; selectedProducts: CampaignProductSelection[] }) {
   const first = [...selectedProducts].sort((a, b) => a.displayOrder - b.displayOrder)[0]
@@ -51,7 +52,7 @@ export function getSalesChannelTypeLabel(value?: string) {
 export function getEventPayerLabel(value?: string) {
   if (value === 'vendor') return '벤더 부담'
   if (value === 'seller') return '셀러 부담'
-  if (value === 'company_support') return '업체 지원'
+  if (value === 'company_support') return '업체 부담'
   if (value === 'company') return '회사 부담'
   if (value === 'manager') return '매니저 부담'
   if (value === 'shared') return '공동 부담'
@@ -77,6 +78,7 @@ export function captureProposalSnapshots(selections: CampaignProductSelection[],
     const actualCommissionRate = Math.max(product.totalCommissionRate! - (supplierLinkPgDeductionRate ?? 0), 0)
     return {
       productId: product.id, regularPrice: product.regularPrice, salePrice: product.salePrice,
+      skuConditions: product.skuConditions?.map((sku) => ({ ...sku, totalCommissionRate: sku.totalCommissionRate === undefined ? undefined : Math.max(sku.totalCommissionRate - (supplierLinkPgDeductionRate ?? 0), 0), sellerCommissionRate: sku.sellerCommissionRate === undefined ? undefined : sku.sellerCommissionRate + extra })),
       shippingAmount: product.shippingAmount, supplyPrice: product.supplyPrice,
       totalCommissionRate: product.totalCommissionRate!, sellerCommissionRate: seller,
       extraPgSupportRate: extra, sellerExtraPgRate: extra, effectiveSellerCommissionRate: seller + extra,
@@ -89,7 +91,7 @@ export function captureProposalSnapshots(selections: CampaignProductSelection[],
       selectedSalesChannelType,
       actualSalesChannel, supplierLinkAvailable: product.supplierLinkAvailable ?? true,
       supplierLinkPgPolicy: product.supplierLinkPgPolicy ?? 'manual', supplierLinkPgDeductionRate,
-      wiseSrookLinkAvailable: Boolean(product.wiseShopAvailable), wiseSrookPgRate: product.wiseSrookPgRate,
+      wiseSrookLinkAvailable: Boolean(product.wiseShopAvailable), wiseSrookPgRate: product.wiseShopAvailable ? product.wiseSrookPgRate ?? DEFAULT_SROOKPAY_FEE_RATE : undefined,
       sellerCheckoutPgSupportRate: actualSalesChannel === 'seller_checkout' && product.brandPgSupportAvailable ? product.brandPgSupportRate : undefined,
       actualCommissionRate, actualSellerCommissionRate: seller + extra, actualPgCost: undefined,
       actualPgSupport: actualSalesChannel === 'seller_checkout' ? extra : undefined,
@@ -112,7 +114,8 @@ export function normalizeCreationBusinessType(value: string) {
 }
 
 export function calculateEventAmounts(event: CampaignEvent): CampaignEvent {
-  return { ...event, estimatedTotalAmount: event.rewardUnitPrice * event.plannedQuantity, confirmedTotalAmount: event.confirmedQuantity === undefined ? undefined : event.rewardUnitPrice * event.confirmedQuantity }
+  const supplierBearsCost = event.payer === 'company_support'
+  return { ...event, estimatedTotalAmount: supplierBearsCost ? 0 : event.rewardUnitPrice * event.plannedQuantity, confirmedTotalAmount: event.confirmedQuantity === undefined ? undefined : supplierBearsCost ? 0 : event.rewardUnitPrice * event.confirmedQuantity }
 }
 
 export function summarizeEvents(events: CampaignEvent[]) {
@@ -123,10 +126,9 @@ export function summarizeEvents(events: CampaignEvent[]) {
 
 export function getCampaignEventErrors(event: CampaignEvent) {
   const errors: string[] = []
-  const requiresProducts = event.eventType !== 'other'
-  if (requiresProducts && !event.targetProductId) errors.push(event.eventType === 'try_it' ? '체험 대상 상품을 선택해주세요.' : '이벤트 적용 상품을 선택해주세요.')
-  if (requiresProducts && !event.rewardProductName) errors.push('증정·경품 상품을 선택해주세요.')
-  if ((event.eventType === 'first_come' || event.eventType === 'purchase_complete') && event.plannedQuantity <= 0) errors.push('예정 수량을 입력해주세요.')
+  if (event.eventType === 'other' && !event.eventName?.trim()) errors.push('기타 이벤트 종류를 입력해주세요.')
+  if (!event.rewardProductName?.trim()) errors.push('이벤트 품목을 입력해주세요.')
+  if (event.plannedQuantity <= 0) errors.push('인원을 입력해주세요.')
   return errors
 }
 

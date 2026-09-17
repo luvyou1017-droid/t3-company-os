@@ -3,10 +3,13 @@ import type { SampleRequest, SampleStatus } from '../../features/samples/types'
 import { notificationService } from './notificationService'
 import { STORAGE_KEYS, storageService } from './storageService'
 import { workService } from './workService'
+import { getDataProviderMode } from '../lib/dataProvider'
+import { isLegacySampleFixture } from '../utils/legacyFixtures'
 
 export const sampleService = {
   getSamples() {
-    return storageService.getItem<SampleRequest[]>(STORAGE_KEYS.samples, initialSamples)
+    const fallback = typeof window === 'undefined' || getDataProviderMode() !== 'supabase' ? initialSamples : []
+    return storageService.getItem<SampleRequest[]>(STORAGE_KEYS.samples, fallback).filter((item) => !isLegacySampleFixture(item))
   },
   saveSamples(samples: SampleRequest[]) {
     storageService.setItem(STORAGE_KEYS.samples, samples)

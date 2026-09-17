@@ -4,42 +4,10 @@ import { calculateSalesTotals, validateSalesRows } from '../utils/salesData'
 import { campaignService } from './campaignService'
 import { STORAGE_KEYS, storageService } from './storageService'
 import { workService } from './workService'
+import { getDataProviderMode } from '../lib/dataProvider'
+import type { Campaign } from '../types/campaign'
 
 const now = () => '2026-07-16 14:30'
-
-function koreaToday() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
-}
-
-function createPendingImport(campaign: ReturnType<typeof campaignService.getCampaigns>[number]): SalesDataImport {
-  return {
-    id: `sales-awaiting-${campaign.id}`,
-    campaignId: campaign.id,
-    fileName: '',
-    fileSize: 0,
-    sourceType: 'file',
-    uploadedBy: '',
-    uploadedAt: '',
-    reviewStatus: '업로드 대기',
-    settlementStatus: '정산 전',
-    totalQuantity: 0,
-    totalSalesAmount: 0,
-    notes: '공동구매 종료일 기준으로 판매 데이터 업로드 대상이 자동 생성되었습니다.',
-    uploadedProductName: campaign.productName,
-    salesStartDate: campaign.startDate,
-    salesEndDate: campaign.endDate,
-    reviewerId: campaign.mdId,
-    reviewerName: campaign.mdName,
-    totalCommissionRate: campaign.totalCommissionRate,
-    sellerCommissionRate: campaign.sellerCommissionRate,
-    commissionRate: campaign.sellerCommissionRate,
-  }
-}
 
 function getCampaignText(campaignId: string) {
   const campaign = campaignService.getCampaignById(campaignId)
@@ -89,10 +57,12 @@ function createSalesDataWorkItem(salesImport: SalesDataImport, type: 'upload' | 
 
 export const salesDataService = {
   getSalesDataImports() {
-    return storageService.getItem<SalesDataImport[]>(STORAGE_KEYS.salesDataImports, initialSalesDataImports)
+    const fallback = typeof window === 'undefined' || getDataProviderMode() !== 'supabase' ? initialSalesDataImports : []
+    return storageService.getItem<SalesDataImport[]>(STORAGE_KEYS.salesDataImports, fallback)
   },
   getSalesDataRows() {
-    return storageService.getItem<SalesDataRow[]>(STORAGE_KEYS.salesDataRows, initialSalesDataRows)
+    const fallback = typeof window === 'undefined' || getDataProviderMode() !== 'supabase' ? initialSalesDataRows : []
+    return storageService.getItem<SalesDataRow[]>(STORAGE_KEYS.salesDataRows, fallback)
   },
   saveImports(imports: SalesDataImport[]) {
     storageService.setItem(STORAGE_KEYS.salesDataImports, imports)
@@ -100,19 +70,63 @@ export const salesDataService = {
   saveRows(rows: SalesDataRow[]) {
     storageService.setItem(STORAGE_KEYS.salesDataRows, rows)
   },
-  syncEndedCampaignImports() {
-    const imports = this.getSalesDataImports()
-    const registeredCampaignIds = new Set(imports.map((item) => item.campaignId))
-    const today = koreaToday()
-    const pendingImports = campaignService.getCampaigns()
-      .filter((campaign) => Boolean(campaign.endDate) && campaign.endDate <= today && !registeredCampaignIds.has(campaign.id))
-      .sort((a, b) => b.endDate.localeCompare(a.endDate))
-      .map(createPendingImport)
-
-    if (!pendingImports.length) return imports
-    const nextImports = [...pendingImports, ...imports]
-    this.saveImports(nextImports)
-    return nextImports
+  removeEmptyCampaignImports(campaignId: string) {
+    const removableIds = new Set(this.getSalesDataImports()
+      .filter((item) => item.campaignId === campaignId && item.totalQuantity === 0 && item.totalSalesAmount === 0)
+      .map((item) => item.id))
+    this.saveImports(this.getSalesDataImports().filter((item) => !removableIds.has(item.id)))
+    this.saveRows(this.getSalesDataRows().filter((row) => !removableIds.has(row.salesDataImportId)))
+  },
+  removeEmptyCampaignImportsMany(campaignIds: Set<string>) {
+    const removableIds = new Set(this.getSalesDataImports()
+      .filter((item) => campaignIds.has(item.campaignId) && item.totalQuantity === 0 && item.totalSalesAmount === 0)
+      .map((item) => item.id))
+    if (!removableIds.size) return 0
+    this.saveImports(this.getSalesDataImports().filter((item) => !removableIds.has(item.id)))
+    this.saveRows(this.getSalesDataRows().filter((row) => !removableIds.has(row.salesDataImportId)))
+    return removableIds.size
+  },
+  syncCampaigns(campaigns: Campaign[]) {
+    const mockImportIds = new Set(Array.from({ length: 10 }, (_, index) => `sales-${String(index + 1).padStart(3, '0')}`))
+    const campaignIds = new Set(campaigns.map((campaign) => campaign.id))
+    const rowImportIds = new Set(this.getSalesDataRows().map((row) => row.salesDataImportId))
+    const current = this.getSalesDataImports().filter((item) =>
+      !mockImportIds.has(item.id) &&
+      (campaignIds.has(item.campaignId) || rowImportIds.has(item.id) || item.totalQuantity > 0 || item.totalSalesAmount > 0),
+    )
+    const existingCampaignIds = new Set(current.map((item) => item.campaignId))
+    const placeholders = campaigns
+      .filter((campaign) => !existingCampaignIds.has(campaign.id))
+      .map((campaign): SalesDataImport => ({
+        id: `sales-${campaign.id}`,
+        campaignId: campaign.id,
+        supplyAudience: campaign.supplyAudience ?? 'seller',
+        settlementVendorName: campaign.settlementVendorName,
+        fileName: '',
+        fileSize: 0,
+        sourceType: 'brand-email',
+        uploadedBy: '',
+        uploadedAt: '',
+        reviewStatus: '업로드 대기',
+        settlementStatus: '정산 전',
+        totalQuantity: 0,
+        totalSalesAmount: 0,
+        notes: '판매 종료 후 브랜드사 파일 업로드 또는 수기 입력',
+        uploadedProductName: campaign.productName,
+        salesStartDate: campaign.startDate,
+        salesEndDate: campaign.endDate,
+        reviewerId: 'u-002',
+        reviewerName: '허수정',
+        totalCommissionRate: campaign.totalCommissionRate,
+        sellerCommissionRate: campaign.sellerCommissionRate,
+        commissionRate: campaign.sellerCommissionRate,
+        sampleDeductionAmount: 0,
+        eventDeductionAmount: 0,
+      }))
+    const next = [...placeholders, ...current]
+    this.saveImports(next)
+    this.saveRows(this.getSalesDataRows().filter((row) => !mockImportIds.has(row.salesDataImportId)))
+    return next
   },
   getSalesDataByCampaignId(campaignId: string) {
     const imports = this.getSalesDataImports().filter((item) => item.campaignId === campaignId)
@@ -126,6 +140,8 @@ export const salesDataService = {
     return this.getSalesDataRows().filter((row) => row.salesDataImportId === id)
   },
   createSalesDataImport(salesImport: SalesDataImport) {
+    const campaign = campaignService.getCampaignById(salesImport.campaignId)
+    salesImport = { ...salesImport, supplyAudience: salesImport.supplyAudience ?? campaign?.supplyAudience ?? 'seller', settlementVendorName: salesImport.settlementVendorName ?? campaign?.settlementVendorName }
     this.saveImports([salesImport, ...this.getSalesDataImports().filter((item) => item.id !== salesImport.id)])
     if (salesImport.reviewStatus === '업로드 대기') createSalesDataWorkItem(salesImport, 'upload')
     return salesImport
@@ -180,9 +196,35 @@ export const salesDataService = {
   markSettlementReady(salesDataImportId: string) {
     const targetImport = this.getSalesDataImportById(salesDataImportId)
     if (!targetImport) return undefined
-    const nextImport = { ...targetImport, settlementStatus: '정산 생성됨' as const }
+    const nextImport = {
+      ...targetImport,
+      reviewStatus: '확정 완료' as const,
+      settlementStatus: targetImport.settlementStatus === '정산 완료' ? '정산 완료' as const : '정산 생성됨' as const,
+      confirmedAt: targetImport.confirmedAt ?? now(),
+      confirmedBy: targetImport.confirmedBy ?? '허수정',
+    }
     this.updateSalesDataImport(nextImport)
     createSalesDataWorkItem(nextImport, 'settlement')
     return nextImport
+  },
+  reconcileSettlementStatuses(settlements: Array<{ salesDataImportId: string; status: string }>) {
+    const settlementByImportId = new Map(settlements.map((settlement) => [settlement.salesDataImportId, settlement]))
+    let changed = false
+    const imports = this.getSalesDataImports().map((salesImport) => {
+      const settlement = settlementByImportId.get(salesImport.id)
+      if (!settlement) return salesImport
+      const settlementStatus: SalesDataImport['settlementStatus'] = settlement.status === 'completed' ? '정산 완료' : '정산 생성됨'
+      if (salesImport.reviewStatus === '확정 완료' && salesImport.settlementStatus === settlementStatus) return salesImport
+      changed = true
+      return {
+        ...salesImport,
+        reviewStatus: '확정 완료' as const,
+        settlementStatus,
+        confirmedAt: salesImport.confirmedAt ?? now(),
+        confirmedBy: salesImport.confirmedBy ?? '허수정',
+      }
+    })
+    if (changed) this.saveImports(imports)
+    return { imports, changed }
   },
 }
