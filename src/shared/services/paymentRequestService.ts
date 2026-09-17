@@ -3,7 +3,8 @@ import { validateSellerSettlement } from '../utils/sellerSettlement'
 import type { EvidenceOwnerType } from '../types/paymentEvidence'
 import type { SellerBusinessType } from '../types/sellerSettlement'
 import { calculateWithholding } from '../utils/withholdingTax'
-import { canEditSettlement, type AppUserRole } from '../data/users'
+import { calculateManagerPayoutBreakdown } from '../utils/settlementDocument'
+import { canEditSettlement, canManagePaymentApproval, type AppUserRole } from '../data/users'
 import { duplicateBlockingPaymentStatuses, hasDuplicatePaymentRequest } from '../utils/paymentRequest'
 import { campaignService } from './campaignService'
 import { paymentEvidenceService } from './paymentEvidenceService'
@@ -29,12 +30,25 @@ export type PaymentRequestValidationInput = {
   sourceVersion?: number
 }
 
-type CreatePaymentRequestOptions = { allowEvidencePending?: boolean; memo?: string; accountConfirmed?: boolean; bankNameSnapshot?: string; accountNumberSnapshot?: string; accountHolderSnapshot?: string }
+type CreatePaymentRequestOptions = { allowEvidencePending?: boolean; reportedIssuedWithoutCapture?: boolean; memo?: string; accountConfirmed?: boolean; bankNameSnapshot?: string; accountNumberSnapshot?: string; accountHolderSnapshot?: string }
 const editablePaymentRequestStatuses: PaymentRequestStatus[] = ['evidence_pending', 'request_ready', 'approval_pending', 'on_hold']
+
+function reportedIssuedWithoutCapturePatch(enabled: boolean | undefined, checkedBy: string): Partial<PaymentRequest> {
+  if (!enabled) return {}
+  const checkedAt = now()
+  const memo = '발급했다고 전달받았으나 캡처본 미수령'
+  return {
+    documentCheckStatus: 'reported_issued', documentCheckMemo: memo, documentCheckedBy: checkedBy, documentCheckedAt: checkedAt,
+    documentCheckHistory: [{ status: 'reported_issued', memo, checkedBy, checkedAt }],
+    taxInvoiceFollowUpRequired: true, taxInvoiceFinalConfirmed: false,
+  }
+}
 
 function validate(input: PaymentRequestValidationInput) {
   const settlement = settlementService.getSettlementById(input.settlementId)
   const reasons: string[] = []
+  if (settlement && input.ownerType === 'seller' && salesDataService.getSalesDataImportById(settlement.salesDataImportId)?.supplyAudience === 'vendor') reasons.push('벤더 정산 건입니다. 셀러 명의 지급요청을 생성할 수 없습니다. 벤더 지급계좌·사업자 정보 연결이 필요합니다.')
+  if (settlement && input.ownerType === 'manager' && (salesDataService.getSalesDataImportById(settlement.salesDataImportId)?.supplyAudience ?? campaignService.getCampaignById(settlement.campaignId)?.supplyAudience) === 'vendor') reasons.push('벤더 공급은 회사 직속으로 매니저 배분 및 지급요청 대상이 아닙니다.')
   if (!settlement) {
     reasons.push(input.ownerType === 'seller' ? '셀러 정산 정보를 찾을 수 없습니다.' : '매니저 정산 정보를 찾을 수 없습니다.')
   } else if (!settlementService.isSettlementConfirmed(settlement)) {
@@ -52,7 +66,9 @@ function validate(input: PaymentRequestValidationInput) {
     const managerShareValid = Number.isFinite(calculation.managerShareRate) && Number.isFinite(calculation.companyShareRate)
       && calculation.managerShareRate >= 0 && calculation.managerShareRate <= 100
       && Math.abs(calculation.managerShareRate + calculation.companyShareRate - 100) < 0.001
-    const managerCalculationReady = salesImport?.reviewStatus === '확정 완료' && finiteAmounts && commissionRatesValid && managerShareValid && calculation.managerAmount >= 0
+    // A settlement snapshot is only created from confirmed sales data. Older cloud records can
+    // retain a stale import status, so validate the actual calculation instead of blocking twice.
+    const managerCalculationReady = Boolean(salesImport) && finiteAmounts && commissionRatesValid && managerShareValid && calculation.managerAmount >= 0
     if (!managerCalculationReady) reasons.push('매니저 최종 지급액을 계산할 수 없습니다.')
   }
   if (!input.accountConfirmed) reasons.push('지급 계좌가 확인되지 않았습니다.')
@@ -134,7 +150,7 @@ export const paymentRequestService = {
   canCancelPaymentRequest(request: PaymentRequest) { return editablePaymentRequestStatuses.includes(request.status) },
   canRecoverLegacyPaymentRequest(request: PaymentRequest) {
     const settlement = settlementService.getSettlementById(request.settlementId)
-    return Boolean(settlement && !settlementService.isSettlementConfirmed(settlement) && (this.canCancelPaymentRequest(request) || request.status === 'sent'))
+    return Boolean(settlement && !settlementService.isSettlementConfirmed(settlement) && (this.canCancelPaymentRequest(request) || request.status === 'sent' || request.status === 'approved'))
   },
   cancelLegacyPaymentRequest(id: string, reason: string, canceledBy: string, role: AppUserRole) {
     const request = this.getPaymentRequestById(id)
@@ -142,11 +158,19 @@ export const paymentRequestService = {
     if (!canEditSettlement(role)) throw new Error('이전 지급요청을 정리할 권한이 없습니다.')
     if (!request) throw new Error('지급 요청을 찾을 수 없습니다.')
     if (!trimmedReason) throw new Error('지급요청 취소 사유를 입력해주세요.')
+    if (request.status === 'approved') return this.cancelApprovedPaymentRequest(id, reason, canceledBy, role)
     if (!this.canRecoverLegacyPaymentRequest(request)) {
       if (request.status === 'payment_completed' || request.status === 'remittance_confirmed') throw new Error('이미 지급 완료된 건입니다.')
       throw new Error('승인 완료된 지급요청은 이 복구 절차로 취소할 수 없습니다.')
     }
     return transition(id, 'canceled', { canceledBy, canceledAt: now(), cancellationReason: trimmedReason, previousStatusBeforeCancellation: request.status, memo: request.memo })
+  },
+  cancelApprovedPaymentRequest(id: string, reason: string, canceledBy: string, role: AppUserRole) {
+    if (!canManagePaymentApproval(role)) throw new Error('지급 승인을 취소할 권한이 없습니다.')
+    const request = this.getPaymentRequestById(id)
+    if (!request || request.status !== 'approved' || request.completedAt || request.actualPaidAmount) throw new Error('입금 완료 전 승인 상태인 건만 취소할 수 있습니다. 현재 상태를 다시 확인해주세요.')
+    if (!reason.trim()) throw new Error('승인 및 지급요청 취소 사유를 입력해주세요.')
+    return transition(id, 'canceled', { canceledBy, canceledAt: now(), cancellationReason: reason.trim(), previousStatusBeforeCancellation: request.status })
   },
   cancelPaymentRequest(id: string, reason: string, canceledBy = '허수정') {
     const request = this.getPaymentRequestById(id)
@@ -159,6 +183,47 @@ export const paymentRequestService = {
       throw new Error('현재 상태에서는 지급요청을 취소할 수 없습니다.')
     }
     return transition(id, 'canceled', { canceledBy, canceledAt: now(), cancellationReason: trimmedReason, previousStatusBeforeCancellation: request.status, memo: request.memo })
+  },
+  recreatePaymentRequestAtCurrentAmount(id: string, reason: string, requestedBy = '허수정') {
+    const request = this.getPaymentRequestById(id)
+    const trimmedReason = reason.trim()
+    if (!request) throw new Error('지급 요청을 찾을 수 없습니다.')
+    if (!trimmedReason) throw new Error('금액 정정 사유를 입력해주세요.')
+    if (!this.canCancelPaymentRequest(request)) {
+      if (request.status === 'payment_completed' || request.status === 'remittance_confirmed') throw new Error('이미 지급 완료된 건은 재생성할 수 없습니다.')
+      if (request.status === 'approved' || request.status === 'sent') throw new Error('대표 승인 완료 건은 먼저 승인을 취소해야 합니다.')
+      throw new Error('현재 상태에서는 지급요청을 재생성할 수 없습니다.')
+    }
+
+    const storageSnapshot = {
+      paymentRequests: this.getPaymentRequests(),
+      settlements: settlementService.getSettlements(),
+      campaigns: campaignService.getCampaigns(),
+      withholdingTaxItems: withholdingTaxService.getItems(),
+      paymentEvidence: paymentEvidenceService.getAllEvidence(),
+    }
+    try {
+      this.cancelPaymentRequest(id, trimmedReason, requestedBy)
+      const commonOptions: CreatePaymentRequestOptions = {
+        allowEvidencePending: request.evidenceStatus === 'pending',
+        reportedIssuedWithoutCapture: request.documentCheckStatus === 'reported_issued' && Boolean(request.taxInvoiceFollowUpRequired) && !request.taxInvoiceFinalConfirmed,
+        memo: request.memo,
+        accountConfirmed: request.accountConfirmed,
+        bankNameSnapshot: request.bankNameSnapshot,
+        accountNumberSnapshot: request.accountNumberSnapshot,
+        accountHolderSnapshot: request.accountHolderSnapshot,
+      }
+      return request.recipientType === 'seller'
+        ? this.createPaymentRequest(request.settlementId, requestedBy, commonOptions)
+        : this.createManagerPaymentRequest(request.settlementId, requestedBy, request.businessType, undefined, commonOptions)
+    } catch (error) {
+      storageService.setItem(STORAGE_KEYS.paymentRequests, storageSnapshot.paymentRequests)
+      storageService.setItem(STORAGE_KEYS.settlements, storageSnapshot.settlements)
+      storageService.setItem(STORAGE_KEYS.campaigns, storageSnapshot.campaigns)
+      storageService.setItem(STORAGE_KEYS.withholdingTaxItems, storageSnapshot.withholdingTaxItems)
+      storageService.setItem(STORAGE_KEYS.paymentEvidence, storageSnapshot.paymentEvidence)
+      throw error
+    }
   },
   getPaymentRequestForRecipient(settlementId: string, recipientType: EvidenceOwnerType, recipientId: string, sourceVersion: number) {
     return this.getOperationalPaymentRequests().find((request) =>
@@ -181,7 +246,9 @@ export const paymentRequestService = {
   canCreatePaymentRequest(input: PaymentRequestValidationInput) { return validate(input).valid },
   getPaymentRequestBlockReasons(input: PaymentRequestValidationInput) { return validate(input).reasons },
   createPaymentRequest(settlementId: string, requestedBy: string, options: CreatePaymentRequestOptions = {}) {
-    const document = sellerSettlementService.getDocumentBySettlementId(settlementId) ?? sellerSettlementService.createSellerDocument(settlementId)
+    // A payment request must snapshot the latest confirmed SKU-level settlement.
+    // Reusing a persisted document can apply stale or campaign-level commission rates.
+    const document = sellerSettlementService.createSellerDocument(settlementId, false)
     const rule = sellerSettlementService.getSellerSettlementRule(document.campaignId)
     if (!rule) throw new Error('셀러 정산 규칙이 없습니다.')
     const validation = validateSellerSettlement(rule, document.calculation)
@@ -193,7 +260,8 @@ export const paymentRequestService = {
       calculationCompleted: true, calculationErrors: validation.errors, amountConfirmed: true,
       sourceVersion: settlementService.getSettlementById(settlementId)?.settlementVersion,
     })
-    const blockingReasons = options.allowEvidencePending
+    const evidencePending = options.allowEvidencePending || options.reportedIssuedWithoutCapture
+    const blockingReasons = evidencePending
       ? requestValidation.reasons.filter((reason) => reason !== '증빙 검수가 완료되지 않았습니다.')
       : requestValidation.reasons
     if (blockingReasons.length) throw new Error(blockingReasons.join('\n'))
@@ -225,10 +293,11 @@ export const paymentRequestService = {
       incomeTaxAmount: rule.businessType === 'freelancer' ? withholding.incomeTaxAmount : 0,
       localIncomeTaxAmount: rule.businessType === 'freelancer' ? withholding.localIncomeTaxAmount : 0,
       deductions: c.sellerDeductions, finalPaymentAmount: c.finalSellerPaymentAmount,
-      sellerRemittanceToCompany: c.sellerRemittanceToCompany, evidenceStatus: options.allowEvidencePending ? 'pending' : 'confirmed', accountConfirmed: true,
+      sellerRemittanceToCompany: c.sellerRemittanceToCompany, evidenceStatus: evidencePending ? 'pending' : 'confirmed', accountConfirmed: true,
       bankNameSnapshot: sellerProfile?.bankName, accountNumberSnapshot: sellerProfile?.accountNumber, accountHolderSnapshot: sellerProfile?.accountHolder,
       requestedBy, requestedAt: now(), dueDate: document.dueDate,
-      status: options.allowEvidencePending ? 'evidence_pending' : rule.businessType === 'freelancer' ? 'approval_pending' : document.salesChannelType === 'seller_checkout' ? 'request_ready' : 'approval_pending', memo: options.memo?.trim() ?? '',
+      status: options.reportedIssuedWithoutCapture ? 'approval_pending' : evidencePending ? 'evidence_pending' : rule.businessType === 'freelancer' ? 'approval_pending' : document.salesChannelType === 'seller_checkout' ? 'request_ready' : 'approval_pending', memo: options.memo?.trim() ?? '',
+      ...reportedIssuedWithoutCapturePatch(options.reportedIssuedWithoutCapture, requestedBy),
     })
     paymentEvidenceService.linkToPaymentRequest(settlementId, 'seller', request.id)
     if (taxItem) {
@@ -252,7 +321,8 @@ export const paymentRequestService = {
       calculationCompleted: true, calculationErrors: [], amountConfirmed: settlement.currentCalculation.managerAmount >= 0,
       sourceVersion: settlement.settlementVersion,
     })
-    const blockingReasons = options.allowEvidencePending
+    const evidencePending = options.allowEvidencePending || options.reportedIssuedWithoutCapture
+    const blockingReasons = evidencePending
       ? validation.reasons.filter((reason) => reason !== '증빙 검수가 완료되지 않았습니다.')
       : validation.reasons
     if (blockingReasons.length) throw new Error(blockingReasons.join('\n'))
@@ -271,9 +341,10 @@ export const paymentRequestService = {
       } catch { throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.') }
       if (!taxItem) throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.')
     }
-    const vatExcluded = Math.ceil(taxableGross / 1.1)
+    const payout = calculateManagerPayoutBreakdown(taxableGross, businessType, deductions, reimbursement)
+    const vatExcluded = payout.vatExcludedAmount
     const finalPaymentAmount = businessType === 'freelancer' ? tax.finalPaymentAmount + reimbursement
-      : businessType === 'simplified_business' ? vatExcluded - deductions + reimbursement : taxableGross - deductions + reimbursement
+      : payout.finalPaymentAmount
     const request = save({
       id: `payment-request-${crypto.randomUUID()}`, campaignId: settlement.campaignId, settlementId,
       sellerId: managerId, ownerType: 'manager', ownerId: managerId, ownerName: managerName,
@@ -286,10 +357,11 @@ export const paymentRequestService = {
       withholdingTaxAmount: businessType === 'freelancer' ? tax.totalWithholdingTaxAmount : 0,
       incomeTaxAmount: businessType === 'freelancer' ? tax.incomeTaxAmount : 0,
       localIncomeTaxAmount: businessType === 'freelancer' ? tax.localIncomeTaxAmount : 0,
-      deductions, finalPaymentAmount, sellerRemittanceToCompany: 0, evidenceStatus: options.allowEvidencePending ? 'pending' : 'confirmed',
+      deductions, finalPaymentAmount, sellerRemittanceToCompany: 0, evidenceStatus: evidencePending ? 'pending' : 'confirmed',
       accountConfirmed: options.accountConfirmed ?? settlement.accountConfirmed, requestedBy, requestedAt: now(), dueDate: settlement.paymentDueDate,
       bankNameSnapshot: options.bankNameSnapshot, accountNumberSnapshot: options.accountNumberSnapshot, accountHolderSnapshot: options.accountHolderSnapshot,
-      status: options.allowEvidencePending ? 'evidence_pending' : 'approval_pending', memo: options.memo?.trim() || '매니저 지급 요청',
+      status: options.reportedIssuedWithoutCapture ? 'approval_pending' : evidencePending ? 'evidence_pending' : 'approval_pending', memo: options.memo?.trim() || '매니저 지급 요청',
+      ...reportedIssuedWithoutCapturePatch(options.reportedIssuedWithoutCapture, requestedBy),
     })
     paymentEvidenceService.linkToPaymentRequest(settlementId, 'manager', request.id)
     if (taxItem) {

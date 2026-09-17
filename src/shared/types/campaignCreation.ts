@@ -27,6 +27,9 @@ export interface ProductSalesLinkPolicy {
 }
 
 export interface ProductMaster extends Partial<ProductSalesLinkPolicy> {
+  supplyAudience?: 'seller' | 'vendor'
+  settlementVendorName?: string
+  skuConditions?: import('./settlementTerms').SettlementSkuCondition[]
   id: string
   brandId: string
   brandName: string
@@ -53,6 +56,7 @@ export interface CampaignProductSelection {
 }
 
 export interface CampaignProductProposalSnapshot {
+  skuConditions?: import('./settlementTerms').SettlementSkuCondition[]
   productId: string
   regularPrice: number
   salePrice: number

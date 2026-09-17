@@ -17,6 +17,7 @@ export type SettlementDeductionType = 'sample' | 'event' | 'purchase' | 'shippin
 export type SettlementCostOwner = 'company' | 'seller' | 'brand' | 'manager' | 'undecided'
 export type SettlementApplyLocation =
   | 'net_company_commission'
+  | 'net_company_commission_credit'
   | 'seller_payment'
   | 'manager_payment'
   | 'manager_reimbursement'
@@ -66,6 +67,7 @@ export type SettlementCalculationSnapshot = {
   companySampleDeduction: number
   companyEventDeduction: number
   companyOtherDeduction: number
+  companyAdjustmentCredit?: number
   sellerDeduction: number
   sellerDeductionTotal: number
   managerDeduction: number

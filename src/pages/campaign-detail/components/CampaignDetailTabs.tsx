@@ -1,4 +1,6 @@
 import type { CampaignTab } from '../../../shared/types/campaignWorkspace'
+import { useCompanyAuth } from '../../../features/auth/AuthGate'
+import { canAccessCampaignTab } from '../../../features/auth/pagePermissions'
 
 export const campaignTabs: Array<{ id: CampaignTab; label: string }> = [
   { id: 'overview', label: '개요' },
@@ -16,9 +18,12 @@ export const campaignTabs: Array<{ id: CampaignTab; label: string }> = [
 type Props = { activeTab: CampaignTab; onChange: (tab: CampaignTab) => void }
 
 export function CampaignDetailTabs({ activeTab, onChange }: Props) {
+  const { profile } = useCompanyAuth()
+  const visibleTabs = campaignTabs.filter((tab) => canAccessCampaignTab(profile.role, tab.id))
+
   return (
     <nav aria-label="Campaign 상세 탭" className="workspace-tabs">
-      {campaignTabs.map((tab) => (
+      {visibleTabs.map((tab) => (
         <button
           aria-current={activeTab === tab.id ? 'page' : undefined}
           className={activeTab === tab.id ? 'is-active' : ''}

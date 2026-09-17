@@ -2,6 +2,8 @@ import type { WorkType } from '../../features/myWork/types'
 import { canEditSettlement, type AppUserRole } from '../data/users'
 import type { SampleCostOwner, SampleRequest } from '../../features/samples/types'
 import type { SalesDataImport } from '../types/salesData'
+import { getSalesEventCosts } from '../utils/salesEventCosts'
+import { calculateSrookPayFee, DEFAULT_SROOKPAY_FEE_RATE } from '../utils/srookPay.ts'
 import type {
   Settlement,
   SettlementActivityAction,
@@ -31,17 +33,17 @@ import { campaignService } from './campaignService'
 import { campaignEventOperationService } from './campaignEventOperationService'
 import { notificationService } from './notificationService'
 import { salesDataService } from './salesDataService'
+import { syncProductCommissionRates } from './productCommissionSyncService'
 import { sampleService } from './sampleService'
 import { STORAGE_KEYS, storageService } from './storageService'
 import { workService } from './workService'
+import { getDataProviderMode } from '../lib/dataProvider'
 
 const now = () => new Date().toISOString()
 const paymentDueDate = '2026-07-22'
 
-function withManagerSettlementPolicy(salesImport: SalesDataImport): SalesDataImport {
-  const campaign = campaignService.getCampaignById(salesImport.campaignId)
-  const managerSettlementRequired = campaign?.managerSettlementRequired ?? campaign?.sellerName.trim() !== '드엘리사'
-  return { ...salesImport, managerSettlementRequired }
+function isLegacyMockSettlement(settlement: Settlement) {
+  return /^settlement-sales-00\d$/.test(settlement.id) && /^SCH-00\d$/.test(settlement.campaignId)
 }
 
 const defaultChecklist: SettlementReviewChecklist = {
@@ -146,24 +148,62 @@ function createSampleDeductions(settlementId: string, campaignId: string, sample
 function createSalesDeductions(settlementId: string, salesImport: SalesDataImport) {
   const createdAt = now()
   const items: SettlementDeduction[] = []
-  if (salesImport.eventDeductionAmount) {
+  const campaign = campaignService.getCampaignById(salesImport.campaignId)
+  const isSrookPayCampaign = campaign?.salesChannelType === 'wise_shop_link'
+    || campaign?.proposalSnapshots?.some((snapshot) => snapshot.actualSalesChannel === 'wise_shop_link')
+  if (isSrookPayCampaign && salesImport.shippingRevenue !== undefined) {
+    const productNetSales = salesDataService.getRowsByImportId(salesImport.id).reduce((sum, row) => sum + row.netSales, 0)
+    const feeRate = salesImport.srookPayFeeRate ?? DEFAULT_SROOKPAY_FEE_RATE
+    const estimatedFee = calculateSrookPayFee(productNetSales, salesImport.shippingRevenue, feeRate)
+    const feeAmount = salesImport.srookPayActualFeeAmount ?? estimatedFee
     items.push({
-      id: `deduction-${salesImport.id}-event`,
+      id: `deduction-${salesImport.id}-srookpay`, settlementId, campaignId: salesImport.campaignId,
+      type: 'purchase', title: '스룩페이 결제 수수료', amount: feeAmount,
+      costOwner: 'company', linkedData: `sales_data:${salesImport.id}:srookpay`,
+      evidenceStatus: salesImport.srookPayActualFeeAmount === undefined ? 'pending' : 'confirmed',
+      applyLocation: 'net_company_commission', reflected: true,
+      memo: salesImport.srookPayActualFeeAmount === undefined
+        ? `자동 계산 · (제품 순매출 ${Math.round(productNetSales).toLocaleString('ko-KR')}원 + 배송비 매출 ${Math.round(salesImport.shippingRevenue).toLocaleString('ko-KR')}원) × ${feeRate}% (VAT 포함)`
+        : `실제 차감액 입력 · 예상 ${estimatedFee.toLocaleString('ko-KR')}원 · ${feeRate}% (VAT 포함)`,
+      createdAt, updatedAt: createdAt,
+    })
+  }
+  getSalesEventCosts(salesImport).forEach((event) => {
+    const managerPrepaid = event.owner === 'company_manager_prepaid'
+    const costOwner = event.owner === 'company_manager_prepaid' ? 'company' : event.owner
+    const applyLocation = managerPrepaid ? 'manager_reimbursement' : costOwner === 'company' ? 'net_company_commission' : costOwner === 'seller' ? 'seller_payment' : costOwner === 'manager' ? 'manager_payment' : 'record_only'
+    items.push({
+      id: event.id === 'legacy' ? `deduction-${salesImport.id}-event` : `deduction-${salesImport.id}-event-${event.id}`,
       settlementId,
       campaignId: salesImport.campaignId,
       type: 'event',
-      title: '이벤트 비용',
-      amount: Math.max(Math.round(salesImport.eventDeductionAmount), 0),
-      costOwner: 'company',
-      linkedData: `sales_data:${salesImport.id}`,
+      title: event.name || '차감·조정내역',
+      amount: event.amount,
+      costOwner,
+      linkedData: `sales_data:${salesImport.id}:event:${event.id}`,
       evidenceStatus: 'pending',
-      applyLocation: 'net_company_commission',
-      reflected: true,
-      memo: '이벤트 비용 수기 입력',
+      applyLocation,
+      reflected: costOwner !== 'brand',
+      memo: event.unitPrice !== undefined && event.quantity !== undefined
+        ? `차감·조정내역 · 적용 단가 ${event.unitPrice.toLocaleString('ko-KR')}원 × ${event.quantity.toLocaleString('ko-KR')}명 · 공급사 지원 ${event.supplierSupportRate ?? 0}%${event.companyUnitCost === undefined ? '' : ` · 회사 실제원가 ${event.companyUnitCost.toLocaleString('ko-KR')}원`}`
+        : `차감·조정내역 · 부담 주체 ${costOwner === 'company' ? '회사' : costOwner === 'seller' ? '셀러' : costOwner === 'manager' ? '매니저' : '업체'}`,
       createdAt,
       updatedAt: createdAt,
     })
-  }
+    if (costOwner === 'seller' && event.unitPrice !== undefined && event.companyUnitCost !== undefined && event.quantity !== undefined) {
+      const quantity = Math.max(Math.round(event.quantity), 0)
+      const supportMultiplier = 1 - Math.min(Math.max(event.supplierSupportRate ?? 0, 0), 100) / 100
+      const priceDifference = Math.max(Math.round((event.unitPrice - event.companyUnitCost) * quantity * supportMultiplier), 0)
+      if (priceDifference > 0) items.push({
+        id: `deduction-${salesImport.id}-event-${event.id}-price-difference`, settlementId, campaignId: salesImport.campaignId,
+        type: 'promotion', title: `${event.name || '차감·조정'} 공급가 차이`, amount: priceDifference,
+        costOwner: 'company', linkedData: `sales_data:${salesImport.id}:event:${event.id}:price_difference`,
+        evidenceStatus: 'confirmed', applyLocation: 'net_company_commission_credit', reflected: true,
+        memo: `셀러 적용가 ${event.unitPrice.toLocaleString('ko-KR')}원 - 회사 실제원가 ${event.companyUnitCost.toLocaleString('ko-KR')}원 × ${quantity.toLocaleString('ko-KR')}명 · 매니저 배분 전 가산`,
+        createdAt, updatedAt: createdAt,
+      })
+    }
+  })
   if (salesImport.sampleDeductionAmount) {
     items.push({
       id: `deduction-${salesImport.id}-sample-manual`,
@@ -254,7 +294,7 @@ function withRecalculation(settlement: Settlement, reason = '계산 실행'): Se
   if (!salesImport) return settlement
   const rows = salesDataService.getRowsByImportId(salesImport.id)
   const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
-  const currentCalculation = calculateSettlement(withManagerSettlementPolicy(salesImport), rows, deductions, settlement.taxType)
+  const currentCalculation = calculateSettlement(salesImport, rows, deductions, settlement.taxType)
   const calculationSteps = createCalculationSteps(currentCalculation)
   const next: Settlement = { ...settlement, currentCalculation, calculationSteps, updatedAt: now() }
   settlementService.saveSettlements(settlementService.getSettlements().map((item) => (item.id === next.id ? next : item)))
@@ -265,7 +305,15 @@ function withRecalculation(settlement: Settlement, reason = '계산 실행'): Se
 export const settlementService = {
   getSettlements() {
     const stored = storageService.getItem<Settlement[]>(STORAGE_KEYS.settlements, [])
-    return this.refreshRevisionFlags(stored)
+    const cleaned = getDataProviderMode() === 'supabase' ? stored.filter((item) => !isLegacyMockSettlement(item)) : stored
+    if (cleaned.length !== stored.length) this.saveSettlements(cleaned)
+    if (cleaned.length) return this.refreshRevisionFlags(cleaned).map((item) => {
+      const source = salesDataService.getSalesDataImportById(item.salesDataImportId)
+      if ((source?.supplyAudience ?? campaignService.getCampaignById(item.campaignId)?.supplyAudience) !== 'vendor') return item
+      return { ...item, currentCalculation: { ...item.currentCalculation, managerShareRate: 0, companyShareRate: 100, managerBaseShareAmount: 0, managerAmount: 0, companyAmount: item.currentCalculation.distributableVendorCommission } }
+    })
+    if (getDataProviderMode() === 'supabase') return []
+    return this.seedInitialSettlements()
   },
   saveSettlements(settlements: Settlement[]) {
     storageService.setItem(STORAGE_KEYS.settlements, settlements)
@@ -307,6 +355,32 @@ export const settlementService = {
   },
   getSettlementById(id: string) {
     return this.getSettlements().find((item) => item.id === id)
+  },
+  async syncProductRates(settlementId: string) {
+    const settlement = this.getSettlementById(settlementId)
+    if (!settlement) return undefined
+    const result = await syncProductCommissionRates(settlement.salesDataImportId)
+    if (!result.matched) return settlement
+    return withRecalculation(settlement, `상품 DB SKU 수수료율 동기화 · ${result.matched}개 일치`)
+  },
+  syncSalesEventDeduction(salesDataImportId: string) {
+    const settlement = this.getSettlements().find((item) => item.salesDataImportId === salesDataImportId)
+    const salesImport = salesDataService.getSalesDataImportById(salesDataImportId)
+    if (!settlement || !salesImport) return undefined
+    const eventPrefix = `sales_data:${salesDataImportId}:event:`
+    const nextEvents = createSalesDeductions(settlement.id, salesImport).filter((item) => item.linkedData.startsWith(eventPrefix))
+    const others = this.getDeductions().filter((item) => !((item.type === 'event' || item.type === 'promotion') && item.linkedData.startsWith(eventPrefix)))
+    this.saveDeductions([...nextEvents, ...others])
+    return withRecalculation(settlement, nextEvents.length ? `차감·조정내역 ${nextEvents.length}건 반영` : '차감·조정내역 삭제')
+  },
+  syncSalesCostDeductions(salesDataImportId: string) {
+    const settlement = this.getSettlements().find((item) => item.salesDataImportId === salesDataImportId)
+    const salesImport = salesDataService.getSalesDataImportById(salesDataImportId)
+    if (!settlement || !salesImport) return undefined
+    const nextItems = createSalesDeductions(settlement.id, salesImport)
+    const others = this.getDeductions().filter((item) => !item.linkedData.startsWith(`sales_data:${salesDataImportId}`))
+    this.saveDeductions([...nextItems, ...others])
+    return withRecalculation(settlement, '판매 데이터 비용·차감 재반영')
   },
   getSettlementByCampaignId(campaignId: string) {
     return this.getSettlements().filter((item) => item.campaignId === campaignId)
@@ -350,7 +424,7 @@ export const settlementService = {
       const itemDeductions = [...createSampleDeductions(id, salesImport.campaignId, sampleService.getSamplesByCampaignId(salesImport.campaignId)), ...createSalesDeductions(id, salesImport)]
       const status: SettlementStatus = index === 2 ? 'approved' : index === 1 ? 'review_pending' : 'draft'
       const taxType = taxTypeFromBusinessType(campaign?.businessType)
-      const currentCalculation = calculateSettlement(withManagerSettlementPolicy(salesImport), salesDataService.getRowsByImportId(salesImport.id), itemDeductions, taxType)
+      const currentCalculation = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), itemDeductions, taxType)
       const snapshot = status === 'approved' ? currentCalculation : undefined
       const settlement: Settlement = {
         id,
@@ -418,28 +492,32 @@ export const settlementService = {
       if (!salesImport) return settlement
       const deductions = this.getDeductionsBySettlementId(settlement.id)
       markSamplesReflected(settlement.id, deductions)
-      const current = calculateSettlement(withManagerSettlementPolicy(salesImport), salesDataService.getRowsByImportId(salesImport.id), deductions, settlement.taxType)
-      if (!settlement.calculationSnapshot || settlement.status === 'revision_required') return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current) }
-      if (settlement.settlementConfirmed === false) return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current), hasSourceChanged: false }
+      const current = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), deductions, settlement.taxType)
+      if (!settlement.calculationSnapshot) return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current) }
       const changed = current.grossSales !== settlement.calculationSnapshot.grossSales || current.grossCommission !== settlement.calculationSnapshot.grossCommission || current.sellerCommissionAmount !== settlement.calculationSnapshot.sellerCommissionAmount || current.deductionTotal !== settlement.calculationSnapshot.deductionTotal
-      if (!changed) return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current), hasSourceChanged: false }
+      if (settlement.settlementConfirmed === false) {
+        const resolvedAutomaticWarning = settlement.status === 'revision_required' && !this.getPendingRevisionRequest(settlement.id) && !changed
+        return { ...settlement, status: resolvedAutomaticWarning ? 'review_pending' : settlement.status, currentCalculation: current, calculationSteps: createCalculationSteps(current), hasSourceChanged: resolvedAutomaticWarning ? false : settlement.hasSourceChanged, sourceChangeReason: resolvedAutomaticWarning ? undefined : settlement.sourceChangeReason }
+      }
+      if (!changed) return { ...settlement, status: settlement.status === 'revision_required' ? 'review_pending' : settlement.status, currentCalculation: current, calculationSteps: createCalculationSteps(current), hasSourceChanged: false, sourceChangeReason: undefined }
       return { ...settlement, status: 'revision_required' as const, currentCalculation: current, calculationSteps: createCalculationSteps(current), hasSourceChanged: true, sourceChangeReason: '원본 데이터 변경됨' }
     })
     return next
   },
   createSettlementFromSalesData(salesDataImportId: string, initialStatus: SettlementStatus = 'draft') {
     const salesImport = salesDataService.getSalesDataImportById(salesDataImportId)
+    const existing = this.getSettlements().find((item) => item.salesDataImportId === salesDataImportId)
+    if (existing) {
+      if (salesImport && salesImport.settlementStatus !== '정산 완료') salesDataService.markSettlementReady(salesDataImportId)
+      return existing
+    }
     if (!salesImport || !isEligibleSalesData(salesImport)) return undefined
     const campaign = campaignService.getCampaignById(salesImport.campaignId)
     const id = `settlement-${salesImport.id}`
-    const existing = storageService.getItem<Settlement[]>(STORAGE_KEYS.settlements, []).find((item) => item.id === id)
-    if (existing) return existing
     const createdAt = now()
     const deductions = [...createSampleDeductions(id, salesImport.campaignId, sampleService.getSamplesByCampaignId(salesImport.campaignId)), ...createSalesDeductions(id, salesImport)]
     const taxType = taxTypeFromBusinessType(campaign?.businessType)
-    const policySalesImport = withManagerSettlementPolicy(salesImport)
-    if (salesImport.managerSettlementRequired !== policySalesImport.managerSettlementRequired) salesDataService.updateSalesDataImport(policySalesImport)
-    const currentCalculation = calculateSettlement(policySalesImport, salesDataService.getRowsByImportId(salesImport.id), deductions, taxType)
+    const currentCalculation = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), deductions, taxType)
     const snapshot = initialStatus === 'draft' || initialStatus === 'review_pending' ? undefined : currentCalculation
     const settlement: Settlement = {
       id,
@@ -477,11 +555,6 @@ export const settlementService = {
     salesDataService.markSettlementReady(salesImport.id)
     return settlement
   },
-  confirmSalesDataAndCreateSettlement(salesDataImportId: string, confirmedBy = '허수정') {
-    const confirmed = salesDataService.confirmSalesData(salesDataImportId, confirmedBy)
-    if (!confirmed) return undefined
-    return this.createSettlementFromSalesData(salesDataImportId)
-  },
   recalculateSettlement(settlementId: string, reason = '재계산') {
     const settlement = this.getSettlementById(settlementId)
     return settlement ? withRecalculation(settlement, reason) : undefined
@@ -494,7 +567,7 @@ export const settlementService = {
       const netQuantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0)
       return { ...row, grossSales: row.quantity * row.unitPrice, netQuantity, netSales: netQuantity * row.unitPrice }
     })
-    return calculateSettlement(withManagerSettlementPolicy({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate }), rows, input.deductions, settlement.taxType, calculatedBy)
+    return calculateSettlement({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate }, rows, input.deductions, settlement.taxType, calculatedBy)
   },
   saveRevision(input: SettlementRevisionDraft, changedBy: string, role: AppUserRole) {
     const settlement = this.getSettlementById(input.settlementId)
@@ -596,6 +669,7 @@ export const settlementService = {
     const snapshot = settlement.currentCalculation
     const next: Settlement = { ...settlement, settlementConfirmed: true, settlementConfirmedAt: confirmedAt, settlementConfirmedBy: confirmedBy, settlementConfirmedVersion: settlement.settlementVersion, calculationSnapshot: snapshot, originalSnapshot: settlement.originalSnapshot ?? snapshot, updatedAt: confirmedAt, hasSourceChanged: false, sourceChangeReason: undefined }
     this.saveSettlements(this.getSettlements().map((item) => item.id === settlementId ? next : item))
+    salesDataService.markSettlementReady(settlement.salesDataImportId)
     this.createSettlementVersion(next, '정산서 확정', confirmedBy)
     this.addActivity({ ...next, assigneeName: confirmedBy }, 'settlement_confirmed', settlement.status, next.status, '정산서 확정')
     return next

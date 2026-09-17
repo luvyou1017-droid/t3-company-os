@@ -3,10 +3,13 @@ import type { CsCase } from '../../features/cs/types'
 import { notificationService } from './notificationService'
 import { STORAGE_KEYS, storageService } from './storageService'
 import { workService } from './workService'
+import { getDataProviderMode } from '../lib/dataProvider'
+import { isLegacyCsFixture } from '../utils/legacyFixtures'
 
 export const csService = {
   getCsCases() {
-    return storageService.getItem<CsCase[]>(STORAGE_KEYS.csCases, initialCsCases)
+    const fallback = typeof window === 'undefined' || getDataProviderMode() !== 'supabase' ? initialCsCases : []
+    return storageService.getItem<CsCase[]>(STORAGE_KEYS.csCases, fallback).filter((item) => !isLegacyCsFixture(item))
   },
   saveCsCases(cases: CsCase[]) {
     storageService.setItem(STORAGE_KEYS.csCases, cases)

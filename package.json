@@ -11,7 +11,12 @@
     "test:campaign-defaults": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runCampaignDefaults.mjs",
     "test:settlement-document": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSettlementDocument.mjs",
     "test:settlement-payout": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSettlementPayoutFlow.mjs",
+    "test:sales-data-file": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSalesDataFileParser.mjs",
+    "test:srookpay-fee": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSrookPayFee.mjs",
+    "test:mayerhome-settlement": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runMayerhomeSettlement.mjs",
+    "test:supplier-text": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSupplierTextParser.mjs",
     "test:wise-settlement-fixture": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runWiseVendorSettlementFixture.mjs",
+    "test:cloud-sync": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runCloudSyncModel.mjs",
     "test:scenarios": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runOperationalScenarios.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -36,5 +41,6 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.62.0",
     "vite": "^8.1.1"
-  }
+  },
+  "displayName": "T3 Company OS"
 }

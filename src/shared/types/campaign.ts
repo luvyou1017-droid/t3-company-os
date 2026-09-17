@@ -14,6 +14,10 @@ export type Campaign = {
   campaignName: string
   sellerId: string
   sellerName: string
+  sellerBusinessId?: string
+  sellerBusinessName?: string
+  supplyAudience?: 'seller' | 'vendor'
+  settlementVendorName?: string
   brandId: string
   brandName: string
   productId: string
@@ -57,8 +61,6 @@ export type Campaign = {
   managerPaymentRequestStatus?: import('./sellerSettlement').PaymentRequestStatus
   sellerPaymentCompletedAt?: string
   managerPaymentCompletedAt?: string
-  /** 회사 직영 셀러 등 매니저 수수료 배분이 없는 Campaign은 false */
-  managerSettlementRequired?: boolean
   revenue?: string
   campaignProducts?: import('./campaignCreation').CampaignProductSelection[]
   proposalSnapshots?: import('./campaignCreation').CampaignProductProposalSnapshot[]

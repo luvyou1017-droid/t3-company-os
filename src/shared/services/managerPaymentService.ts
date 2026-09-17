@@ -1,11 +1,12 @@
+import { salesDataService } from './salesDataService'
 import type { PaymentRequestBatch, SellerBusinessType } from '../types/sellerSettlement'
 import { calculateWithholding } from '../utils/withholdingTax'
-import { getManagerBusinessType } from '../utils/managerPayment'
+import { calculateManagerPayoutBreakdown } from '../utils/settlementDocument'
+import { getManagerBusinessType, isCompanyDirectManager } from '../utils/managerPayment'
 import { createPaymentBatchId, summarizePaymentBatch } from '../utils/paymentBatch'
 import { campaignService } from './campaignService'
 import { paymentRequestService } from './paymentRequestService'
 import { settlementService } from './settlementService'
-import { salesDataService } from './salesDataService'
 import { STORAGE_KEYS, storageService } from './storageService'
 import { withholdingTaxService } from './withholdingTaxService'
 
@@ -23,7 +24,17 @@ export interface ManagerMasterProfile {
   taxRegistrationNumber?: string
 }
 
-const managerProfiles: ManagerMasterProfile[] = []
+const managerProfiles: ManagerMasterProfile[] = [
+  { id: 'u-001', name: '허윤정', businessName: '주식회사 솔루션파트너스', businessType: 'corporation', bankName: '신한은행', accountNumber: '100038387940', accountHolder: '주식회사 솔루션파트너스' },
+  { id: 'u-005', name: '김병희', businessName: '김병희', businessType: 'freelancer', bankName: '신한은행', accountNumber: '110-123-456789', accountHolder: '김병희', taxRegistrationNumber: 'mock-tax-u-005' },
+  { id: 'manager-SCH-003', name: '오세린', businessName: '오세린컴퍼니', businessType: 'general_business', bankName: '우리은행', accountNumber: '1002-003-003003', accountHolder: '오세린컴퍼니' },
+  { id: 'manager-SCH-004', name: '박지훈', businessName: '박지훈', businessType: 'simplified_business', bankName: '하나은행', accountNumber: '004-004004-00404', accountHolder: '박지훈' },
+  { id: 'manager-SCH-006', name: '최유진', businessName: '최유진', businessType: 'freelancer', bankName: '카카오뱅크', accountNumber: '3333-06-0606060', accountHolder: '최유진', taxRegistrationNumber: 'mock-tax-sch-006' },
+  { id: 'manager-SCH-008', name: '윤태호', businessName: '(주)윤태호컴퍼니', businessType: 'general_business', bankName: '기업은행', accountNumber: '008-008008-01-008', accountHolder: '(주)윤태호컴퍼니' },
+  { id: 'manager-SCH-010', name: '오세린', businessName: '오세린컴퍼니', businessType: 'general_business', bankName: '우리은행', accountNumber: '1002-003-003003', accountHolder: '오세린컴퍼니' },
+  { id: 'manager-SCH-011', name: '박지훈', businessName: '박지훈', businessType: 'simplified_business', bankName: '하나은행', accountNumber: '004-004004-00404', accountHolder: '박지훈' },
+  { id: 'manager-SCH-012', name: '최유진', businessName: '최유진', businessType: 'freelancer', bankName: '카카오뱅크', accountNumber: '3333-06-0606060', accountHolder: '최유진', taxRegistrationNumber: 'mock-tax-sch-012' },
+]
 
 export const managerPaymentService = {
   getProfiles() {
@@ -46,26 +57,31 @@ export const managerPaymentService = {
     campaignService.getCampaigns().forEach((campaign) => unique.set(campaign.managerId, { id: campaign.managerId, name: campaign.managerName }))
     return [...unique.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko'))
   },
-  getBusinessType(managerName: string) {
-    return this.getProfiles().find((profile) => profile.name === managerName)?.businessType ?? getManagerBusinessType(managerName)
+  getBusinessType(managerName: string, managerId?: string) {
+    if (isCompanyDirectManager(managerId, managerName)) return 'corporation'
+    const profiles = this.getProfiles()
+    if (managerId) {
+      const exact = profiles.find((profile) => profile.id === managerId)
+      if (exact) return exact.businessType
+    }
+    const normalizedName = managerName.normalize('NFKC').replace(/\s+/g, '').toLowerCase()
+    return [...profiles].reverse().find((profile) => profile.name.normalize('NFKC').replace(/\s+/g, '').toLowerCase() === normalizedName)?.businessType
+      ?? getManagerBusinessType(managerName)
   },
-  getScheduledItems(managerId: string) {
+  getScheduledItems(managerId: string, amountsOnly = false) {
     return settlementService.getSettlements().flatMap((settlement) => {
       const campaign = campaignService.getCampaignById(settlement.campaignId)
       if (!campaign || campaign.managerId !== managerId) return []
-      const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
-      if (salesImport?.managerSettlementRequired === false || settlement.currentCalculation.managerShareRate === 0) return []
-      const businessType = this.getBusinessType(campaign.managerName)
+      if ((salesDataService.getSalesDataImportById(settlement.salesDataImportId)?.supplyAudience ?? campaign.supplyAudience) === 'vendor' || isCompanyDirectManager(campaign.managerId, campaign.managerName)) return []
+      const businessType = this.getBusinessType(campaign.managerName, campaign.managerId)
       const grossManagerAmount = settlement.currentCalculation.managerBaseShareAmount
       const reimbursement = settlement.currentCalculation.managerReimbursementTotal
       const tax = businessType === 'freelancer'
         ? calculateWithholding(grossManagerAmount, settlement.currentCalculation.managerDeductionTotal)
         : undefined
       const finalAmount = businessType === 'freelancer' ? tax!.finalPaymentAmount + reimbursement
-        : businessType === 'simplified_business'
-          ? Math.ceil(grossManagerAmount / 1.1) - settlement.currentCalculation.managerDeductionTotal + reimbursement
-          : grossManagerAmount - settlement.currentCalculation.managerDeductionTotal + reimbursement
-      const reasons = paymentRequestService.getPaymentRequestBlockReasons({
+        : calculateManagerPayoutBreakdown(grossManagerAmount, businessType, settlement.currentCalculation.managerDeductionTotal, reimbursement).finalPaymentAmount
+      const reasons = amountsOnly ? [] : paymentRequestService.getPaymentRequestBlockReasons({
         settlementId: settlement.id, ownerType: 'manager', ownerId: campaign.managerId, businessType,
         evidenceTypeConfirmed: true, accountConfirmed: Boolean(this.getProfile(campaign.managerId)?.bankName && this.getProfile(campaign.managerId)?.accountNumber && this.getProfile(campaign.managerId)?.accountHolder), calculationCompleted: true,
         calculationErrors: [], amountConfirmed: settlement.currentCalculation.managerAmount >= 0,
@@ -73,7 +89,7 @@ export const managerPaymentService = {
       })
       return [{
         settlement, campaign, businessType, tax, finalAmount, reasons,
-        request: paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'manager', campaign.managerId, settlement.settlementVersion),
+        request: amountsOnly ? undefined : paymentRequestService.getPaymentRequestForRecipient(settlement.id, 'manager', campaign.managerId, settlement.settlementVersion),
       }]
     })
   },

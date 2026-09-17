@@ -13,6 +13,7 @@ export type CampaignSchedule = {
   startDate?: string
   endDate?: string
   linkOwner: LinkOwner
+  landingPageType?: string
   landingPageCompleted: boolean
   sellerBusinessType: string
   pendingTaskCount: number

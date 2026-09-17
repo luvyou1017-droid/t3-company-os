@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { currentManagerName } from '../../features/campaignSchedules/mockData'
 import {
   getCampaignStatus,
+  compareCampaignSchedules,
   getDaysBetweenCalendarDates,
   isSettlementPending,
 } from '../../features/campaignSchedules/scheduleStatus'
 import { campaignService } from '../../shared/services/campaignService'
+import { getDataProviderMode } from '../../shared/lib/dataProvider'
+import { SupabaseCampaignRepository } from '../../shared/repositories/campaignRepository'
 import { STORAGE_KEYS, storageService } from '../../shared/services/storageService'
 import type { Campaign } from '../../shared/types/campaign'
 import type {
@@ -19,6 +22,11 @@ import { CreateCampaignModal } from './components/CreateCampaignModal'
 import { CampaignSummary } from './components/CampaignSummary'
 import { CampaignTable } from './components/CampaignTable'
 import { CampaignViewTabs } from './components/CampaignViewTabs'
+import { useCompanyAuth } from '../../features/auth/AuthGate'
+import { salesDataService } from '../../shared/services/salesDataService'
+import { cloudSyncService } from '../../shared/services/cloudSyncService'
+
+const CAMPAIGN_RETENTION_START = '2026-08-01'
 
 const initialFilters: CampaignFilters = {
   search: '',
@@ -87,6 +95,7 @@ function toSchedule(campaign: Campaign): CampaignSchedule {
     startDate: campaign.startDate || undefined,
     endDate: campaign.endDate || undefined,
     linkOwner: campaign.linkOwner,
+    landingPageType: campaign.landingPageType ?? campaign.salesChannelType,
     landingPageCompleted: Boolean(campaign.landingPageCompleted),
     sellerBusinessType: campaign.businessType,
     pendingTaskCount: campaign.pendingTaskCount ?? 0,
@@ -107,6 +116,7 @@ type CampaignSchedulePageProps = {
 }
 
 export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps) {
+  const { profile } = useCompanyAuth()
   const savedState = storageService.getItem<CampaignListState>(STORAGE_KEYS.campaignListState, { activeTab: '전체', filters: initialFilters, scrollY: 0 })
   const [activeTab, setActiveTab] = useState<CampaignViewTab>(savedState.activeTab)
   const [filters, setFilters] = useState<CampaignFilters>(savedState.filters)
@@ -120,6 +130,37 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
   useEffect(() => {
     requestAnimationFrame(() => window.scrollTo({ top: savedState.scrollY }))
   }, [])
+
+  useEffect(() => {
+    if (getDataProviderMode() !== 'supabase') return
+    let active = true
+    const repository = new SupabaseCampaignRepository()
+    repository.list()
+      .then(async (items) => {
+        if (!active) return
+        const obsolete = items.filter((item) => item.startDate && item.startDate < CAMPAIGN_RETENTION_START)
+        const canApplyRetention = profile.role === 'ceo' || profile.role === 'admin'
+        if (obsolete.length && canApplyRetention) {
+          await repository.deleteBeforeStartDate(CAMPAIGN_RETENTION_START)
+          if (!active) return
+          const obsoleteIds = new Set(obsolete.map((item) => item.id))
+          campaignService.saveCampaigns(campaignService.getCampaigns().filter((item) => !obsoleteIds.has(item.id)))
+          const removedSalesSlots = salesDataService.removeEmptyCampaignImportsMany(obsoleteIds)
+          await cloudSyncService.syncKeys([STORAGE_KEYS.campaigns, STORAGE_KEYS.salesDataImports, STORAGE_KEYS.salesDataRows])
+          if (!active) return
+          setNotice(`8월 이전 공구 일정 ${obsolete.length}건과 연결된 빈 판매 데이터 ${removedSalesSlots}건을 공용 DB에서 정리했습니다.`)
+        }
+        const sharedCampaigns = items
+          .filter((item) => !item.startDate || item.startDate >= CAMPAIGN_RETENTION_START)
+          .sort((a, b) => b.startDate.localeCompare(a.startDate))
+        campaignService.saveCampaigns(sharedCampaigns)
+        setCampaigns(sharedCampaigns)
+      })
+      .catch(() => {
+        if (active) setNotice('데이터베이스 일정을 불러오지 못했습니다. 잠시 후 다시 열어주세요.')
+      })
+    return () => { active = false }
+  }, [profile.role])
 
   useEffect(() => {
     const save = () => storageService.setItem(STORAGE_KEYS.campaignListState, { activeTab, filters, scrollY: window.scrollY })
@@ -148,7 +189,7 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
         (!filters.linkOwner || schedule.linkOwner === filters.linkOwner) &&
         matchesDateRange(schedule, filters)
       )
-    })
+    }).sort(compareCampaignSchedules)
   }, [activeTab, filters])
 
   const handleCreateClick = () => {
@@ -181,7 +222,7 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
         <div className="panel__header">
           <div>
             <h2>일정 목록</h2>
-            <p>공동구매 일정에 연결된 발주, 링크, CS, 샘플, 정산 업무를 함께 확인합니다.</p>
+            <p>8월 1일 이후 전체 일정을 표시합니다. 오늘 시작 → 진행 중 → 진행 예정 → 종료 순서이며 D-day는 시작일 기준입니다.</p>
           </div>
           <strong className="result-count">{filteredSchedules.length}건</strong>
         </div>

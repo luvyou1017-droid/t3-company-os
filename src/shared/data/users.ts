@@ -31,7 +31,7 @@ export function getUserByName(name: string) {
 }
 
 export function canEditSettlement(role: AppUserRole) {
-  return role === '정산 담당자'
+  return role === '대표' || role === '정산 담당자'
 }
 
 export function canViewPaymentApproval(role: AppUserRole) {

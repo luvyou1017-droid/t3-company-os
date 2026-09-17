@@ -1,7 +1,7 @@
 import type { SellerBusinessType } from '../types/sellerSettlement'
 
 const managerBusinessTypes: Record<string, SellerBusinessType> = {
-  허윤정: 'freelancer',
+  허윤정: 'corporation',
   오세린: 'general_business',
   박지훈: 'simplified_business',
   최유진: 'freelancer',
@@ -15,4 +15,11 @@ const managerBusinessTypes: Record<string, SellerBusinessType> = {
 
 export function getManagerBusinessType(managerName: string): SellerBusinessType {
   return managerBusinessTypes[managerName] ?? 'simplified_business'
+}
+
+const normalizeManager = (value: string) => value.normalize('NFKC').replace(/\s+/g, '').toLowerCase()
+
+/** 대표가 직접 담당하는 공구는 별도 매니저 지급 대상이 아니다. */
+export function isCompanyDirectManager(managerId?: string, managerName?: string) {
+  return managerId === 'u-001' || normalizeManager(managerName ?? '') === normalizeManager('허윤정')
 }

@@ -23,6 +23,39 @@ export class SupabaseCampaignRepository extends SupabaseRepository<Campaign> {
       metadata: this.metadata(item),
     }
   }
+  async deleteBeforeStartDate(cutoffDate: string) {
+    const { data, error } = await this.client
+      .from(this.table)
+      .delete()
+      .lt('start_date', cutoffDate)
+      .select('id')
+    if (error) throw error
+    return data?.length ?? 0
+  }
+  async upsertNotionSnapshot(items: Campaign[]) {
+    if (!items.length) return { succeeded: 0, failed: 0, errors: [] }
+    const sourceIds = new Set(items.map((item) => item.notionImportMetadata?.sourceId).filter(Boolean))
+    const currentIds = new Set(items.map((item) => toDatabaseUuid(item.id)))
+    const { data: existing, error: readError } = await this.client
+      .from(this.table)
+      .select('id, metadata')
+      .like('campaign_code', 'NT-%')
+    if (readError) throw readError
+
+    const result = await this.upsertMany(items)
+    if (result.failed) return result
+
+    const staleIds = (existing ?? []).flatMap((row) => {
+      const metadata = row.metadata as Campaign | null
+      const sourceId = metadata?.notionImportMetadata?.sourceId
+      return sourceId && sourceIds.has(sourceId) && !currentIds.has(String(row.id)) ? [String(row.id)] : []
+    })
+    if (staleIds.length) {
+      const { error: deleteError } = await this.client.from(this.table).delete().in('id', staleIds)
+      if (deleteError) throw deleteError
+    }
+    return result
+  }
 }
 export function createCampaignRepository(): DataRepository<Campaign> {
   return getDataProviderMode() === 'supabase' ? new SupabaseCampaignRepository() : new LocalCampaignRepository()

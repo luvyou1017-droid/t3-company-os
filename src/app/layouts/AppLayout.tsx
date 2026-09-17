@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import type { AppPage } from '../../App'
 import { Header } from '../../shared/components/Header'
 import { Sidebar } from '../../shared/components/Sidebar'
+import { CloudSyncBanner } from '../../shared/components/CloudSyncStatus'
 
 type AppLayoutProps = {
   activePage: AppPage
@@ -16,6 +17,7 @@ export function AppLayout({ activePage, children, onNavigate, onOpenRelated }: A
       <Sidebar activePage={activePage} onNavigate={onNavigate} />
       <div className="app-content">
         <Header onOpenRelated={onOpenRelated} />
+        <CloudSyncBanner />
         <main className="main-content">{children}</main>
       </div>
     </div>

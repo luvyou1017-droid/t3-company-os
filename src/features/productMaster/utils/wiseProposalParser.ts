@@ -30,12 +30,45 @@ function matchHeader(value: Cell) {
   }))
 }
 export type WiseProposalRow = {
+  '판매 채널'?: string
   '카테고리': string; '상품명': string; '구성명': string; '정상가': number; '공구판매가': number
   '총 매입가(VAT포함)': number; '셀러 수수료율': number; '가격 적용 방식': '고정가' | '수량 구간'; '최소 수량': number; '최대 수량': number; '상태': string
 }
 export type WiseProposalMetadata = {
   brandName: string; vendorName: string; productUrl: string; shippingFee: number; freeShippingThreshold?: number
   courierName: string; sampleSupportType: string; draft: boolean
+}
+
+export function inferProposalProductName(rows: WiseProposalRow[], fileName = '') {
+  const names = [...new Set(rows.map((row) => row['상품명'].trim()).filter(Boolean))]
+  if (names.length <= 1) return names[0] ?? '상품명 확인 필요'
+  let prefix = names[0]
+  for (const name of names.slice(1)) {
+    let index = 0
+    while (index < prefix.length && index < name.length && prefix[index] === name[index]) index += 1
+    prefix = prefix.slice(0, index)
+  }
+  const commonName = prefix.replace(/[\s()[\]{}\-_/·,:]+$/g, '').trim()
+  if (commonName.length >= 2) return commonName
+  const fileProductName = fileName
+    .replace(/\.(xlsx?|xls)$/i, '')
+    .split('_')
+    .map((part) => part.trim())
+    .filter((part) => part && !/^■?와이즈\s*제안서$/i.test(part) && !/^(생활|식품|가전|뷰티|유아|패션)$/.test(part) && !/^\(?\d{8}\)?$/.test(part))
+    .join(' ')
+    .replace(/\s*[-–—]\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (fileProductName.length >= 2) return fileProductName
+  return names[0].replace(/\s*(?:\([^)]*\)|[-–—]\s*[^-–—]+)\s*$/g, '').trim() || names[0]
+}
+
+export function proposalSkuName(row: Pick<WiseProposalRow, '상품명'>) {
+  return row['상품명']
+    .replace(/\s*\n\s*/g, ' ')
+    .replace(/\s*[-–—]\s*/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 function findLabelValues(rows: Cell[][], label: string) {
   const target = normalize(label)
@@ -74,7 +107,11 @@ export async function parseWiseProposalFile(file: File): Promise<{ rows: WisePro
     rows.slice(0, 100).forEach((row, headerRow) => {
       const columns: Partial<Record<ProposalColumn, number>> = {}
       row.forEach((cell, index) => {
-        const key = matchHeader(cell)
+        // Bare commission is seller commission only in an explicitly seller-facing sheet.
+        // Never match it by substring: that would also consume total/vendor commission.
+        const normalizedCell = normalize(cell)
+        const sellerSheetCommission = sheetName.includes('셀러용') && normalizedCell.startsWith('수수료') && !/총|벤더/.test(normalizedCell)
+        const key = sellerSheetCommission ? 'sellerCommissionRate' : matchHeader(cell)
         if (!key) return
         const shouldPrefer = key === 'purchasePrice' && normalize(cell).includes('총매입가')
         if (columns[key] === undefined || shouldPrefer) columns[key] = index
@@ -85,10 +122,14 @@ export async function parseWiseProposalFile(file: File): Promise<{ rows: WisePro
     })
   }
   if (!selected) throw new Error('제안서에서 상품명·공구판매가·총 매입가 열을 찾지 못했습니다.')
+  if (selected.columns.sellerCommissionRate === undefined) throw new Error('셀러 수수료 열을 확인할 수 없습니다. 셀러용 제안서의 셀러 수수료율을 지정해주세요. 총·벤더 수수료는 대신 사용하지 않습니다.')
   const output: WiseProposalRow[] = []
   let category = ''
   let productName = ''
+  const channelLabel = (row: Cell[]) => row.map((cell) => String(cell ?? '').trim()).find((text) => text.startsWith('#') && /기준/.test(text) && /스마트스토어|홈쇼핑|백화점/.test(text))?.replace(/^#\s*/, '')
+  let channel = selected.rows.slice(0, selected.headerRow).map(channelLabel).filter(Boolean).at(-1)
   for (const row of selected.rows.slice(selected.headerRow + 1)) {
+    channel = channelLabel(row) ?? channel
     const nextCategory = selected.columns.category === undefined ? '' : String(row[selected.columns.category] ?? '').trim()
     const nextProductName = String(row[selected.columns.productName!] ?? '').trim()
     if (nextCategory && !nextCategory.startsWith('#')) category = nextCategory
@@ -96,19 +137,28 @@ export async function parseWiseProposalFile(file: File): Promise<{ rows: WisePro
     const optionValue = selected.columns.optionName === undefined ? nextProductName : String(row[selected.columns.optionName] ?? '').trim()
     const optionName = optionValue.replace(/\s*\n\s*/g, ' ')
     const groupBuyPrice = cleanNumber(row[selected.columns.groupBuyPrice!])
-    const purchasePrice = cleanNumber(row[selected.columns.purchasePrice!])
-    if (!productName || !optionName || groupBuyPrice <= 0 || purchasePrice <= 0) continue
+    if (!productName || !optionName || groupBuyPrice <= 0) continue
+    const rateCell = row[selected.columns.sellerCommissionRate]
+    if (rateCell === null || rateCell === undefined || String(rateCell).trim() === '' || !/^\s*\d+(\.\d+)?\s*%?\s*$/.test(String(rateCell)) || cleanRate(rateCell) > 100) throw new Error(`${productName} / ${optionName}: 셀러 수수료가 비어 있거나 올바르지 않습니다. 확인 후 입력해주세요.`)
+    const sellerCommissionRate = cleanRate(rateCell)
+    const statedPurchasePrice = cleanNumber(row[selected.columns.purchasePrice!])
+    const purchasePrice = statedPurchasePrice > 0 ? statedPurchasePrice : Math.round(groupBuyPrice * (1 - sellerCommissionRate / 100))
+    if (purchasePrice <= 0) continue
     const quantityTier = optionName.match(/(\d+)\s*개\s*이상/)
     output.push({
+      '판매 채널': channel,
       '카테고리': category || '식품', '상품명': productName, '구성명': optionName,
       '정상가': selected.columns.regularPrice === undefined ? 0 : cleanNumber(row[selected.columns.regularPrice]),
       '공구판매가': groupBuyPrice, '총 매입가(VAT포함)': purchasePrice,
-      '셀러 수수료율': selected.columns.sellerCommissionRate === undefined ? 0 : cleanRate(row[selected.columns.sellerCommissionRate]),
+      '셀러 수수료율': sellerCommissionRate,
       '가격 적용 방식': quantityTier ? '수량 구간' : '고정가', '최소 수량': quantityTier ? Number(quantityTier[1]) : 0, '최대 수량': 0,
       '상태': '판매 가능',
     })
   }
   if (!output.length) throw new Error('가격이 입력된 상품 행을 찾지 못했습니다.')
+  if (new Set(output.map((row) => row['판매 채널']).filter(Boolean)).size > 1) {
+    output.forEach((row) => { if (row['판매 채널']) row['구성명'] += ` [${row['판매 채널']}]` })
+  }
   const tierGroups = new Map<string, WiseProposalRow[]>()
   for (const row of output.filter((item) => item['가격 적용 방식'] === '수량 구간')) {
     const group = tierGroups.get(row['상품명']) ?? []

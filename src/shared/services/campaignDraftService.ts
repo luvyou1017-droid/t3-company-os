@@ -5,6 +5,10 @@ import { STORAGE_KEYS, storageService } from './storageService.ts'
 export interface CampaignCreationFormData {
   sellerId: string
   sellerName: string
+  sellerBusinessId: string
+  sellerBusinessName: string
+  supplyAudience?: 'seller' | 'vendor'
+  settlementVendorName?: string
   businessType: CampaignCreationBusinessType | ''
   brandId: string
   products: CampaignProductSelection[]

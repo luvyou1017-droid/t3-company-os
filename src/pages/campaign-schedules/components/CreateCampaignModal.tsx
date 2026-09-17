@@ -1,3 +1,4 @@
+import type { SupplierPilotRow } from '../../../shared/data/notionSupplierPilot10'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { appUsers, DEFAULT_MD_USER_ID, getUserById } from '../../../shared/data/users'
 import {
@@ -29,7 +30,8 @@ const managers = appUsers.filter((user) => ['대표', '팀장', '매니저'].inc
 const mds = appUsers.filter((user) => user.role === 'MD')
 const money = (value: number) => `${Math.round(value).toLocaleString('ko-KR')}원`
 const initial: Draft = {
-  sellerId: '', sellerName: '', businessType: '', brandId: '', products: [],
+  supplyAudience: 'seller', settlementVendorName: '',
+  sellerId: '', sellerName: '', sellerBusinessId: '', sellerBusinessName: '', businessType: '', brandId: '', products: [],
   salesChannelType: '', salesChannelSource: 'manual', salesChannelManuallyOverridden: false,
   sellerExtraPgRate: 0,
   startDate: '', endDate: '', linkOpenTime: '',
@@ -77,11 +79,14 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
   const [helperInput, setHelperInput] = useState('')
   const [helperPreview, setHelperPreview] = useState<AiCampaignDraft | null>(null)
   const [, setProductCatalogRevision] = useState(0)
+  const [, setSellerRevision] = useState(0)
 
   const brands = campaignProductCatalogService.searchBrands(brandQuery)
   const sellers = sellerMasterService.searchSellers(sellerQuery)
   const selectedBrand = campaignProductCatalogService.listBrands().find((brand) => brand.id === form.brandId)
-  const availableProducts = campaignProductCatalogService.listProductsByBrand(form.brandId, productQuery)
+  const selectedSeller = sellerMasterService.getSellerById(form.sellerId)
+  const activeBusinesses = selectedSeller?.businesses?.filter((business) => business.active) ?? []
+  const availableProducts = campaignProductCatalogService.listProductsByBrand(form.brandId, productQuery).filter((item) => item.supplyAudience !== 'vendor' || (form.supplyAudience === 'vendor' && item.settlementVendorName === form.settlementVendorName?.trim()))
   const availableSalesChannels = getCommonAvailableSalesChannels(form.products)
   const snapshots = useMemo(() => {
     try { return captureProposalSnapshots(form.products, form.sellerExtraPgRate, form.salesChannelType || undefined) } catch { return [] }
@@ -96,6 +101,9 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
   const status = missing.length ? (form.sellerName || form.products.length ? '필수값 누락' : '입력 중') : '저장 가능'
 
   useEffect(() => {
+    void sellerMasterService.loadSellers()
+      .then(() => setSellerRevision((revision) => revision + 1))
+      .catch(() => setNotice('셀러 DB를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'))
     void productService.listProducts()
       .then((products) => {
         campaignProductCatalogService.registerProductMasters(products)
@@ -153,11 +161,12 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
     const updated = draftId
       ? campaignDraftService.updateCampaignDraft(draftId, form, campaignName)
       : campaignDraftService.createCampaignDraft(owner.id, owner.name, form, campaignName)
-    if (!updated) return
+    if (!updated) return undefined
     setDraftId(updated.id); setLastSavedAt(updated.updatedAt); setSaveState('저장 완료')
     savedSerialized.current = JSON.stringify(form)
     window.history.replaceState({}, '', `/campaigns/new?draftId=${encodeURIComponent(updated.id)}`)
     setNotice('임시저장되었습니다.')
+    return updated
   }
   const startNew = () => {
     setDraftId(null); setForm(initial); setErrors({}); setSaveState('저장 안 됨'); setLastSavedAt('')
@@ -178,14 +187,22 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
   const selectSeller = (sellerId: string) => {
     const seller = sellerMasterService.getDefaults(sellerId)
     if (!seller) return
+    const business = seller.businesses?.find((item) => item.isPrimary && item.active) ?? seller.businesses?.find((item) => item.active)
+    const sellerFields: Pick<Draft, 'sellerId' | 'sellerName' | 'sellerBusinessId' | 'sellerBusinessName' | 'businessType'> = { sellerId: seller.id, sellerName: seller.name, sellerBusinessId: business?.id ?? '', sellerBusinessName: business?.businessName ?? seller.businessName ?? '', businessType: business?.businessType ?? seller.businessType ?? '' }
     const hasChangedAssignees = Boolean(form.sellerId && ((form.mdId && form.mdId !== seller.defaultMdId) || (form.managerId && form.managerId !== seller.defaultManagerId)))
     if (hasChangedAssignees && !window.confirm('직접 변경한 담당자가 있습니다. 새 셀러의 기본 담당자로 변경할까요?')) {
-      setForm((current) => ({ ...current, sellerId: seller.id, sellerName: seller.name, businessType: seller.businessType ?? '' }))
+      setForm((current) => ({ ...current, ...sellerFields }))
     } else {
-      setForm((current) => ({ ...current, sellerId: seller.id, sellerName: seller.name, businessType: seller.businessType ?? '', mdId: seller.defaultMdId, managerId: seller.defaultManagerId }))
+      setForm((current) => ({ ...current, ...sellerFields, mdId: seller.defaultMdId, managerId: seller.defaultManagerId }))
     }
     sellerMasterService.rememberSeller(seller.id)
     setSellerQuery(seller.name)
+  }
+  const updateSellerQuery = (value: string) => {
+    setSellerQuery(value)
+    const exact = sellerMasterService.listSellers().find((seller) => seller.name.trim().toLowerCase() === value.trim().toLowerCase())
+    if (exact) selectSeller(exact.id)
+    else if (form.sellerId) setForm((current) => ({ ...current, sellerId: '', sellerName: '', sellerBusinessId: '', sellerBusinessName: '', businessType: '' }))
   }
 
   const updateProducts = (products: CampaignProductSelection[]) => {
@@ -266,6 +283,8 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
     setHelper(null); setHelperPreview(null)
   }
   const submit = () => {
+    if (form.products.some((selection) => { const item = campaignProductCatalogService.listProducts().find((product) => product.id === selection.productId); return item?.supplyAudience === 'vendor' && (form.supplyAudience !== 'vendor' || item.settlementVendorName !== form.settlementVendorName?.trim()) })) { setNotice('선택한 전용 상품의 정산 벤더와 공구의 벤더가 다릅니다. 상품 또는 벤더명을 확인해주세요.'); return }
+    if (form.supplyAudience === 'vendor' && !form.settlementVendorName?.trim()) { setNotice('벤더 공급을 선택하면 정산 벤더명을 입력해주세요.'); return }
     const nextErrors = validate()
     if (Object.keys(nextErrors).length || policyMissing || Object.keys(eventErrors).length) {
       setErrors(nextErrors)
@@ -277,7 +296,8 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
     const first = form.products[0]
     const proposal = snapshots[0]
     const input: CampaignCreateInput = {
-      campaignName, sellerId: form.sellerId, sellerName: form.sellerName, brandName: first.brandName, productName: first.productName,
+      supplyAudience: form.supplyAudience ?? 'seller', settlementVendorName: form.settlementVendorName,
+      campaignName, sellerId: form.sellerId, sellerName: form.sellerName, sellerBusinessId: form.sellerBusinessId, sellerBusinessName: form.sellerBusinessName, brandName: first.brandName, productName: first.productName,
       managerId: form.managerId, mdId: form.mdId, startDate: form.startDate, endDate: form.endDate,
       linkOwner: form.salesChannelType === 'seller_checkout' ? 'seller' : form.salesChannelType === 'supplier_link' ? 'brand' : 'company',
       businessType: form.businessType as CampaignCreationBusinessType, totalCommissionRate: proposal.totalCommissionRate,
@@ -323,10 +343,11 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
     {notice && <p className="campaign-v2-notice">{notice}</p>}
     <div className="campaign-create-form campaign-create-scroll-form">
       <section className="campaign-create-section" id="campaign-section-products"><div className="section-heading"><h3>1. 셀러 및 상품 정보</h3>{productSectionErrorCount > 0 && <button className="section-error-badge" onClick={() => scrollToFirstInvalidField(visibleErrors, fieldOrder.slice(0, 4))}>필수값 {productSectionErrorCount}개 누락</button>}</div><p className="section-description">셀러에서 상품 선택까지 끊김 없이 입력합니다.</p><div className="campaign-create-grid">
-        <label className={visibleErrors.sellerId ? 'campaign-field--error' : ''} id="campaign-field-seller"><span>셀러 검색·선택 *</span><input aria-autocomplete="list" aria-controls="campaign-seller-results" aria-expanded={Boolean(sellers.length)} aria-invalid={Boolean(visibleErrors.sellerId)} placeholder="셀러명을 검색하세요" role="combobox" value={sellerQuery} onChange={(event) => setSellerQuery(event.target.value)} /><select id="campaign-seller-results" size={Math.min(4, sellers.length || 1)} value={form.sellerId} onChange={(event) => selectSeller(event.target.value)}>{sellers.map((seller) => <option key={seller.id} value={seller.id}>{seller.name}</option>)}</select>{visibleErrors.sellerId && <small className="field-error">{visibleErrors.sellerId}</small>}{!sellers.length && <small>검색 결과가 없습니다.</small>}<small>최근 선택 셀러: {sellerMasterService.getRecentSellers().map((seller) => seller.name).join(', ') || '없음'}</small><button className="text-button field-link-button" onClick={() => setNotice(`새 셀러 등록 화면(${sellerMasterService.getRegistrationPath()}) 연결은 준비 중입니다.`)} type="button">새 셀러 등록</button></label>
-        <label className={visibleErrors.businessType ? 'campaign-field--error' : ''} id="campaign-field-business-type"><span>사업자 유형 * · 셀러 정보 자동 적용</span><input aria-invalid={Boolean(visibleErrors.businessType)} readOnly value={form.businessType ? getBusinessTypeLabel(form.businessType) : '미등록'} />{visibleErrors.businessType && <small className="field-error">{visibleErrors.businessType}</small>}<button className="text-button field-link-button" disabled={!form.sellerId} onClick={() => setNotice(`셀러 정보 관리(${sellerMasterService.getManagementPath(form.sellerId)}) 연결은 준비 중입니다.`)} type="button">셀러 정보에서 수정</button></label>
+        <label className={visibleErrors.sellerId ? 'campaign-field--error' : ''} id="campaign-field-seller"><span>셀러 검색·선택 *</span><input aria-autocomplete="list" aria-controls="campaign-seller-results" aria-expanded={Boolean(sellers.length)} aria-invalid={Boolean(visibleErrors.sellerId)} placeholder="셀러명을 검색하세요" role="combobox" value={sellerQuery} onChange={(event) => updateSellerQuery(event.target.value)} /><select id="campaign-seller-results" size={Math.min(5, sellers.length + 1)} value={form.sellerId} onChange={(event) => selectSeller(event.target.value)}><option value="">아래 검색 결과에서 셀러를 선택하세요</option>{sellers.map((seller) => <option key={seller.id} value={seller.id}>{seller.name}</option>)}</select>{form.sellerId && <small className="success-text">✓ {form.sellerName} 선택 완료</small>}{visibleErrors.sellerId && <small className="field-error">{visibleErrors.sellerId}</small>}{!sellers.length && <small>등록된 셀러가 없습니다. 셀러 DB에서 먼저 등록해주세요.</small>}<small>최근 선택 셀러: {sellerMasterService.getRecentSellers().map((seller) => seller.name).join(', ') || '없음'}</small><button className="text-button field-link-button" onClick={() => window.location.assign(sellerMasterService.getRegistrationPath())} type="button">새 셀러 등록</button></label>
+        <div style={{ gridColumn: '1 / -1', minWidth: 0 }}><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input style={{ width: 18, height: 18, minHeight: 18, flex: '0 0 18px' }} type="checkbox" checked={form.supplyAudience === 'vendor'} onChange={(event) => setForm({ ...form, supplyAudience: event.target.checked ? 'vendor' : 'seller' })} /><span>벤더 공급</span></label><small>기본은 셀러 직공급입니다.</small>{form.supplyAudience === 'vendor' && <label><span>정산 벤더명 *</span><input list="campaign-vendor-partners" placeholder="예: 소셜라운지" value={form.settlementVendorName ?? ''} onChange={(event) => setForm({ ...form, settlementVendorName: event.target.value })} /><datalist id="campaign-vendor-partners">{getVendorPartners().map((partner) => <option key={partner.id} value={partner.companyName} />)}</datalist></label>}</div>
+        <label className={visibleErrors.businessType ? 'campaign-field--error' : ''} id="campaign-field-business-type"><span>정산 사업자 * · 셀러 정보 자동 적용</span>{activeBusinesses.length > 0 ? <select aria-invalid={Boolean(visibleErrors.businessType)} value={form.sellerBusinessId} onChange={(event) => { const business = activeBusinesses.find((item) => item.id === event.target.value); if (business) setForm({ ...form, sellerBusinessId: business.id, sellerBusinessName: business.businessName, businessType: business.businessType }) }}>{activeBusinesses.map((business) => <option key={business.id} value={business.id}>{business.businessName} · {getBusinessTypeLabel(business.businessType)}</option>)}</select> : <input aria-invalid={Boolean(visibleErrors.businessType)} readOnly value={form.businessType ? `${form.sellerBusinessName || '기존 사업자'} · ${getBusinessTypeLabel(form.businessType)}` : '미등록'} />}{visibleErrors.businessType && <small className="field-error">{visibleErrors.businessType}</small>}<button className="text-button field-link-button" disabled={!form.sellerId} onClick={() => window.location.assign(sellerMasterService.getManagementPath(form.sellerId))} type="button">셀러 정보에서 수정</button></label>
         <label className={visibleErrors.brandId ? 'campaign-field--error' : ''} id="campaign-field-brand"><span>브랜드 검색·선택 *</span><input placeholder="브랜드명 검색" value={brandQuery} onChange={(event) => setBrandQuery(event.target.value)} /><select aria-invalid={Boolean(visibleErrors.brandId)} size={Math.min(4, brands.length || 1)} value={form.brandId} onChange={(event) => { campaignProductCatalogService.rememberBrand(event.target.value); setForm({ ...form, brandId: event.target.value }); setProductQuery('') }}>{brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select>{visibleErrors.brandId && <small className="field-error">{visibleErrors.brandId}</small>}{!brands.length && <small>검색 결과가 없습니다. 새 브랜드 등록 화면은 준비 중입니다.</small>}<small>최근 선택: {campaignProductCatalogService.getRecentBrands().map((brand) => brand.name).join(', ') || selectedBrand?.name || '없음'}</small></label>
-        <label className={visibleErrors.campaignProducts ? 'campaign-field--error' : ''} id="campaign-field-products"><span>상품 검색·다중 선택 *</span><input disabled={!form.brandId} placeholder="상품명 검색" value={productQuery} onChange={(event) => setProductQuery(event.target.value)} /><select aria-invalid={Boolean(visibleErrors.campaignProducts)} disabled={!form.brandId} onChange={(event) => selectProduct(event.target.value)} value=""><option value="">상품 선택</option>{availableProducts.map((product) => <option key={product.id} value={product.id}>{product.productName}</option>)}</select>{visibleErrors.campaignProducts && <small className="field-error">{visibleErrors.campaignProducts}</small>}</label>
+        <label className={visibleErrors.campaignProducts ? 'campaign-field--error' : ''} id="campaign-field-products"><span>상품 검색·다중 선택 *</span><input disabled={!form.brandId} placeholder="상품명 검색" value={productQuery} onChange={(event) => setProductQuery(event.target.value)} /><select aria-invalid={Boolean(visibleErrors.campaignProducts)} disabled={!form.brandId} onChange={(event) => selectProduct(event.target.value)} value=""><option value="">상품 선택</option>{availableProducts.map((product) => <option key={product.id} value={product.id}>{product.productName}</option>)}</select>{form.brandId && !availableProducts.length && <small>이 브랜드에 등록된 상품이 없습니다.</small>}{visibleErrors.campaignProducts && <small className="field-error">{visibleErrors.campaignProducts}</small>}<button className="text-button field-link-button" type="button" onClick={() => { const saved = saveDraft(); const returnTo = saved ? `/campaigns/new?draftId=${encodeURIComponent(saved.id)}` : '/campaigns/new'; window.location.assign(`${campaignProductCatalogService.getProductRegistrationPath()}?returnTo=${encodeURIComponent(returnTo)}`) }}>+ 새 상품 등록</button></label>
       </div>
       {form.sellerId && !form.businessType && <p className="campaign-policy-warning">선택한 셀러의 사업자 유형이 등록되지 않았습니다.<br />셀러 정보를 먼저 완성해주세요.</p>}
       <div className="selected-product-list">{form.products.map((product, index) => <article key={product.id}><div><span>{index + 1}</span><strong>{product.brandName} · {product.productName}</strong></div><div className="button-row"><button className="text-button" disabled={index === 0} onClick={() => move(index, -1)}>↑</button><button className="text-button" disabled={index === form.products.length - 1} onClick={() => move(index, 1)}>↓</button><button className="text-button danger-text" onClick={() => updateProducts(form.products.filter((item) => item.id !== product.id).map((item, displayOrder) => ({ ...item, displayOrder })))}>삭제</button></div></article>)}</div>
@@ -350,7 +371,7 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
       <p className="muted-text">공통으로 사용 가능한 링크만 표시합니다. 공급사 링크는 항상 선택할 수 있습니다.</p>{snapshots.length > 0 && <ProposalCards form={form} snapshots={snapshots} />}</section>
 
       <section className="campaign-create-section" id="campaign-section-events"><div className="section-heading"><div><h3>4. 이벤트</h3><p>Campaign 전체 기간을 기준으로 진행하며 부담 주체별 금액을 분리합니다.</p></div><button className="secondary-button" onClick={addEvent}>이벤트 추가</button></div>
-        <div className="event-summary-grid"><Summary label="전체 이벤트" value={`${form.events.length}개`} /><Summary label="회사 직접" value={money(eventSummary.company)} /><Summary label="벤더 부담" value={money(eventSummary.vendor)} /><Summary label="셀러 부담" value={money(eventSummary.seller)} /><Summary label="업체 지원" value={money(eventSummary.company_support)} /><Summary label="전체 예상" value={money(eventSummary.total)} /></div>
+        <div className="event-summary-grid"><Summary label="전체 이벤트" value={`${form.events.length}개`} /><Summary label="회사 직접" value={money(eventSummary.company)} /><Summary label="벤더 부담" value={money(eventSummary.vendor)} /><Summary label="셀러 부담" value={money(eventSummary.seller)} /><Summary label="업체 부담" value={`${form.events.filter((event) => event.payer === 'company_support').length}건`} /><Summary label="전체 예상" value={money(eventSummary.total)} /></div>
         {form.events.some((event) => event.eventType === 'purchase_complete') && <div className="winner-announcement-card"><DateField optional label="발표자 선정일 · 종료 +7일" value={form.winnerAnnouncementDate} onChange={(winnerAnnouncementDate) => setForm({ ...form, winnerAnnouncementDate, winnerAnnouncementDateOverride: true })} /><button className="text-button" onClick={() => setForm({ ...form, winnerAnnouncementDate: calculateWinnerAnnouncementDate(form.endDate), winnerAnnouncementDateOverride: false })}>자동 날짜로 재설정</button></div>}
         <div className="campaign-event-list">{form.events.map((event, index) => <EventCard errors={eventErrors[event.id]} event={event} products={form.products} key={event.id} onChange={(patch) => patchEvent(event.id, patch)} onClone={() => setForm({ ...form, events: [...form.events, { ...event, id: `event-${crypto.randomUUID()}` }] })} onDelete={() => setForm({ ...form, events: form.events.filter((item) => item.id !== event.id) })} title={`이벤트 ${index + 1}`} />)}</div>
       </section>
@@ -367,28 +388,21 @@ function ProposalCards({ form, snapshots }: { form: Draft; snapshots: ReturnType
   return <div className="proposal-preview-grid settlement-reference-grid">{snapshots.map((snapshot, index) => { const product = form.products[index]; return <article key={snapshot.productId}><span>정산 참고 조건 · {product.brandName}</span><h4>{product.productName}</h4><dl><div><dt>기본 판매 링크</dt><dd>{getSalesChannelTypeLabel(snapshot.defaultSalesChannelType)}</dd></div><div><dt>와이즈샵 사용</dt><dd>{snapshot.wiseShopAvailable ? '가능' : '불가'}</dd></div><div><dt>셀러 결제창 사용</dt><dd>{snapshot.sellerCheckoutAvailable ? '가능' : '불가'}</dd></div><div><dt>이번 공구 판매 링크</dt><dd>{getSalesChannelTypeLabel(form.salesChannelType)}</dd></div><div><dt>총 판매 수수료</dt><dd>{snapshot.totalCommissionRate}%</dd></div><div><dt>셀러 기본 수수료</dt><dd>{snapshot.sellerCommissionRate}%</dd></div><div><dt>브랜드 PG 지원</dt><dd>{snapshot.brandPgSupportAvailable ? `있음 · ${snapshot.brandPgSupportRate}%` : '없음'}</dd></div><div><dt>셀러 추가 PG 지급률</dt><dd>{snapshot.sellerExtraPgRate}%</dd></div><div><dt>최종 셀러 수수료율</dt><dd>{snapshot.effectiveSellerCommissionRate}%</dd></div><div><dt>회사 수수료율</dt><dd>{snapshot.companyCommissionRate}%</dd></div><div><dt>배송비</dt><dd>{money(snapshot.shippingAmount)}</dd></div></dl><p>배송비에는 수수료를 적용하지 않습니다.</p></article> })}</div>
 }
 
-function EventCard({ errors, event, products, title, onChange, onClone, onDelete }: { errors?: string[]; event: CampaignEvent; products: CampaignProductSelection[]; title: string; onChange: (patch: Partial<CampaignEvent>) => void; onClone: () => void; onDelete: () => void }) {
+function EventCard({ errors, event, title, onChange, onClone, onDelete }: { errors?: string[]; event: CampaignEvent; products: CampaignProductSelection[]; title: string; onChange: (patch: Partial<CampaignEvent>) => void; onClone: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(true)
   const masterProducts = campaignProductCatalogService.listProducts()
   const rewardMode = event.rewardProductMode ?? (event.rewardProductId ? 'master' : 'direct')
   const setRewardMode = (mode: NonNullable<CampaignEvent['rewardProductMode']>) => {
-    if (mode === 'none') return onChange({ rewardProductMode: mode, rewardProductId: undefined, rewardProductName: '제공 상품 없음', rewardUnitPrice: 0 })
-    if (mode === 'same_as_target') {
-      const product = campaignProductCatalogService.getProduct(event.targetProductId ?? '')
-      return onChange({ rewardProductMode: mode, rewardProductId: event.targetProductId, rewardProductName: event.targetProductName, rewardUnitPrice: product?.supplyPrice ?? 0, rewardUnitPriceOverridden: false })
-    }
     onChange({ rewardProductMode: mode, rewardProductId: undefined, rewardProductName: '', rewardUnitPrice: 0 })
   }
-  return <article className={`campaign-event-card ${errors?.length ? 'campaign-event-card--error' : ''}`}><header><div><strong>{title}</strong><span>{getEventPayerLabel(event.payer)} · {money(event.estimatedTotalAmount)}</span></div><div className="button-row"><button className="text-button" onClick={() => setOpen(!open)}>{open ? '접기' : '펼치기'}</button><button className="text-button" onClick={onClone}>복제</button><button className="text-button danger-text" onClick={onDelete}>삭제</button></div></header>{errors?.length ? <div className="event-error-summary">{errors.map((error) => <small className="field-error" key={error}>{error}</small>)}</div> : null}{open && <div className="campaign-create-grid">
-    <label><span>이벤트명</span><input onChange={(e) => onChange({ eventName: e.target.value })} placeholder="예: 네이버페이 구매 인증 이벤트" value={event.eventName ?? ''} /></label>
-    <label><span>이벤트 비용 처리</span><select value={event.costHandling ?? 'company_direct'} onChange={(e) => { const costHandling = e.target.value as NonNullable<CampaignEvent['costHandling']>; onChange({ costHandling, payer: costHandling === 'vendor_free' ? 'company_support' : costHandling === 'manager_prepaid' ? 'manager' : 'company', shippingOwner: costHandling === 'vendor_free' ? 'vendor' : 'company', managerPrepayment: costHandling === 'manager_prepaid' ? { status: 'not_requested' } : undefined }) }}><option value="company_direct">회사 직접 발송 (기본)</option><option value="vendor_free">업체 무상 제공</option><option value="manager_prepaid">매니저 선결제 (사전 승인 필요)</option></select><small>매니저 선결제는 정산담당자 승인과 증빙 확인 전에는 정산에 반영되지 않습니다.</small></label>
-    <label><span>부담 주체</span><select value={event.payer} onChange={(e) => onChange({ payer: e.target.value as CampaignEvent['payer'] })}><option value="company">회사 부담</option><option value="vendor">벤더 부담</option><option value="seller">셀러 부담</option><option value="company_support">업체 지원</option><option value="manager">매니저 부담</option><option value="shared">공동 부담</option></select></label>
+  return <article className={`campaign-event-card ${errors?.length ? 'campaign-event-card--error' : ''}`}><header><div><strong>{title}</strong><span>{getEventPayerLabel(event.payer)}{event.payer === 'company_support' ? '' : ` · ${money(event.estimatedTotalAmount)}`}</span></div><div className="button-row"><button className="text-button" onClick={() => setOpen(!open)}>{open ? '접기' : '펼치기'}</button><button className="text-button" onClick={onClone}>복제</button><button className="text-button danger-text" onClick={onDelete}>삭제</button></div></header>{errors?.length ? <div className="event-error-summary">{errors.map((error) => <small className="field-error" key={error}>{error}</small>)}</div> : null}{open && <div className="campaign-create-grid">
     <label><span>이벤트 종류</span><select value={event.eventType} onChange={(e) => { const eventType = e.target.value as CampaignEvent['eventType']; onChange({ eventType, ...(eventType !== 'other' && rewardMode === 'none' ? { rewardProductMode: 'direct', rewardProductName: '' } : {}) }) }}><option value="first_come">선착순</option><option value="purchase_complete">구매 완료</option><option value="try_it">써볼래요</option><option value="other">기타</option></select></label>
-    <label><span>{event.eventType === 'try_it' ? '체험 대상 상품 (이벤트 적용 상품)' : '이벤트 적용 상품'}{event.eventType === 'other' ? '' : ' *'}</span><select value={event.targetProductId ?? ''} onChange={(e) => { const item = products.find((product) => product.productId === e.target.value); const product = campaignProductCatalogService.getProduct(item?.productId ?? ''); onChange({ targetProductId: item?.productId, targetProductName: item?.productName, ...(rewardMode === 'same_as_target' ? { rewardProductId: item?.productId, rewardProductName: item?.productName, rewardUnitPrice: product?.supplyPrice ?? 0 } : {}) }) }}><option value="">선택</option>{products.map((product) => <option key={product.id} value={product.productId}>{product.productName}</option>)}</select><small>어떤 상품을 구매하거나 신청해야 이 이벤트에 참여할 수 있는지 선택합니다.</small></label>
-    <label><span>증정·경품 상품{event.eventType === 'other' ? '' : ' *'}</span><select value={rewardMode === 'master' ? event.rewardProductId ?? 'direct' : rewardMode} onChange={(e) => { const product = campaignProductCatalogService.getProduct(e.target.value); if (product) onChange({ rewardProductMode: 'master', rewardProductId: product.id, rewardProductName: product.productName, rewardUnitPrice: product.supplyPrice, rewardUnitPriceOverridden: false }); else setRewardMode(e.target.value as NonNullable<CampaignEvent['rewardProductMode']>) }}><option value="direct">직접 입력</option>{event.eventType === 'try_it' && <option value="same_as_target">이벤트 적용 상품과 동일</option>}{event.eventType === 'other' && <option value="none">제공 상품 없음</option>}{masterProducts.map((product) => <option key={product.id} value={product.id}>{product.brandName} · {product.productName}</option>)}</select>{rewardMode === 'direct' && <input placeholder="증정·경품 상품명 직접 입력" value={event.rewardProductName ?? ''} onChange={(e) => onChange({ rewardProductMode: 'direct', rewardProductName: e.target.value })} />}<small>참여자 또는 당첨자에게 실제로 제공하는 상품을 선택합니다.</small></label>
+    {event.eventType === 'other' && <label><span>기타 이벤트 종류 *</span><input onChange={(e) => onChange({ eventName: e.target.value })} placeholder="이벤트 종류를 자유롭게 입력하세요" value={event.eventName ?? ''} /></label>}
+    <label><span>부담 주체</span><select value={event.payer} onChange={(e) => { const payer = e.target.value as CampaignEvent['payer']; onChange({ payer, costHandling: payer === 'company_support' ? 'vendor_free' : payer === 'manager' ? 'manager_prepaid' : 'company_direct', shippingOwner: payer === 'company_support' ? 'vendor' : 'company', managerPrepayment: payer === 'manager' ? { status: 'not_requested' } : undefined }) }}><option value="company">회사 부담</option><option value="company_support">업체 부담</option><option value="seller">셀러 부담</option><option value="vendor">벤더 부담</option><option value="manager">매니저 선결제</option><option value="shared">공동 부담</option></select></label>
+    <label><span>이벤트 품목 *</span><select value={rewardMode === 'master' ? event.rewardProductId ?? 'direct' : rewardMode} onChange={(e) => { const product = campaignProductCatalogService.getProduct(e.target.value); if (product) onChange({ rewardProductMode: 'master', rewardProductId: product.id, rewardProductName: product.productName, rewardUnitPrice: product.supplyPrice, rewardUnitPriceOverridden: false }); else setRewardMode(e.target.value as NonNullable<CampaignEvent['rewardProductMode']>) }}><option value="direct">직접 입력</option>{masterProducts.map((product) => <option key={product.id} value={product.id}>{product.brandName} · {product.productName}</option>)}</select>{rewardMode === 'direct' && <input placeholder="이벤트 품목을 직접 입력하세요" value={event.rewardProductName ?? ''} onChange={(e) => onChange({ rewardProductMode: 'direct', rewardProductName: e.target.value })} />}</label>
     <label><span>단가</span><input min="0" type="number" value={event.rewardUnitPrice || ''} onChange={(e) => onChange({ rewardUnitPrice: Number(e.target.value), rewardUnitPriceOverridden: true })} /><small>{event.rewardUnitPriceOverridden ? '수동 override' : '상품 마스터 자동 적용'}</small></label>
-    <label><span>예정 수량{event.eventType === 'first_come' || event.eventType === 'purchase_complete' ? ' *' : ''}</span><input min="0" type="number" value={event.plannedQuantity || ''} onChange={(e) => onChange({ plannedQuantity: Number(e.target.value) })} /></label>
-    <label><span>예상 총금액</span><input readOnly value={money(event.estimatedTotalAmount)} /></label>
+    <label><span>인원 *</span><input min="1" type="number" value={event.plannedQuantity || ''} onChange={(e) => onChange({ plannedQuantity: Number(e.target.value) })} /></label>
+    {event.payer !== 'company_support' && <label><span>예상 총금액</span><input readOnly value={money(event.estimatedTotalAmount)} /></label>}
     <label><span>메모</span><input value={event.memo ?? ''} onChange={(e) => onChange({ memo: e.target.value })} /></label>
   </div>}</article>
 }
@@ -409,8 +423,8 @@ function FinalReview({ form, name, snapshots, missing, summary }: { form: Draft;
       <Summary label="판매 링크 유형" value={`${getSalesChannelTypeLabel(form.salesChannelType)} · ${form.salesChannelSource === 'product_default' ? '상품 정보에서 자동 적용' : '직접 선택'}`} />
     </div>
     <h4>정산 참고 조건</h4><ProposalCards form={form} snapshots={snapshots} />
-    <h4>이벤트 목록</h4><div className="final-event-list">{form.events.map((event, index) => <article key={event.id}><strong>이벤트 {index + 1}</strong><dl><div><dt>부담 주체</dt><dd>{getEventPayerLabel(event.payer)}</dd></div><div><dt>이벤트 종류</dt><dd>{getCampaignEventTypeLabel(event.eventType)}</dd></div><div><dt>이벤트 적용 상품</dt><dd>{event.targetProductName || '미입력'}</dd></div><div><dt>증정·경품 상품</dt><dd>{event.rewardProductName || '미입력'}</dd></div><div><dt>수량</dt><dd>{event.plannedQuantity.toLocaleString('ko-KR')}개</dd></div><div><dt>단가</dt><dd>{money(event.rewardUnitPrice)}</dd></div><div><dt>예상 총금액</dt><dd>{money(event.estimatedTotalAmount)}</dd></div></dl></article>)}</div>
-    <h4>부담 주체별 이벤트 총액</h4><div className="event-summary-grid"><Summary label="전체 이벤트 수" value={`${form.events.length}개`} /><Summary label="회사 직접 발송 총액" value={money(summary.company)} /><Summary label="벤더 부담 총액" value={money(summary.vendor)} /><Summary label="셀러 부담 총액" value={money(summary.seller)} /><Summary label="업체 지원 총액" value={money(summary.company_support)} /><Summary label="전체 예상 이벤트 금액" value={money(summary.total)} /><Summary label="발표자 선정일" value={form.events.some((event) => event.eventType === 'purchase_complete') ? formatDateWithWeekday(form.winnerAnnouncementDate) : '구매 완료 이벤트 없음'} /></div>
+    <h4>이벤트 목록</h4><div className="final-event-list">{form.events.map((event, index) => <article key={event.id}><strong>이벤트 {index + 1}</strong><dl><div><dt>부담 주체</dt><dd>{getEventPayerLabel(event.payer)}</dd></div><div><dt>이벤트 종류</dt><dd>{event.eventType === 'other' ? event.eventName || '미입력' : getCampaignEventTypeLabel(event.eventType)}</dd></div><div><dt>이벤트 품목</dt><dd>{event.rewardProductName || '미입력'}</dd></div><div><dt>인원</dt><dd>{event.plannedQuantity.toLocaleString('ko-KR')}명</dd></div><div><dt>단가</dt><dd>{money(event.rewardUnitPrice)}</dd></div>{event.payer !== 'company_support' && <div><dt>예상 총금액</dt><dd>{money(event.estimatedTotalAmount)}</dd></div>}</dl></article>)}</div>
+    <h4>부담 주체별 이벤트 총액</h4><div className="event-summary-grid"><Summary label="전체 이벤트 수" value={`${form.events.length}개`} /><Summary label="회사 직접 발송 총액" value={money(summary.company)} /><Summary label="벤더 부담 총액" value={money(summary.vendor)} /><Summary label="셀러 부담 총액" value={money(summary.seller)} /><Summary label="업체 부담" value={`${form.events.filter((event) => event.payer === 'company_support').length}건`} /><Summary label="전체 예상 이벤트 금액" value={money(summary.total)} /><Summary label="발표자 선정일" value={form.events.some((event) => event.eventType === 'purchase_complete') ? formatDateWithWeekday(form.winnerAnnouncementDate) : '구매 완료 이벤트 없음'} /></div>
   </section>
 }
 
@@ -438,4 +452,8 @@ function HelperModal({ kind, input, preview, onInput, onPreview, onApply, onClos
 
 function Summary({ label, value }: { label: string; value: string }) {
   return <div><span>{label}</span><strong>{value}</strong></div>
+}
+
+function getVendorPartners(): SupplierPilotRow[] {
+  try { const rows = JSON.parse(localStorage.getItem('t3-suppliers-v1') ?? '[]'); return Array.isArray(rows) ? rows.filter((row: SupplierPilotRow) => row.partnerType === 'vendor' || row.partnerType === 'both') : [] } catch { return [] }
 }

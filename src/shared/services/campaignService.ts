@@ -22,11 +22,16 @@ import type { PaymentRecipientType, PaymentRequestStatus } from '../types/seller
 import { STORAGE_KEYS, storageService } from './storageService'
 import type { CampaignCreationBusinessType, CampaignEvent, CampaignProductProposalSnapshot, CampaignProductSelection } from '../types/campaignCreation'
 import { captureProposalSnapshots, generateCampaignName } from './campaignCreationService'
+import { getDataProviderMode } from '../lib/dataProvider'
 
 export type CampaignCreateInput = {
   sellerId?: string
   campaignName: string
   sellerName: string
+  sellerBusinessId?: string
+  sellerBusinessName?: string
+  supplyAudience?: 'seller' | 'vendor'
+  settlementVendorName?: string
   brandName: string
   productName: string
   managerId: string
@@ -228,7 +233,8 @@ const toSummary = (campaign: Campaign): CampaignSummary => ({
 
 export const campaignService = {
   getCampaigns() {
-    return storageService.getItem<Campaign[]>(STORAGE_KEYS.campaigns, campaigns)
+    const fallback = typeof window === 'undefined' || getDataProviderMode() !== 'supabase' ? campaigns : []
+    return storageService.getItem<Campaign[]>(STORAGE_KEYS.campaigns, fallback)
   },
   saveCampaigns(nextCampaigns: Campaign[]) {
     storageService.setItem(STORAGE_KEYS.campaigns, nextCampaigns)
@@ -404,6 +410,10 @@ export const campaignService = {
       campaignName: input.campaignName.trim() || generateCampaignName({ sellerName: input.sellerName, selectedProducts: input.campaignProducts ?? [] }),
       sellerId: input.sellerId ?? createId('seller'),
       sellerName: input.sellerName.trim(),
+      sellerBusinessId: input.sellerBusinessId,
+      sellerBusinessName: input.sellerBusinessName,
+      supplyAudience: input.supplyAudience ?? 'seller',
+      settlementVendorName: input.supplyAudience === 'vendor' ? input.settlementVendorName?.trim() : undefined,
       brandId: input.campaignProducts?.[0]?.brandId ?? createId('brand'),
       brandName: input.brandName.trim(),
       productId: input.campaignProducts?.[0]?.productId ?? createId('product'),

@@ -4,6 +4,7 @@ import {
   getDday,
 } from '../../../features/campaignSchedules/scheduleStatus'
 import type { CampaignSchedule } from '../../../features/campaignSchedules/types'
+import { LandingPageBadge } from '../../../shared/components/LandingPageBadge'
 import { CampaignStatusBadge } from './CampaignStatusBadge'
 
 type CampaignPreviewDrawerProps = {
@@ -71,8 +72,8 @@ export function CampaignPreviewDrawer({ schedule, onClose, onOpenDetail }: Campa
             </dd>
           </div>
           <div>
-            <dt>링크 주체</dt>
-            <dd>{schedule.linkOwner}</dd>
+            <dt>판매 링크</dt>
+            <dd><LandingPageBadge landingPageType={schedule.landingPageType} linkOwner={schedule.linkOwner} /></dd>
           </div>
           <div>
             <dt>오늘 해야 할 일</dt>

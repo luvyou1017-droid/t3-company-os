@@ -76,7 +76,7 @@ export function toSharedProposalView(proposal: ProposalMaster): SharedProposalVi
 export const proposalService = {
   list: () => repository.list(),
   getById: (id: string) => repository.getById(id),
-  listProductMasters: () => productService.listProducts(),
+  listProductMasters: async () => (await productService.listProducts()).filter((product) => product.active),
   async save(input: ProposalMasterInput) {
     const current = await repository.getById(input.id)
     const now = new Date().toISOString()

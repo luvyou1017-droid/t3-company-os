@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict'
+import { createServer } from 'vite'
+const server = await createServer({ configFile: false, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
+try {
+  const { calculateVendorDocument } = await server.ssrLoadModule('/src/shared/utils/vendorSettlementDocument.ts')
+  const rows = [[12980,43,20],[12980,6,20],[21150,34,12],[6900,5,20],[6900,6,20]].map(([unitPrice,quantity,sellerCommissionRate],id)=>({ id:String(id),unitPrice,quantity,sellerCommissionRate,canceledQuantity:0,refundedQuantity:0,netSales:unitPrice*quantity }))
+  const source = { shippingRevenue:192000, settlementTerms:{salesChannelType:'seller_checkout'} }
+  const report = calculateVendorDocument(rows,source)
+  assert.equal(report.salesTotal,1431020)
+  assert.equal(report.commissionTotal,228676)
+  assert.equal(report.supplyTotal,1202344)
+  assert.equal(report.finalAmount,1394344)
+  assert.equal(calculateVendorDocument(rows,{...source,shippingRevenue:undefined}).finalAmount,undefined)
+  assert.equal(calculateVendorDocument(rows,{...source,shippingRevenue:0}).finalAmount,1202344)
+  assert.equal(calculateVendorDocument(rows,{...source,settlementTerms:{salesChannelType:'wise_shop_link'}}).finalAmount,228676)
+  assert.equal(calculateVendorDocument([{...rows[0],sellerCommissionRate:undefined}],source).finalAmount,undefined)
+  assert.equal(calculateVendorDocument(rows,{}, {linkOwner:'셀러'}).receivable,true)
+  const detailed = calculateVendorDocument(rows,{...source,shippingDetails:[{label:'기본택배비',quantity:62,unitPrice:3000},{label:'도서산간비',quantity:2,unitPrice:3000}]})
+  assert.equal(detailed.shipping,192000)
+  assert.equal(detailed.finalAmount,1394344)
+  const { calculateSettlement } = await server.ssrLoadModule('/src/shared/utils/settlement.ts')
+  const vendorCalc = calculateSettlement({supplyAudience:'vendor',totalCommissionRate:32.2,sellerCommissionRate:20},rows.map(row=>({...row,totalCommissionRate:32.2})),[],'none')
+  assert.equal(vendorCalc.managerShareRate,0)
+  assert.equal(vendorCalc.managerAmount,0)
+  assert.equal(vendorCalc.companyShareRate,100)
+  assert.equal(vendorCalc.companyAmount,vendorCalc.distributableVendorCommission)
+  const sellerCalc = calculateSettlement({supplyAudience:'seller',totalCommissionRate:32.2,sellerCommissionRate:20},rows.map(row=>({...row,totalCommissionRate:32.2})),[],'none')
+  assert.ok(sellerCalc.managerAmount>0)
+  console.log('Vendor receivable example, payout direction, missing terms and shipping checks passed')
+} finally { await server.close() }

@@ -49,9 +49,12 @@ export class SupabaseProductRepository implements ProductRepository {
     return this.fromRow(data)
   }
   async deactivateProduct(id: string) {
+    return this.setProductActive(id, false)
+  }
+  async setProductActive(id: string, active: boolean) {
     const product = await this.getProductById(id)
     if (!product) throw new Error('상품을 찾을 수 없습니다.')
-    return this.updateProduct({ ...product, active: false, updatedAt: new Date().toISOString(), version: product.version + 1 })
+    return this.updateProduct({ ...product, active, updatedAt: new Date().toISOString(), version: product.version + 1 })
   }
   async searchProductsByBrand(brandId: string, query = '') {
     const products = await this.listProducts()
