@@ -151,20 +151,16 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
       if (!period?.start || period.start.slice(0, 10) < '2026-08-01') continue
       const sourceId = String(item.id).replace(/-/g, '')
       const sellerProperty = properties[map.seller ?? '셀러명']?.relation?.length ? properties[map.seller ?? '셀러명'] : properties['셀러명'] ?? properties[map.seller]
-      const managerProperty = properties[map.manager ?? '담당매니저']?.relation?.length ? properties[map.manager ?? '담당매니저'] : properties['담당매니저'] ?? properties[map.manager]
+      let managerProperty = properties[map.manager ?? '담당매니저']?.relation?.length ? properties[map.manager ?? '담당매니저'] : properties['담당매니저'] ?? properties[map.manager]
       const sellerName = await relationTitle(sellerProperty)
       const sellerId = sellerProperty?.relation?.[0]?.id
-      const managerName = await relationTitle(managerProperty)
-      const managerId = managerProperty?.relation?.[0]?.id
-      const productProperty = properties[map.product ?? '제품'] ?? properties['제품']
-      const productName = await relationTitle(productProperty)
-      const productNotionId = productProperty?.relation?.length === 1 ? productProperty.relation[0].id : undefined
-      const landingPage = textProperty(properties[map.landingPage ?? '랜딩페이지'] ?? properties['랜딩페이지'])
+      let managerName = await relationTitle(managerProperty)
+      let managerId = managerProperty?.relation?.[0]?.id
+      let productProperty = properties[map.product ?? '제품'] ?? properties['제품']
+      let productName = await relationTitle(productProperty)
+      let productNotionId = productProperty?.relation?.length === 1 ? productProperty.relation[0].id : undefined
+      let landingPage = textProperty(properties[map.landingPage ?? '랜딩페이지'] ?? properties['랜딩페이지'])
       const cancelled = name.includes('취소') || ['취소', 'cancelled', 'canceled'].includes(textProperty(properties[map.status ?? '상태'] ?? properties['상태']).toLowerCase())
-      const signature = JSON.stringify([name, period.start, period.end, sellerId || sellerName, managerId || managerName, productNotionId || productName, landingPage, cancelled])
-      const previousSignature = excluded.get(sourceId)
-      const audienceValue = map.supplyAudience ? textProperty(properties[map.supplyAudience]) : ''
-      const supplyAudience = audienceValue === 'seller' || audienceValue === 'vendor' ? audienceValue : /베벤더/.test(landingPage) ? 'vendor' : undefined
       const byId = existing.filter(
         (campaign: any) => campaign.notionImportMetadata?.sourceId?.replace(/-/g, '') === sourceId,
       )
@@ -189,6 +185,28 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
       const possible = !match && !byId.length && name ? existing.some((campaign: any) =>
         sellerName && normalized(campaign.sellerName) === normalized(sellerName) && normalized(campaign.campaignName) === normalized(name),
       ) : false
+      // Some Notion data-source queries omit relation fields that are present
+      // on the page. Retrieve only actionable pages, leaving unchanged ones
+      // untouched and keeping the API request volume bounded.
+      let detailProperties: any = {}
+      if ((!match || differences.length || possible || cancelled) && (!managerName || !productName || !landingPage)) {
+        try {
+          await new Promise(resolve => setTimeout(resolve, 350))
+          const detail = await fetchJson(`https://api.notion.com/v1/pages/${encodeURIComponent(item.id)}`, { headers: { Authorization: `Bearer ${env('NOTION_API_TOKEN')}`, 'Notion-Version': '2025-09-03' } })
+          detailProperties = detail.properties ?? {}
+          managerProperty = managerProperty?.relation?.length ? managerProperty : detailProperties[map.manager ?? '담당매니저'] ?? detailProperties['담당매니저']
+          managerName ||= await relationTitle(managerProperty)
+          managerId ||= managerProperty?.relation?.[0]?.id
+          productProperty = productProperty?.relation?.length ? productProperty : detailProperties[map.product ?? '제품'] ?? detailProperties['제품']
+          productName ||= await relationTitle(productProperty)
+          productNotionId ||= productProperty?.relation?.length === 1 ? productProperty.relation[0].id : undefined
+          landingPage ||= textProperty(detailProperties[map.landingPage ?? '랜딩페이지'] ?? detailProperties['랜딩페이지'])
+        } catch { /* Leave missing source fields for explicit review. */ }
+      }
+      const audienceValue = map.supplyAudience ? textProperty(properties[map.supplyAudience] ?? detailProperties[map.supplyAudience]) : ''
+      const supplyAudience = audienceValue === 'seller' || audienceValue === 'vendor' ? audienceValue : /베벤더/.test(landingPage) ? 'vendor' : undefined
+      const signature = JSON.stringify([name, period.start, period.end, sellerId || sellerName, managerId || managerName, productNotionId || productName, landingPage, cancelled])
+      const previousSignature = excluded.get(sourceId)
       const reason =
         matches.length > 1
           ? '기존 일정이 여러 건 일치하여 확인 필요'
