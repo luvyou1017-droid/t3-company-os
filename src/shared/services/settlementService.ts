@@ -51,6 +51,18 @@ import { getDataProviderMode } from '../lib/dataProvider'
 const now = () => new Date().toISOString()
 const paymentDueDate = '2026-07-22'
 
+function settlementCreationErrors(salesImport: SalesDataImport) {
+  const campaign = campaignService.getCampaignById(salesImport.campaignId)
+  const sellerProfile = campaign && sellerMasterService.getSettlementProfile(campaign.sellerId, campaign.sellerBusinessId)
+  return settlementReadinessErrors(campaign, campaignProductCatalogService.getManagedProducts(), salesDataService.getRowsByImportId(salesImport.id), salesImport, {
+    exists: Boolean(campaign && sellerMasterService.getSellerById(campaign.sellerId)),
+    businessType: sellerProfile?.businessType,
+    bankName: sellerProfile?.bankName,
+    accountNumber: sellerProfile?.accountNumber,
+    accountHolder: sellerProfile?.accountHolder,
+  })
+}
+
 function isLegacyMockSettlement(settlement: Settlement) {
   return /^settlement-sales-00\d$/.test(settlement.id) && /^SCH-00\d$/.test(settlement.campaignId)
 }
@@ -357,6 +369,14 @@ export const settlementService = {
     }
     storageService.setItem(STORAGE_KEYS.settlements, reconciled)
   },
+  markSellerDelivered(settlementId: string, at: string) {
+    const current = this.getSettlements()
+    const existing = current.find(item => item.id === settlementId)
+    if (!existing) throw new Error('정산서를 찾을 수 없습니다.')
+    const next = { ...existing, seller_delivered_at: at }
+    this.saveSettlements(current.map(item => item.id === settlementId ? next : item))
+    return next
+  },
   getDeductions() {
     return storageService.getItem<SettlementDeduction[]>(STORAGE_KEYS.settlementDeductions, [])
   },
@@ -461,7 +481,7 @@ export const settlementService = {
 
     readyImports.slice(0, 3).forEach((salesImport, index) => {
       const campaign = campaignService.getCampaignById(salesImport.campaignId)
-      const readinessErrors = settlementReadinessErrors(campaign, campaignProductCatalogService.getManagedProducts(), salesDataService.getRowsByImportId(salesImport.id))
+      const readinessErrors = settlementCreationErrors(salesImport)
     if (readinessErrors.length) throw new Error(`정산 전 확인 필요: ${readinessErrors.join(' · ')}`)
     const id = `settlement-${salesImport.id}`
       const createdAt = now()
@@ -477,6 +497,7 @@ export const settlementService = {
         settlementVersion: 1,
         status,
         createdAt,
+        settlement_created_at: createdAt,
         updatedAt: createdAt,
         createdBy: '허수정',
         assigneeName: '허수정',
@@ -552,6 +573,9 @@ export const settlementService = {
   async prepareSettlementFromSalesData(salesDataImportId: string, initialStatus: SettlementStatus = 'draft') {
     if (!this.getSettlements().some(item => item.salesDataImportId === salesDataImportId)) {
       campaignProductCatalogService.registerProductMasters(await productService.listProducts())
+      const salesImport = salesDataService.getSalesDataImportById(salesDataImportId)
+      const sellerId = salesImport && campaignService.getCampaignById(salesImport.campaignId)?.sellerId
+      if (sellerId) await sellerMasterService.loadSellerById(sellerId)
     }
     return this.createSettlementFromSalesData(salesDataImportId, initialStatus)
   },
@@ -564,7 +588,7 @@ export const settlementService = {
     }
     if (!salesImport || !isEligibleSalesData(salesImport)) return undefined
     const campaign = campaignService.getCampaignById(salesImport.campaignId)
-    const readinessErrors = settlementReadinessErrors(campaign, campaignProductCatalogService.getManagedProducts(), salesDataService.getRowsByImportId(salesImport.id))
+    const readinessErrors = settlementCreationErrors(salesImport)
     if (readinessErrors.length) throw new Error(`정산 전 확인 필요: ${readinessErrors.join(' · ')}`)
     const id = `settlement-${salesImport.id}`
     const createdAt = now()
@@ -579,6 +603,7 @@ export const settlementService = {
       settlementVersion: 1,
       status: initialStatus,
       createdAt,
+      settlement_created_at: createdAt,
       updatedAt: createdAt,
       createdBy: '허수정',
       assigneeName: '허수정',

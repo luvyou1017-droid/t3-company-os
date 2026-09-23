@@ -214,6 +214,8 @@ export type Settlement = {
   settlementVersion: number
   status: SettlementStatus
   createdAt: string
+  settlement_created_at?: string
+  seller_delivered_at?: string
   updatedAt: string
   createdBy: string
   assigneeName: string

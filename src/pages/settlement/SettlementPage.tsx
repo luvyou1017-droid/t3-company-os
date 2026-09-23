@@ -1,4 +1,4 @@
-import { adjustmentLabel } from '../../shared/utils/settlementAdjustmentLabels'
+import { adjustmentLabel, namedAdjustmentRows } from '../../shared/utils/settlementAdjustmentLabels'
 import { SellerStatementAmountRows, sellerStatementAmount } from './components/SellerStatementAmountRows'
 import { SettlementCostRows } from './components/SettlementAdjustmentRows'
 import { SellerReceivablePanel } from './components/SellerReceivablePanel'
@@ -1031,19 +1031,19 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     ? `\n\n셀러용 구매내역 엑셀: ${share.url}\n다운로드 기한: ${new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(share.expiresAt))}까지 (14일)`
     : ''
 
-  const buildSellerMessage = (share: { url: string; expiresAt: string } | null = sellerExcelShare) => {
+  const buildSellerMessage = (share: { url: string; expiresAt: string } | null = sellerExcelShare, copiedAt = new Date()) => {
     const excelText = sellerExcelShareText(share)
     if (salesImport?.supplyAudience === 'vendor') {
       const report = calculateVendorDocument(salesRows, salesImport, campaign)
-      return `안녕하세요. ${salesImport.settlementVendorName} 벤더 정산서 전달드립니다. ${report.receivable ? `합의 수수료를 제외한 물품대금과 배송비 합계 ${report.finalAmount === undefined ? '(조건 확인 필요)' : money(report.finalAmount)}를 와이즈벤더로 입금 부탁드립니다.` : '품목별 합의 수수료와 정산금액을 확인해주세요.'}${excelText}`
+      return `안녕하세요. ${salesImport.settlementVendorName} 벤더 정산서 전달드립니다. ${report.receivable ? `합의 수수료를 제외한 물품대금과 배송비 합계 ${report.finalAmount === undefined ? '(조건 확인 필요)' : money(report.finalAmount)}를 와이즈벤더로 입금 부탁드립니다.` : '품목별 합의 수수료와 정산금액을 확인해주세요.'}${excelText}\n\n사업자 정보, 세금계산서 발행 메일 및 회사 정산 정보는 첨부된 정산서 하단을 확인해주세요.`
     }
     if (salesImport && campaignChannel(campaign, salesImport) === 'seller_checkout') {
       const report = calculateVendorDocument(salesRows, salesImport, campaign)
       const sellerAdjustment = settlement.currentCalculation.sellerDeductionTotal - sellerAdditionalPayments(settlement.currentCalculation.deductions, settlement.currentCalculation.adjustmentCalculationVersion)
       const finalReceivable = report.finalAmount === undefined ? undefined : report.finalAmount + sellerAdjustment
-      return `안녕하세요, ${campaign?.sellerName || '셀러'}님.\n${campaign?.campaignName || settlement.campaignId || '공동구매'} 셀러 링크 정산서 전달드립니다.\n\n${report.supplyBasis ? '셀러 적용 공급가 기준 물품대금과 배송비' : '셀러 수수료를 제외한 물품대금과 배송비'}${sellerAdjustment > 0 ? ' 및 셀러 부담 차감·조정액' : ''} 합계 ${finalReceivable === undefined ? '(조건 확인 필요)' : money(finalReceivable)}를 와이즈벤더 계좌로 입금 부탁드립니다.\n입금 계좌: ${companySettlementProfile.settlementBankName} ${companySettlementProfile.settlementBankAccount} / ${companySettlementProfile.settlementAccountHolder}\n\n품목별 판매수량과 정산금액 확인 부탁드립니다.${excelText}\n감사합니다.`
+      return `안녕하세요, ${campaign?.sellerName || '셀러'}님.\n${campaign?.campaignName || settlement.campaignId || '공동구매'} 셀러 링크 정산서 전달드립니다.\n\n${report.supplyBasis ? '셀러 적용 공급가 기준 물품대금과 배송비' : '셀러 수수료를 제외한 물품대금과 배송비'}${sellerAdjustment > 0 ? ' 및 셀러 부담 차감·조정액' : ''} 합계 ${finalReceivable === undefined ? '(조건 확인 필요)' : money(finalReceivable)}를 와이즈벤더 계좌로 입금 부탁드립니다.\n입금 계좌: ${companySettlementProfile.settlementBankName} ${companySettlementProfile.settlementBankAccount} / ${companySettlementProfile.settlementAccountHolder}\n\n품목별 판매수량과 정산금액 확인 부탁드립니다.${excelText}\n사업자 정보, 세금계산서 발행 메일 및 회사 정산 정보는 첨부된 정산서 하단을 확인해주세요.\n\n감사합니다.`
     }
-    const schedule = getSellerSettlementSchedule(settlement.createdAt)
+    const schedule = getSellerSettlementSchedule(copiedAt)
     const evidenceName = effectiveSellerBusinessType === 'freelancer' ? '원천세 리스트 등록' : effectiveSellerBusinessType === 'simplified_business' ? '현금영수증 발행' : sellerRule ? '세금계산서 발행' : '데이터 미연결'
     const businessType = effectiveSellerBusinessType
     const productSubtotal = calculateSellerProductSubtotal(salesRows, settlement.currentCalculation.sellerCommissionRate)
@@ -1052,7 +1052,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
       : Math.max(productSubtotal.commissionAmount - settlement.currentCalculation.sellerDeductionTotal, 0)
     const period = `${formatKoreanDate(salesImport?.salesStartDate || campaign?.startDate)} ~ ${formatKoreanDate(salesImport?.salesEndDate || campaign?.endDate)}`
     const evidenceRequest = effectiveSellerBusinessType === 'freelancer' ? '원천세 등록을 위해 필요한 정보를 확인해주세요.' : effectiveSellerBusinessType === 'simplified_business' ? '현금영수증 발행 부탁드립니다.' : sellerRule ? '세금계산서 발행 부탁드립니다.' : '필요 증빙 정보를 확인해주세요.'
-    return `안녕하세요, ${campaign?.sellerName || '셀러'}님.\n${campaign?.campaignName || settlement.campaignId || '공동구매'} 정산서 전달드립니다.\n\n공구기간: ${period}\n총매출: ${money(productSubtotal.salesAmount)}\n최종 입금액: ${money(finalDeposit)}\n${sellerAccountText(sellerProfile)}\n필요 증빙: ${evidenceName}\n증빙 마감일: ${formatKoreanDocumentDate(schedule.evidenceDeadline)}\n입금 예정일: ${formatKoreanDocumentDate(schedule.paymentDate)}\n\n${evidenceRequest}\n정산 내용 확인 부탁드립니다.${excelText}\n\n금요일까지 필요한 증빙자료 전달 및 발행이 완료된 경우,\n기재된 입금 예정일에 입금됩니다.\n입금 예정일이 휴일인 경우 다음 영업일에 지급됩니다.\n\n감사합니다.`
+    return `안녕하세요, ${campaign?.sellerName || '셀러'}님.\n${campaign?.campaignName || settlement.campaignId || '공동구매'} 정산서 전달드립니다.\n\n공구기간: ${period}\n총매출: ${money(productSubtotal.salesAmount)}\n최종 입금액: ${money(finalDeposit)}\n${sellerAccountText(sellerProfile)}\n필요 증빙: ${evidenceName}\n증빙 마감일: ${formatKoreanDocumentDate(schedule.evidenceDeadline)}\n입금 예정일: ${formatKoreanDocumentDate(schedule.paymentDate)}\n\n${evidenceRequest}\n정산 내용 확인 부탁드립니다.${excelText}\n\n금요일까지 필요한 증빙자료 전달 및 발행이 완료된 경우,\n기재된 입금 예정일에 입금됩니다.\n입금 예정일이 휴일인 경우 다음 영업일에 지급됩니다.\n사업자 정보, 세금계산서 발행 메일 및 회사 정산 정보는 첨부된 정산서 하단을 확인해주세요.\n\n감사합니다.`
   }
 
   const createSellerExcelShare = async (confirmed: Settlement = settlement) => {
@@ -1122,7 +1122,10 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     try {
       if (!navigator.clipboard?.writeText) throw new Error('이 브라우저에서 문구 복사를 지원하지 않습니다.')
       // Do not await Storage/network before clipboard: browser activation expires.
-      await navigator.clipboard.writeText(buildSellerMessage(currentMessageShare()))
+      const copiedAt = new Date()
+      await navigator.clipboard.writeText(buildSellerMessage(currentMessageShare(), copiedAt))
+      settlementService.markSellerDelivered(settlement.id, copiedAt.toISOString())
+      await cloudSyncService.syncKeys([STORAGE_KEYS.settlements])
       showClipboardToast(copiedMessageNotice())
     } catch (error) { showClipboardToast(error instanceof Error ? error.message : '문구 복사를 허용한 뒤 다시 시도해주세요.', true) }
   }
@@ -1222,7 +1225,8 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     }
     try {
       const pngPromise = createSellerDocumentPng()
-      const message = buildSellerMessage(currentMessageShare())
+      const copiedAt = new Date()
+      const message = buildSellerMessage(currentMessageShare(), copiedAt)
       const htmlPromise = pngPromise.then(async png => {
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader()
@@ -1245,6 +1249,8 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
         'text/html': htmlPromise,
         'text/plain': new Blob([message], { type: 'text/plain' }),
       })])
+      settlementService.markSellerDelivered(settlement.id, copiedAt.toISOString())
+      await cloudSyncService.syncKeys([STORAGE_KEYS.settlements])
       showClipboardToast(`이미지를 복사했습니다. ${copiedMessageNotice()}`)
     } catch {
       showClipboardToast('이미지와 문구를 함께 복사하지 못했습니다. 다시 시도해주세요.', true)
@@ -1408,7 +1414,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
                   {sellerExcelShare && <p className="seller-excel-share__status">다운로드 기한: {new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(sellerExcelShare.expiresAt))}까지 · 전달 문구 복사 시 링크가 자동 포함됩니다.</p>}
                   {sellerExcelError && <p className="seller-excel-share__error" role="alert">{sellerExcelError}</p>}
                 </div>}
-                {!vendorSupply && canEditCurrentSettlement && <SellerDetailShare settlementId={settlement.id} enabled={settlementConfirmed && !hasUnresolvedRevision} createImage={createSellerDocumentPng} message={() => buildSellerMessage(null)} />}
+                {!vendorSupply && canEditCurrentSettlement && <SellerDetailShare settlementId={settlement.id} enabled={settlementConfirmed && !hasUnresolvedRevision} createImage={createSellerDocumentPng} message={() => buildSellerMessage(null)} onCopied={async () => { settlementService.markSellerDelivered(settlement.id, new Date().toISOString()); await cloudSyncService.syncKeys([STORAGE_KEYS.settlements]) }} />}
                 <SellerSettlementDocument exportGeneratedAt={sellerExportGeneratedAt} rows={salesRows} sellerDocumentRef={sellerDocumentRef} settlement={settlement} />
               </article>
               {canAccessManagerDocument && <article hidden={hasThreePartyDocuments && vendorDocumentTab !== 'manager' && !(vendorSupply && vendorCompare)} className={`settlement-document-column ${expandedDocument === 'manager' ? 'is-expanded' : ''}`} id="manager-settlement-document">
@@ -1467,7 +1473,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
         {clipboardToast && <div aria-live="polite" className={`clipboard-toast ${clipboardToast.error ? 'is-error' : ''}`}>{clipboardToast.error ? '!' : '✓'} {clipboardToast.message}</div>}
         {readinessModal && campaign && <div className="settlement-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setReadinessModal(null) }}><section aria-modal="true" className="settlement-readiness-modal" role="dialog"><button aria-label="닫기" className="settlement-expanded-close" onClick={() => setReadinessModal(null)} type="button">×</button>
           {readinessModal === 'commission' && <><h2>수수료율 확인</h2><p>상품 DB의 SKU와 판매행을 연결해 적용한 제품별 수수료율입니다.</p><div className="table-scroll"><table className="data-table"><thead><tr><th>상품 / SKU</th><th>총수수료율</th><th>셀러 수수료율</th></tr></thead><tbody>{salesRows.map((row) => <tr key={row.id}><td>{campaign.productName} / {row.optionName}</td><td>{Number(row.totalCommissionRate ?? totalRate).toFixed(1)}%</td><td>{Number(row.sellerCommissionRate ?? sellerRate).toFixed(1)}%</td></tr>)}</tbody></table></div>{!commissionRatesValid && <p className="settlement-readiness-modal__error">유효한 수수료율이 없습니다. 상품 정보를 수정해주세요.</p>}<div className="modal-actions">{!commissionRatesValid && <button className="secondary-button" onClick={() => openCampaignDetail(campaign.id, 'overview')} type="button">상품 정보 수정</button>}<button className="primary-button" disabled={!commissionRatesValid} onClick={() => { confirmChecklist({ commissionRateConfirmed: true }); setReadinessModal(null) }} type="button">확인 완료</button></div></>}
-          {readinessModal === 'costs' && <><h2>차감·지급내역 확인</h2><SettlementAdjustmentRows items={deductions} /><p>등록한 이벤트별 금액과 부담 주체, 실제 정산 반영 여부를 확인합니다.</p><div className="table-scroll settlement-cost-review"><table className="data-table settlement-cost-review__table"><thead><tr><th>항목</th><th>금액</th><th>부담 주체</th><th>정산 반영</th></tr></thead><tbody>{(['sample', 'other'] as const).map((type) => { const items = deductions.filter((item) => item.type === type); const amount = items.reduce((sum, item) => sum + item.amount, 0); return <tr key={type}><td>{type === 'sample' ? '샘플비' : '기타 차감'}</td><td>{amount ? money(amount) : '0원 · 없음'}</td><td>{items.length ? [...new Set(items.map((item) => costOwnerLabel[item.costOwner] ?? item.costOwner))].join(', ') : '비용 없음'}</td><td>{items.some((item) => item.reflected) ? '✅ 반영 완료' : items.length ? '기록만' : '해당 없음'}</td></tr> })}{deductions.filter((item) => !item.direction && (item.type === 'event' || item.type === 'promotion')).map((item) => <tr key={item.id}><td>이벤트비 · {item.title}</td><td>{money(item.amount)}</td><td>{costOwnerLabel[item.costOwner] ?? item.costOwner}</td><td>{item.reflected ? '✅ 반영 완료' : item.applyLocation === 'record_only' ? '기록만' : '⚠️ 미반영'}</td></tr>)}{!deductions.some((item) => item.type === 'event' || item.type === 'promotion') && <tr><td>이벤트비</td><td>0원 · 없음</td><td>비용 없음</td><td>해당 없음</td></tr>}</tbody></table></div>{unresolvedCostOwners.length > 0 && <p className="settlement-readiness-modal__error">부담 주체가 지정되지 않은 비용이 있습니다. 정산 계산 상세에서 비용 정보를 확인해주세요.</p>}<div className="modal-actions"><button className="primary-button" disabled={unresolvedCostOwners.length > 0} onClick={() => { confirmChecklist({ sampleCostReflected: true, eventCostReflected: true, otherDeductionsConfirmed: true, costOwnersConfirmed: true }); setReadinessModal(null) }} type="button">확인 완료</button></div></>}
+          {readinessModal === 'costs' && <><h2>차감·지급내역 확인</h2><SettlementAdjustmentRows items={deductions} /><p>등록한 이벤트별 금액과 부담 주체, 실제 정산 반영 여부를 확인합니다.</p><div className="table-scroll settlement-cost-review"><table className="data-table settlement-cost-review__table"><thead><tr><th>항목</th><th>금액</th><th>부담 주체</th><th>정산 반영</th></tr></thead><tbody>{(['sample', 'other'] as const).map((type) => { const items = deductions.filter((item) => item.type === type); const amount = items.reduce((sum, item) => sum + item.amount, 0); return <tr key={type}><td>{type === 'sample' ? '샘플비' : '기타 차감'}</td><td>{amount ? money(amount) : '0원 · 없음'}</td><td>{items.length ? [...new Set(items.map((item) => costOwnerLabel[item.costOwner] ?? item.costOwner))].join(', ') : '비용 없음'}</td><td>{items.some((item) => item.reflected) ? '✅ 반영 완료' : items.length ? '기록만' : '해당 없음'}</td></tr> })}{deductions.filter((item) => !item.direction && item.amount > 0 && (item.type === 'event' || item.type === 'promotion')).map((item) => <tr key={item.id}><td>{adjustmentLabel(item)}</td><td>{money(item.amount)}</td><td>{costOwnerLabel[item.costOwner] ?? item.costOwner}</td><td>{item.reflected ? '✅ 반영 완료' : item.applyLocation === 'record_only' ? '기록만' : '⚠️ 미반영'}</td></tr>)}</tbody></table></div>{unresolvedCostOwners.length > 0 && <p className="settlement-readiness-modal__error">부담 주체가 지정되지 않은 비용이 있습니다. 정산 계산 상세에서 비용 정보를 확인해주세요.</p>}<div className="modal-actions"><button className="primary-button" disabled={unresolvedCostOwners.length > 0} onClick={() => { confirmChecklist({ sampleCostReflected: true, eventCostReflected: true, otherDeductionsConfirmed: true, costOwnersConfirmed: true }); setReadinessModal(null) }} type="button">확인 완료</button></div></>}
           {readinessModal === 'share' && <><h2>매니저 배분율 확인</h2><p>총매출을 기준으로 적용된 매니저·회사 배분율입니다.</p><dl className="settlement-readiness-summary"><div><dt>총매출</dt><dd>{money(settlement.currentCalculation.grossSales)}</dd></div><div><dt>매니저</dt><dd>{campaign.managerName}</dd></div><div><dt>매니저 배분율</dt><dd>{settlement.currentCalculation.managerShareRate}%</dd></div><div><dt>회사 배분율</dt><dd>{settlement.currentCalculation.companyShareRate}%</dd></div><div><dt>합계</dt><dd>{managerShareTotal}%</dd></div></dl>{!managerShareValid && <p className="settlement-readiness-modal__error">배분율 합계가 100%가 아닙니다.</p>}<div className="modal-actions">{!managerShareValid && <button className="secondary-button" onClick={() => openCampaignDetail(campaign.id, 'settlement')} type="button">기존 설정 확인</button>}<button className="primary-button" disabled={!managerShareValid} onClick={() => { confirmChecklist({ managerShareConfirmed: true }); setReadinessModal(null) }} type="button">확인 완료</button></div></>}
           {readinessModal === 'business' && <SellerBusinessEditor hasStoredResidentNumber={sensitiveIdentityService.has('seller', campaign.sellerId)} initialBusinessName={sellerProfile?.businessName ?? ''} initialBusinessType={effectiveSellerBusinessType ?? 'general_business'} initialRealName={sellerProfile?.realName ?? (effectiveSellerBusinessType === 'freelancer' ? campaign.sellerName : '')} onSave={saveSellerBusinessType} sellerName={campaign.sellerName} />}
           {readinessModal === 'account' && <SellerAccountEditor initial={accountDraft} onSave={saveSellerAccount} />}
@@ -1675,7 +1681,8 @@ function InternalSettlementDocument({ campaignName, rows, settlement }: { campai
   }), { quantity: 0, supply: 0, sales: 0, commission: 0 })
   const companyDeductions = calculation.deductions.filter((item) => item.reflected && !(calculation.adjustmentCalculationVersion === 2 && item.direction === 'payment') && item.applyLocation === 'net_company_commission')
   const sumCosts = (predicate: (item: SettlementDeduction) => boolean) => companyDeductions.filter(predicate).reduce((sum, item) => sum + item.amount, 0)
-  const srookPayCost = sumCosts((item) => item.type === 'purchase' || /스룩|PG/i.test(item.title))
+  const isSrookPayFee = (item: SettlementDeduction) => /^sales_data:.+:srookpay$/.test(item.linkedData)
+  const srookPayCost = sumCosts(isSrookPayFee)
   const eventDetail = (campaign?.campaignEvents ?? []).filter((event) => event.winnerCountConfirmed).map((event) => {
     const count = event.confirmedQuantity ?? 0
     const handling = event.costHandling === 'company_direct' ? '회사 직접 발송' : event.costHandling === 'vendor_free' ? '업체 무상 제공' : '매니저 선결제'
@@ -1683,10 +1690,10 @@ function InternalSettlementDocument({ campaignName, rows, settlement }: { campai
   }).join(' / ')
   const costRows = [
     { label: '샘플비', amount: calculation.companySampleDeduction, items: companyDeductions.filter((item) => item.type === 'sample') },
-    { label: '차감·조정', amount: calculation.companyEventDeduction, items: companyDeductions.filter((item) => item.type === 'event' || item.type === 'promotion') },
-    { label: '기타비용', amount: Math.max(calculation.companyOtherDeduction - srookPayCost, 0), items: companyDeductions.filter((item) => item.type !== 'sample' && item.type !== 'event' && item.type !== 'promotion' && item.type !== 'purchase' && !/스룩|PG/i.test(item.title)) },
-    { label: '스룩페이 수수료', amount: srookPayCost, items: companyDeductions.filter((item) => item.type === 'purchase' || /스룩|PG/i.test(item.title)) },
-  ]
+    ...namedAdjustmentRows(companyDeductions.filter((item) => !isSrookPayFee(item) && (item.type === 'event' || item.type === 'promotion')), calculation.companyEventDeduction, '차감·조정').map(row => ({ ...row, items: companyDeductions.filter(item => item.id === row.id) })),
+    { label: '기타비용', amount: Math.max(calculation.companyOtherDeduction - srookPayCost, 0), items: companyDeductions.filter((item) => !isSrookPayFee(item) && item.type !== 'sample' && item.type !== 'event' && item.type !== 'promotion') },
+    ...namedAdjustmentRows(companyDeductions.filter(isSrookPayFee), srookPayCost, '스룩페이 결제 수수료').map(row => ({ ...row, items: companyDeductions.filter(item => item.id === row.id) })),
+  ].filter(item => item.amount > 0)
   const ownerText = (items: SettlementDeduction[]) => items.length ? [...new Set(items.map((item) => costOwnerLabel[item.costOwner] ?? item.costOwner))].join(', ') : '-'
   const memoText = (label: string, items: SettlementDeduction[]) => label === '차감·조정' && eventDetail ? eventDetail : items.map((item) => item.memo || item.title).filter(Boolean).join(' / ') || '-'
   const grossManagerAmount = calculation.managerBaseShareAmount
@@ -1942,10 +1949,7 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
     { type: 'simplified_business', label: '간이사업자', evidence: '현금영수증 발행금액', ...sellerDocumentPayout('simplified_business') },
     { type: 'freelancer', label: '개인 프리랜서', evidence: '3.3% 원천세 공제 후 입금액', ...sellerDocumentPayout('freelancer') },
   ] as const
-  const statementDate = formatKoreanDocumentDate(settlement.createdAt)
-  const schedule = getSellerSettlementSchedule(settlement.createdAt)
-  const evidenceDeadline = formatKoreanDocumentDate(schedule.evidenceDeadline)
-  const calculatedPaymentDate = formatKoreanDocumentDate(schedule.paymentDate)
+  const statementDate = formatKoreanDocumentDate(settlement.settlement_created_at ?? settlement.createdAt)
   const currentBusinessAmount = businessAmounts.find((item) => item.type === sellerBusinessType)
   const sellerBusinessLabel = currentBusinessAmount?.label ?? '사업자 유형 등록 정보 없음'
   const settlementAmount = sellerStatementAmount(salesImport?.settlementTerms ? settlement.currentCalculation.sellerCommissionAmount : productSubtotal.commissionAmount, sellerDeductions, additionalPayments)
@@ -2003,12 +2007,10 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
 
         <section className="seller-document__section seller-document__tax seller-business-payment"><h3>3. 사업자 유형별 최종 입금액</h3><table className="seller-document__table"><thead><tr><th>구분</th><th>증빙 / 지급 기준</th><th>최종 입금액</th><th>적용</th></tr></thead><tbody>
           {businessAmounts.map((item) => <tr className={`seller-business-payment__${item.type} ${item.type === sellerBusinessType ? 'is-current' : ''}`} key={item.type}><td>{item.label}</td><td>{item.evidence}</td><td className="amount-cell">{money(item.finalSellerPaymentAmount)}</td><td>{item.type === sellerBusinessType ? '현재 적용' : '참고'}</td></tr>)}
-        </tbody></table>{!currentBusinessAmount && <p className="seller-business-unregistered">현재 셀러 사업자 유형: 등록 정보 없음</p>}</section>
-
-        <section className="seller-document__section seller-document__schedule seller-compact-schedule"><h3>4. 증빙 및 입금일정</h3><div className="seller-compact-schedule__dates"><p><span>지급 계좌</span><strong>{sellerProfile?.bankName?.trim() && sellerProfile.accountNumber?.trim() && sellerProfile.accountHolder?.trim() ? `${sellerProfile.bankName} ${sellerProfile.accountNumber} / ${sellerProfile.accountHolder}` : '지급계좌 미등록'}</strong></p><p><span>증빙 마감</span><strong>{evidenceDeadline}</strong></p><p className="seller-payment-date"><span>입금 예정</span><strong>{calculatedPaymentDate}</strong></p></div><p className="seller-compact-schedule__notice">금요일까지 필요한 증빙자료 전달 및 발행이 완료된 경우 기재된 입금 예정일에 입금됩니다. 입금 예정일이 휴일인 경우 다음 영업일에 지급됩니다.</p></section>
+        </tbody></table>{!currentBusinessAmount && <p className="seller-business-unregistered">현재 셀러 사업자 유형: 등록 정보 없음</p>}<p>지급 계좌: {sellerProfile?.bankName?.trim() && sellerProfile.accountNumber?.trim() && sellerProfile.accountHolder?.trim() ? `${sellerProfile.bankName} ${sellerProfile.accountNumber} / ${sellerProfile.accountHolder}` : '지급계좌 미등록'}</p></section>
 
         <footer className="seller-document__section seller-document__footer">
-          <h3>5. 회사정보 / 정산안내</h3>
+          <h3>4. 회사정보 / 정산안내</h3>
           <table className="seller-document__table seller-company-table"><tbody><tr><th>회사명</th><td>{companySettlementProfile.legalName}</td><th>대표자</th><td>{companySettlementProfile.representativeName}</td></tr><tr><th>사업자등록번호</th><td>{companySettlementProfile.businessRegistrationNumber}</td><th>업태 / 종목</th><td>{companySettlementProfile.businessType} / {companySettlementProfile.businessItem}</td></tr><tr><th>주소</th><td colSpan={3}>{companySettlementProfile.businessAddress}</td></tr><tr><th>세금계산서 발행 메일</th><td colSpan={3}><a href={`mailto:${companySettlementProfile.taxInvoiceEmail}`}>{companySettlementProfile.taxInvoiceEmail}</a></td></tr><tr><th>회사 정산 계좌</th><td colSpan={3}>{companySettlementProfile.settlementBankName} {companySettlementProfile.settlementBankAccount} · 예금주 {companySettlementProfile.settlementAccountHolder}</td></tr></tbody></table>
           {exportGeneratedAt && <p className="seller-export-timestamp">이미지 생성: {exportGeneratedAt} (Asia/Seoul)</p>}
         </footer>

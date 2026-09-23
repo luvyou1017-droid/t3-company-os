@@ -31,7 +31,15 @@ try {
   assert.equal(campaignReadiness(complete, [product]).label, '정산 준비 완료')
   assert.deepEqual(settlementReadinessErrors(complete, [product], [{ productId: 'p', skuId: 'sku', netQuantity: 1 }]), [])
   assert(settlementReadinessErrors(pending.campaign, [], [{ netQuantity: 1 }]).length)
-  assert(settlementReadinessErrors(complete, [{ ...product, supplyPrice: 0, skus: [{ id: 'sku', supplyPrice: 0 }] }], [{ skuId: 'sku', netQuantity: 1 }]).includes('회사 실제 공급가 확인 필요'))
+  assert(settlementReadinessErrors(complete, [{ ...product, supplyPrice: 0, skus: [{ id: 'sku', supplyPrice: 0 }] }], [{ skuId: 'sku', netQuantity: 1 }]).includes('회사 실제 공급가 미등록'))
+  const laytable = { ...complete, salesChannelType: 'wise_shop_link', supplyAudience: 'seller' }
+  const importTerms = { supplyAudience: 'seller', settlementTerms: { salesChannelType: 'wise_shop_link' }, commissionSyncUnmatchedRows: 0 }
+  const sellerMissing = { exists: false }
+  assert.deepEqual(settlementReadinessErrors(laytable, [product], [{ productId: 'p', skuId: 'sku', netQuantity: 1 }], importTerms, sellerMissing), ['셀러 마스터 미등록', '셀러 사업자 유형 미등록', '셀러 계좌정보 미등록'])
+  assert.deepEqual(settlementReadinessErrors({ ...laytable, salesChannelType: undefined }, [product], [{ productId: 'p', skuId: 'sku', netQuantity: 1 }], importTerms, { exists: true, businessType: 'general_business', bankName: '은행', accountNumber: '123', accountHolder: '셀러' }), [])
+  assert(settlementReadinessErrors({ ...laytable, salesChannelType: 'seller_checkout' }, [product], [{ productId: 'p', skuId: 'sku', netQuantity: 1 }], importTerms).includes('거래구분 불일치'))
+  assert(settlementReadinessErrors({ ...laytable, salesChannelType: undefined }, [product], [{ productId: 'p', skuId: 'sku', netQuantity: 1 }], { ...importTerms, settlementTerms: { salesChannelType: undefined } }).includes('거래구분 미등록'))
+  assert(settlementReadinessErrors(laytable, [product], [{ productId: 'p', skuId: 'sku', netQuantity: 1 }], { ...importTerms, commissionSyncUnmatchedRows: 2 }).includes('SKU 매칭 필요'))
   const existing = { ...complete, id: 'existing-id', proposalSnapshots: [{ id: 'keep', salePrice: 12345 }], sellerBusinessId: 'business', supplierId: 'existing-supplier' }
   const before = JSON.stringify(existing)
   const once = migration.mergeCampaigns([existing], [pending])
