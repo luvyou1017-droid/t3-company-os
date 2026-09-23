@@ -14,12 +14,12 @@ async function explainInvokeError(error: { name?: string; context?: unknown }) {
   return 'Notion 동기화 서버 호출에 실패했습니다. 잠시 후 다시 시도해주세요.'
 }
 
-async function invoke(action: 'status' | 'run', kind?: SyncKind) {
+async function invoke(action: 'status' | 'run' | 'exclude', kind?: SyncKind, ids?: string[], reason?: string) {
   if (!supabase) throw new Error('운영 DB 연결을 확인해주세요.')
   const { data: auth, error: sessionError } = await supabase.auth.getSession()
   if (sessionError || !auth.session?.access_token) throw new Error('로그인 인증이 만료되었습니다. 다시 로그인한 뒤 동기화해주세요.')
   const { data, error } = await supabase.functions.invoke('automatic-sync', {
-    body: { action, kind },
+    body: { action, kind, ids, reason },
     headers: { Authorization: `Bearer ${auth.session.access_token}` },
   })
   if (error) throw new Error(await explainInvokeError(error))
@@ -29,4 +29,5 @@ async function invoke(action: 'status' | 'run', kind?: SyncKind) {
 export const automaticSyncService = {
   async status(): Promise<SyncJob[]> { const result = await invoke('status'); if (!Array.isArray(result.jobs)) throw new Error('자동 동기화 현황 응답을 확인해주세요.'); return result.jobs },
   async run(kind: SyncKind) { return invoke('run', kind) },
+  async exclude(ids: string[], reason?: string) { return invoke('exclude', undefined, ids, reason) },
 }

@@ -4,11 +4,11 @@ type SyncKind = 'campaign' | 'proposal'
 type Change = {
   id: string
   name: string
-  state: '기존' | '신규' | '조건변경' | '확인필요'
+  state: '기존' | '신규' | '조건변경' | '확인필요' | '등록제외'
   entity: '일정' | '상품' | 'SKU'
   reason?: string
   differences: { label: string; before: unknown; after: unknown }[]
-  source?: { title: string; startDate: string; endDate: string; sellerName: string; sellerId?: string; managerName: string; managerId?: string; supplyAudience?: 'seller' | 'vendor' }
+  source?: { title: string; startDate: string; endDate: string; sellerName: string; sellerId?: string; managerName: string; managerId?: string; productName?: string; productNotionId?: string; landingPage?: string; supplyAudience?: 'seller' | 'vendor'; exclusionSignature?: string; cancelled?: boolean }
   scheduleId?: string
 }
 
@@ -45,6 +45,7 @@ function summarizeChanges(changes: Change[], checked: number) {
     newSkus: 0,
     terms: 0,
     review: changes.filter((x) => x.state === '확인필요').length,
+    excluded: changes.filter((x) => x.state === '등록제외').length,
   }
 }
 
@@ -80,10 +81,27 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
     .maybeSingle()
   if (error) throw error
   const existing = Array.isArray(data?.payload) ? data.payload : []
+  const { data: exclusions, error: exclusionError } = await db.from('notion_schedule_exclusions').select('notion_page_id,source_signature')
+  if (exclusionError) throw exclusionError
+  const excluded = new Map((exclusions ?? []).map((item: any) => [String(item.notion_page_id).replace(/-/g, ''), item.source_signature]))
   let next: string | undefined
   const changes: Change[] = []
   const normalized = (value: unknown) => String(value ?? '').normalize('NFKC').toLowerCase().replace(/[\s×xX()·_\-]/g, '')
   const textProperty = (property: any) => (property?.title ?? property?.rich_text ?? []).map((value: any) => value.plain_text ?? value.text?.content ?? '').join('') || property?.select?.name || property?.formula?.string || ''
+  const notionTitle = async (id?: string) => {
+    if (!id) return ''
+    const page = await fetchJson(`https://api.notion.com/v1/pages/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${env('NOTION_API_TOKEN')}`, 'Notion-Version': '2025-09-03' } })
+    return Object.values(page.properties ?? {}).map((value: any) => textProperty(value)).find(Boolean) ?? ''
+  }
+  const titleCache = new Map<string, string>()
+  const relationTitle = async (property: any) => {
+    const id = property?.relation?.length === 1 ? property.relation[0].id : undefined
+    if (!id) return textProperty(property)
+    if (!titleCache.has(id)) {
+      try { titleCache.set(id, await notionTitle(id)) } catch { titleCache.set(id, '') }
+    }
+    return titleCache.get(id) || textProperty(property)
+  }
 
   do {
     const page = await fetchJson(
@@ -105,6 +123,19 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
       },
     )
 
+    // Resolve relation titles with a bounded batch; the Notion relation UUID is
+    // never a T3 seller/manager/product UUID.
+    const ids = [...new Set((page.results ?? []).flatMap((item: any) => {
+      const p = item.properties ?? {}
+      return [p[map.seller ?? '셀러명'] ?? p['셀러명'], p[map.manager ?? '담당매니저'] ?? p['담당매니저'], p[map.product ?? '제품'] ?? p['제품']]
+        .filter((value: any) => value?.relation?.length === 1).map((value: any) => value.relation[0].id)
+    }))].filter((id): id is string => typeof id === 'string' && !titleCache.has(id))
+    for (let offset = 0; offset < ids.length; offset += 2) {
+      await Promise.all(ids.slice(offset, offset + 2).map(async id => {
+        try { titleCache.set(id, await notionTitle(id)) } catch { titleCache.set(id, '') }
+      }))
+      if (offset + 2 < ids.length) await new Promise(resolve => setTimeout(resolve, 700))
+    }
     for (const item of page.results ?? []) {
       const properties = item.properties ?? {}
       const name = (properties[map.title]?.title ?? [])
@@ -118,17 +149,24 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
       const sourceId = String(item.id).replace(/-/g, '')
       const sellerProperty = properties[map.seller ?? '셀러명']?.relation?.length ? properties[map.seller ?? '셀러명'] : properties['셀러명'] ?? properties[map.seller]
       const managerProperty = properties[map.manager ?? '담당매니저']?.relation?.length ? properties[map.manager ?? '담당매니저'] : properties['담당매니저'] ?? properties[map.manager]
-      const sellerName = textProperty(sellerProperty)
+      const sellerName = await relationTitle(sellerProperty)
       const sellerId = sellerProperty?.relation?.[0]?.id
-      const managerName = textProperty(managerProperty)
+      const managerName = await relationTitle(managerProperty)
       const managerId = managerProperty?.relation?.[0]?.id
+      const productProperty = properties[map.product ?? '제품'] ?? properties['제품']
+      const productName = await relationTitle(productProperty)
+      const productNotionId = productProperty?.relation?.length === 1 ? productProperty.relation[0].id : undefined
+      const landingPage = textProperty(properties[map.landingPage ?? '랜딩페이지'] ?? properties['랜딩페이지'])
+      const cancelled = name.includes('취소') || ['취소', 'cancelled', 'canceled'].includes(textProperty(properties[map.status ?? '상태'] ?? properties['상태']).toLowerCase())
+      const signature = JSON.stringify([name, period.start, period.end, sellerId || sellerName, managerId || managerName, productNotionId || productName, landingPage, cancelled])
+      const previousSignature = excluded.get(sourceId)
       const audienceValue = map.supplyAudience ? textProperty(properties[map.supplyAudience]) : ''
-      const supplyAudience = audienceValue === 'seller' || audienceValue === 'vendor' ? audienceValue : undefined
+      const supplyAudience = audienceValue === 'seller' || audienceValue === 'vendor' ? audienceValue : /베벤더/.test(landingPage) ? 'vendor' : undefined
       const byId = existing.filter(
         (campaign: any) => campaign.notionImportMetadata?.sourceId?.replace(/-/g, '') === sourceId,
       )
       const byIdentity = !byId.length && (sellerId || sellerName) && name && period?.start ? existing.filter((campaign: any) =>
-        (sellerId ? campaign.sellerId?.replace(/-/g, '') === sellerId.replace(/-/g, '') : normalized(campaign.sellerName) === normalized(sellerName)) &&
+        normalized(campaign.sellerName) === normalized(sellerName) &&
         normalized(campaign.campaignName) === normalized(name) &&
         campaign.startDate === period.start.slice(0, 10) &&
         campaign.endDate === (period.end ?? period.start).slice(0, 10),
@@ -146,14 +184,16 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
             .map(([label, after]) => ({ label, before: match[label], after }))
         : []
       const possible = !match && !byId.length && name ? existing.some((campaign: any) =>
-        (sellerId ? campaign.sellerId?.replace(/-/g, '') === sellerId.replace(/-/g, '') : sellerName && normalized(campaign.sellerName) === normalized(sellerName)) && normalized(campaign.campaignName) === normalized(name),
+        sellerName && normalized(campaign.sellerName) === normalized(sellerName) && normalized(campaign.campaignName) === normalized(name),
       ) : false
       const reason =
         matches.length > 1
           ? '기존 일정이 여러 건 일치하여 확인 필요'
           : !name || !period?.start || !period?.end
             ? '공구명/시작일/종료일 확인 필요'
-            : name.includes('취소')
+            : previousSignature && previousSignature !== signature
+              ? '제외 상태 변경 감지 · 다시 확인 필요'
+            : cancelled
               ? '취소 일정은 자동 확정하지 않습니다'
             : possible
               ? '기존 일정과 이름이 유사하나 날짜가 달라 연결 확인 필요'
@@ -170,11 +210,11 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
         // A distinct new page remains a new candidate even if its manager
         // relation is unavailable to this integration. The UI requires a
         // manager before saving; ambiguity and cancellation remain in review.
-        state: reason && !(reason === '담당 매니저 확인 필요' && !match) ? '확인필요' : !match ? '신규' : differences.length ? '조건변경' : '기존',
-        reason,
+        state: previousSignature === signature ? '등록제외' : reason && !(reason === '담당 매니저 확인 필요' && !match) ? '확인필요' : !match ? '신규' : differences.length ? '조건변경' : '기존',
+        reason: previousSignature === signature ? '사용자가 등록 제외한 일정' : reason,
         differences,
         scheduleId: match?.id,
-        source: { title: name, startDate: values.startDate ?? '', endDate: values.endDate ?? '', sellerName, sellerId, managerName, managerId, supplyAudience },
+        source: { title: name, startDate: values.startDate ?? '', endDate: values.endDate ?? '', sellerName, sellerId, managerName, managerId, productName, productNotionId, landingPage, supplyAudience, exclusionSignature: signature, cancelled },
       })
     }
     next = page.has_more ? page.next_cursor : undefined
@@ -192,11 +232,13 @@ Deno.serve(async (request) => {
     const cronSecret = env('AUTOMATIC_SYNC_CRON_TOKEN')
     const provided = request.headers.get('x-sync-token')
     const isScheduled = Boolean(cronSecret && provided === cronSecret)
+    let actorId: string | undefined
 
     if (!isScheduled) {
       const token = (request.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
       const { data, error } = await admin.auth.getUser(token)
       if (error || !data.user) return response({ error: 'Unauthorized' }, 401)
+      actorId = data.user.id
       const caller = createClient(env('SUPABASE_URL')!, env('SUPABASE_ANON_KEY')!, {
         global: { headers: { Authorization: `Bearer ${token}` } },
       })
@@ -212,6 +254,19 @@ Deno.serve(async (request) => {
     }
 
     const body = await request.json()
+    if (body.action === 'exclude' && !isScheduled) {
+      const ids = Array.isArray(body.ids) ? [...new Set(body.ids)] : []
+      if (!ids.length || ids.length > 100 || ids.some((id: unknown) => typeof id !== 'string' || !/^[a-f0-9-]{32,36}$/i.test(id))) return response({ error: '등록 제외할 Notion 일정을 선택해주세요.' }, 400)
+      const { data: run, error: runError } = await admin.from('automatic_sync_runs').select('changes').eq('kind', 'campaign').eq('status', 'succeeded').order('started_at', { ascending: false }).limit(1).maybeSingle()
+      if (runError) throw runError
+      const changes: Change[] = run?.changes ?? []
+      const selected = ids.map(id => changes.find(change => change.id.replace(/-/g, '') === String(id).replace(/-/g, '') && change.state === '확인필요' && change.source?.exclusionSignature))
+      if (selected.some(change => !change)) return response({ error: '최신 실행의 확인 필요 일정만 등록 제외할 수 있습니다. 현황을 새로고침해주세요.' }, 409)
+      const records = selected.map(change => ({ notion_page_id: change!.id, schedule_name: change!.name, source_signature: change!.source!.exclusionSignature, excluded_by: actorId, excluded_at: new Date().toISOString(), reason: typeof body.reason === 'string' ? body.reason.slice(0, 500) : null }))
+      const { error } = await admin.from('notion_schedule_exclusions').upsert(records, { onConflict: 'notion_page_id' })
+      if (error) throw error
+      return response({ ok: true, excluded: records.length })
+    }
     if (body.action === 'status' && !isScheduled) {
       const { data: states, error } = await admin.from('automatic_sync_jobs').select('*')
       if (error) throw error
@@ -237,6 +292,18 @@ Deno.serve(async (request) => {
           .order('started_at', { ascending: false })
           .limit(10)
         if (runError) throw runError
+        if (job.kind === 'campaign' && runs?.[0]?.changes?.length) {
+          const { data: exclusions, error: exclusionError } = await admin.from('notion_schedule_exclusions').select('notion_page_id,source_signature')
+          if (exclusionError) throw exclusionError
+          const excluded = new Map((exclusions ?? []).map((item: any) => [String(item.notion_page_id).replace(/-/g, ''), item.source_signature]))
+          runs[0].changes = runs[0].changes.map((change: Change) => {
+            const signature = excluded.get(change.id.replace(/-/g, ''))
+            if (signature === change.source?.exclusionSignature) return { ...change, state: '등록제외', reason: '사용자가 등록 제외한 일정' }
+            if (signature && signature !== change.source?.exclusionSignature) return { ...change, state: '확인필요', reason: '제외 상태 변경 감지 · 다시 확인 필요' }
+            return change
+          })
+          runs[0].counts = summarizeChanges(runs[0].changes, runs[0].counts.checked ?? 0)
+        }
         const missing = configuration(job.kind)
         const scheduled = Boolean(
           (schedules ?? []).some(
