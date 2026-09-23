@@ -10,6 +10,7 @@ import { SupabaseCampaignRepository } from '../../shared/repositories/campaignRe
 import { campaignService } from '../../shared/services/campaignService'
 import type { Campaign } from '../../shared/types/campaign'
 import { DataConnectionCard } from './DataConnectionCard'
+import { getCampaignSalesChannel } from '../../shared/utils/campaignSalesChannel'
 
 type DashboardPageProps = {
   onOpenCampaign: (campaignId: string) => void
@@ -155,7 +156,7 @@ export function DashboardPage({ onOpenCampaign, onViewAll }: DashboardPageProps)
                     </button>
                   </td>
                   <td><ManagerBadge name={campaign.managerName} /></td>
-                  <td><LandingPageBadge landingPageType={campaign.landingPageType} linkOwner={campaign.linkOwner} /></td>
+                  <td><LandingPageBadge landingPageType={getCampaignSalesChannel(campaign)} linkOwner={campaign.linkOwner} /></td>
                   <td>{formatPeriod(campaign.startDate, campaign.endDate)}</td>
                   <td><span className="status-badge">{campaign.dashboardStatus}</span></td>
                   <td>{campaign.revenue ?? '0원'}</td>

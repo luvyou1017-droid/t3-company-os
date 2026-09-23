@@ -1,3 +1,8 @@
+import { useEffect, useState } from 'react'
+import { productService } from '../../../features/productMaster/services/productService'
+import { campaignReadiness } from '../../../shared/utils/campaignReadiness'
+import { campaignService } from '../../../shared/services/campaignService'
+import { campaignProductCatalogService } from '../../../shared/services/campaignProductCatalogService'
 import {
   getCampaignStatus,
 } from '../../../features/campaignSchedules/scheduleStatus'
@@ -14,6 +19,7 @@ type CampaignTableProps = {
 }
 
 function getSettlementStep(schedule: CampaignSchedule) {
+  if (schedule.settlementStage) return schedule.settlementStage
   if (schedule.sellerPaymentCompleted && schedule.managerPaymentCompleted) {
     return '지급 완료'
   }
@@ -38,6 +44,10 @@ function getSettlementStep(schedule: CampaignSchedule) {
 }
 
 export function CampaignTable({ schedules, onSelect }: CampaignTableProps) {
+  const [, refreshCatalog] = useState(0)
+  useEffect(() => { let active = true; void productService.listProducts().then(products => {
+    if (active) { campaignProductCatalogService.registerProductMasters(products); refreshCatalog(value => value + 1) }
+  }).catch(() => { /* Missing terms remain visibly unready. */ }); return () => { active = false } }, [])
   if (schedules.length === 0) {
     return (
       <section className="empty-state">
@@ -67,6 +77,8 @@ export function CampaignTable({ schedules, onSelect }: CampaignTableProps) {
           </thead>
           <tbody>
             {schedules.map((schedule) => {
+              const campaign = campaignService.getCampaignById(schedule.id)
+              const readiness = campaign ? campaignReadiness(campaign, campaignProductCatalogService.getManagedProducts()) : undefined
               const remainingWorkCount =
                 schedule.pendingTaskCount + schedule.pendingCsCount + schedule.pendingSampleCount
 
@@ -79,7 +91,7 @@ export function CampaignTable({ schedules, onSelect }: CampaignTableProps) {
                     <CampaignStatusBadge status={getCampaignStatus(schedule)} />
                   </td>
                   <td>
-                    <strong>{schedule.campaignName}</strong>
+                    <strong>{schedule.campaignName}</strong><small style={{ display: 'block' }}>일정 등록 완료 · {readiness?.label}</small>
                   </td>
                   <td><ManagerBadge name={schedule.managerName} /></td>
                   <td>
@@ -91,7 +103,7 @@ export function CampaignTable({ schedules, onSelect }: CampaignTableProps) {
                   <td className="schedule-table__task">{schedule.todayTask}</td>
                   <td>{schedule.pendingCsCount}건</td>
                   <td>{getSettlementStep(schedule)}</td>
-                  <td>{remainingWorkCount}건</td>
+                  <td>{remainingWorkCount + (readiness?.tasks.length ?? 0)}건{readiness?.tasks.map(task => <small style={{ display: 'block' }} key={task}>{task} 1건</small>)}</td>
                 </tr>
               )
             })}

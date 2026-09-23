@@ -18,13 +18,14 @@ let products: ProductMaster[] = [
   { id: 'prd-lumi-001', brandId: 'brand-lumi', brandName: 'Lumi Skin', productName: '수분 크림 세트', regularPrice: 72000, salePrice: 45900, shippingAmount: 0, supplyPrice: 29000, totalCommissionRate: 27, sellerCommissionRate: 18, extraPgSupportRate: 2, notes: '2개 세트', version: 2, defaultSalesChannelType: 'supplier_link', wiseShopAvailable: true, sellerCheckoutAvailable: true, brandPgSupportAvailable: false },
   { id: 'prd-missing-001', brandId: 'brand-demo', brandName: '정책 미등록 브랜드', productName: '수수료 미등록 상품', regularPrice: 30000, salePrice: 20000, shippingAmount: 3000, supplyPrice: 15000, notes: '수수료 정책 등록 필요', version: 1, wiseShopAvailable: false, sellerCheckoutAvailable: false, brandPgSupportAvailable: false },
 ]
+let managedProductCache: ManagedProductMaster[] = []
 let recentBrandIds: string[] = []
 
 function toCampaignProduct(product: ManagedProductMaster): ProductMaster {
-  const representativeSku = product.skus.find((sku) => sku.representative && sku.active) ?? product.skus.find((sku) => sku.active)
+  const representativeSku = product.skus.find((sku) => sku.representative && sku.active && !sku.sampleOnly) ?? product.skus.find((sku) => sku.active && !sku.sampleOnly)
   return {
     id: product.id, supplyAudience: product.supplyAudience, settlementVendorName: product.settlementVendorName,
-    skuConditions: product.skus.filter((sku) => sku.active).map((sku) => ({ skuId: sku.id, productId: product.id, productName: sku.productName || product.productName, optionName: sku.optionName, groupBuyPrice: sku.groupBuyPrice, totalCommissionRate: sku.totalCommissionRate ?? product.totalCommissionRate, sellerCommissionRate: sku.sellerCommissionRate ?? product.sellerCommissionRate })),
+    skuConditions: product.skus.filter((sku) => sku.active && !sku.sampleOnly).map((sku) => ({ skuId: sku.id, productId: product.id, productName: sku.productName || product.productName, optionName: sku.optionName, groupBuyPrice: sku.groupBuyPrice, totalCommissionRate: sku.totalCommissionRate ?? product.totalCommissionRate, sellerCommissionRate: sku.sellerCommissionRate ?? product.sellerCommissionRate })),
     brandId: product.brandId,
     brandName: product.brandName,
     productName: product.productName,
@@ -49,8 +50,11 @@ function toCampaignProduct(product: ManagedProductMaster): ProductMaster {
 }
 
 export const campaignProductCatalogService = {
-  registerProductMasters(managedProducts: ManagedProductMaster[]) {
-    const activeProducts = managedProducts.filter((product) => product.active)
+  getManagedProducts() { return managedProductCache },
+  registerProductMasters(incoming: ManagedProductMaster[]) {
+    managedProductCache = incoming
+    const managedProducts = incoming
+    const activeProducts = managedProducts.filter((product) => product.active && !product.sampleOnly)
     const managedIds = new Set(managedProducts.map((product) => product.id))
     products = [...activeProducts.map(toCampaignProduct), ...products.filter((product) => !managedIds.has(product.id))]
     return activeProducts.length

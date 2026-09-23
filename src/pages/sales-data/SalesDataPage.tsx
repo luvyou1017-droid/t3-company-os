@@ -1,3 +1,5 @@
+import { getTodayInSeoul, getDaysBetweenCalendarDates } from '../../features/campaignSchedules/scheduleStatus'
+import { salesSourceLabel } from '../../shared/utils/salesSourceLabel'
 import { NumericInput } from '../../shared/components/NumericInput'
 import { paymentRequestService } from '../../shared/services/paymentRequestService'
 import { useUploadDraft } from '../../shared/utils/useUploadDraft'
@@ -24,7 +26,6 @@ import { buildSalesAnalysis, calculateSalesRow, calculateSalesTotals, formatCurr
 import { getSalesEventCosts, getSalesEventCostTotal } from '../../shared/utils/salesEventCosts'
 import { parseSalesDataFile, shouldAskPendingPaymentPolicy, UnmatchedSalesPricesError } from '../../shared/utils/salesDataFileParser'
 import { openCampaignDetail } from '../../shared/utils/campaignNavigation'
-import { getTodayInSeoul } from '../../features/campaignSchedules/scheduleStatus'
 import { calculateSrookPayFee, DEFAULT_SROOKPAY_FEE_RATE } from '../../shared/utils/srookPay'
 import { manualCommissionComparison } from '../../shared/utils/manualSettlement'
 import { normalizeProductMatchText } from '../../shared/utils/productSkuMatching'
@@ -35,8 +36,8 @@ type SalesQuickFilter = '전체' | '오늘 수신' | '업로드 대기' | '검�
 
 const quickFilters: Array<Exclude<SalesQuickFilter, '전체'>> = ['오늘 수신', '업로드 대기', '검수 대기', '오류 확인 필요', '확정 완료', '정산 대기']
 
-function createEventCostDraft(): SalesEventCost {
-  return { id: crypto.randomUUID(), name: '', amount: 0, owner: 'company', unitPrice: 0, quantity: 1, supplierSupportRate: 0 }
+function createEventCostDraft(direction: 'deduction' | 'payment' = 'deduction'): SalesEventCost {
+  return { id: crypto.randomUUID(), name: '', amount: 0, direction, owner: direction === 'payment' ? 'seller' : 'company', unitPrice: 0, quantity: 1, supplierSupportRate: 0 }
 }
 
 function eventDeductionId(salesDataImportId: string, eventId: string) {
@@ -133,6 +134,8 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
   const [rows, setRows] = useState(() => salesDataService.getSalesDataRows())
   const [quick, setQuick] = useState<SalesQuickFilter>('전체')
   const [search, setSearch] = useState('')
+  const [month, setMonth] = useState('')
+  const [oldestFirst, setOldestFirst] = useState(true)
   const [expandedErrorImportId, setExpandedErrorImportId] = useState<string | null>(null)
   const [selectedImportId, setSelectedImportId] = useState<string | null>(() => initialImportId ?? new URLSearchParams(window.location.search).get('import'))
   const [manualTarget, setManualTarget] = useState<SalesDataImport | null>(null)
@@ -175,7 +178,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
     setRows(salesDataService.getSalesDataRows())
   }
 
-  const endedImports = useMemo(() => imports.filter(isCampaignEnded), [imports])
+  const endedImports = useMemo(() => imports.filter(item => !salesDataService.isHiddenDeletedPlaceholder(item)).filter(isCampaignEnded), [imports])
   const selectedImport = endedImports.find((item) => item.id === selectedImportId) ?? null
   useEffect(() => {
     if (!initialEditRequested || !selectedImport) return
@@ -202,7 +205,9 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
     '정산 대기': endedImports.filter((item) => item.settlementStatus === '정산 가능').length,
   }), [endedImports])
 
+  const months = [...new Set(endedImports.map(item => (item.salesEndDate || getImportCampaign(item)?.endDate || '').slice(0, 7)).filter(Boolean))].sort().reverse()
   const filteredImports = useMemo(() => endedImports
+    .filter(item => !month || (item.salesEndDate || getImportCampaign(item)?.endDate || '').startsWith(month))
     .filter((item) => matchesQuick(item, quick))
     .filter((item) => {
       const campaign = getImportCampaign(item)
@@ -212,8 +217,8 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
     .sort((a, b) => {
       const aDate = a.salesEndDate || getImportCampaign(a)?.endDate || '9999-12-31'
       const bDate = b.salesEndDate || getImportCampaign(b)?.endDate || '9999-12-31'
-      return aDate.localeCompare(bDate) || (a.salesEndDate || '').localeCompare(b.salesEndDate || '') || a.campaignId.localeCompare(b.campaignId)
-    }), [endedImports, quick, search])
+      return (oldestFirst ? 1 : -1) * aDate.localeCompare(bDate) || (a.salesEndDate || '').localeCompare(b.salesEndDate || '') || a.campaignId.localeCompare(b.campaignId)
+    }), [endedImports, quick, search, month, oldestFirst])
 
   return (
     <section className="campaign-schedule-page sales-data-page">
@@ -244,12 +249,12 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
           <strong className="result-count">{filteredImports.length}건</strong>
         </div>
         <div className="schedule-panel__body">
-          <label className="sales-list-search"><span>판매데이터 검색</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="공구명, 셀러, 벤더, 브랜드, 상품명, 파일명 검색" /><small>공구 종료일이 빠른 순</small></label>
+          <div className="action-row"><label>판매 월<select value={month} onChange={event => setMonth(event.target.value)}><option value="">전체</option>{months.map(value => <option key={value} value={value}>{value.slice(0,4)}년 {Number(value.slice(5))}월</option>)}</select></label><button className="secondary-button" type="button" onClick={() => { setQuick('전체'); setMonth(''); setSearch('') }}>전체보기</button><label>경과일 정렬<select value={String(oldestFirst)} onChange={event => setOldestFirst(event.target.value === 'true')}><option value="true">오래된 종료 공구 먼저</option><option value="false">최근 종료 공구 먼저</option></select></label></div><label className="sales-list-search"><span>판매데이터 검색</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="공구명, 셀러, 벤더, 브랜드, 상품명, 파일명 검색" /><small>공구 종료일이 빠른 순</small></label>
           {filteredImports.length === 0 && <p role="status">검색 조건에 맞는 판매데이터가 없습니다.</p>}
           <div className="schedule-table-wrap sales-data-table-wrap">
             <table className="schedule-table sales-data-table">
               <thead>
-                <tr><th>공동구매</th><th>셀러</th><th>브랜드</th><th>상품</th><th>판매 기간</th><th>데이터 출처</th><th>파일명</th><th>업로드일</th><th>순판매수량</th><th>순매출</th><th>검수 상태</th><th>정산 상태</th><th>담당자</th></tr>
+                <tr><th>공동구매</th><th>데이터 유입처</th><th>브랜드 / 상품</th><th>판매 기간</th><th>순판매수량</th><th>검수 상태</th><th>정산 상태</th><th>상세 / 작업</th></tr>
               </thead>
               <tbody>
                 {filteredImports.map((salesImport) => {
@@ -265,19 +270,14 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
                   return (
                     <Fragment key={salesImport.id}><tr onClick={() => openImport(salesImport.id)}>
                       <td><strong>{campaign?.campaignName ?? salesImport.campaignId}</strong><span>{campaign?.campaignCode}</span><span>{getSupplyDisplay(salesImport).label} · 정산 대상: {getSupplyDisplay(salesImport).recipient}</span>{getSupplyDisplay(salesImport).mismatch && <span>공구 공급 조건과 불일치 · 확인 필요</span>}</td>
-                      <td>{campaign?.sellerName ?? '-'}</td>
-                      <td>{campaign?.brandName ?? '-'}</td>
-                      <td>{campaign?.productName ?? '-'}</td>
-                      <td>{salesImport.salesStartDate || '-'} ~ {salesImport.salesEndDate || '-'}</td>
-                      <td>{salesImport.sourceType}</td>
-                      <td>{salesImport.fileName || '수신 대기'}</td>
-                      <td>{salesImport.uploadedAt || '-'}</td>
+                      <td>{salesSourceLabel(salesImport)}</td>
+                      <td>{campaign?.brandName ?? '-'}<span>{campaign?.productName ?? '-'}</span></td>
+                      <td>{salesImport.salesStartDate || '-'} ~ {salesImport.salesEndDate || '-'}<span>{!(salesImport.salesEndDate || campaign?.endDate) ? '종료일 확인 필요' : `종료 후 ${Math.max(0, getDaysBetweenCalendarDates(salesImport.salesEndDate || campaign!.endDate!, getTodayInSeoul()))}일`}</span></td>
                       <td>{net.netQuantity.toLocaleString('ko-KR')}</td>
-                      <td>{formatCurrency(net.netSales)}</td>
                       <td>{salesImport.reviewStatus === '오류 확인 필요' ? <button className="text-button" onClick={(event) => { event.stopPropagation(); setExpandedErrorImportId((current) => current === salesImport.id ? null : salesImport.id) }} type="button"><StatusBadge label={salesImport.reviewStatus} tone={reviewTone[salesImport.reviewStatus]} /></button> : <StatusBadge label={salesImport.reviewStatus} tone={reviewTone[salesImport.reviewStatus]} />}</td>
                       <td><StatusBadge label={salesImport.settlementStatus} tone={settlementTone[salesImport.settlementStatus]} /></td>
-                      <td>{salesImport.reviewerName ?? '-'}</td>
-                    </tr>{expandedErrorImportId === salesImport.id && <tr><td colSpan={13}><div className="inline-notice settlement-warning"><strong>확인할 오류</strong>{messages.length ? <ul>{messages.map((message) => <li key={message}>{message}</li>)}</ul> : <p>현재 계산 오류는 없습니다. 검수 상태를 다시 저장해주세요.</p>}<button className="secondary-button" onClick={() => openImport(salesImport.id)} type="button">판매데이터 상세 열기</button></div></td></tr>}</Fragment>
+                      <td><button className="text-button" type="button" onClick={event => { event.stopPropagation(); openImport(salesImport.id) }}>상세</button></td>
+                    </tr>{expandedErrorImportId === salesImport.id && <tr><td colSpan={8}><div className="inline-notice settlement-warning"><strong>확인할 오류</strong>{messages.length ? <ul>{messages.map((message) => <li key={message}>{message}</li>)}</ul> : <p>현재 계산 오류는 없습니다. 검수 상태를 다시 저장해주세요.</p>}<button className="secondary-button" onClick={() => openImport(salesImport.id)} type="button">판매데이터 상세 열기</button></div></td></tr>}</Fragment>
                   )
                 })}
               </tbody>
@@ -481,7 +481,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
     setEventSaveStatus(null)
   }
   const removeEventDraft = (id: string) => {
-    if (!window.confirm('이 이벤트를 목록에서 삭제할까요? 저장하면 정산서 차감 항목에서도 제거됩니다.')) return
+    if (!window.confirm('이 항목을 목록에서 삭제할까요? 저장하면 정산서 차감 항목에서도 제거됩니다.')) return
     setEventDrafts((events) => events.filter((event) => event.id !== id))
     setEventSaveStatus(null)
   }
@@ -522,8 +522,8 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
       return
     }
     const normalized = eventDrafts.map((event) => ({ ...event, name: event.name.trim(), amount: event.unitPrice !== undefined && event.quantity !== undefined ? Math.max(Math.round(event.unitPrice * event.quantity * (1 - (event.supplierSupportRate ?? 0) / 100)), 0) : Math.max(Math.round(event.amount), 0) }))
-    if (normalized.some((event) => !event.name)) {
-      setEventSaveStatus({ tone: 'danger', message: '모든 이벤트의 내용을 입력해주세요.' })
+    if (normalized.some((event) => !event.name || !Number.isFinite(event.amount) || (event.direction === 'payment' && !['seller','company','manager'].includes(event.owner)))) {
+      setEventSaveStatus({ tone: 'danger', message: '항목명·금액·지급 대상을 확인해주세요.' })
       return
     }
     const owners = new Set(normalized.map((event) => event.owner))
@@ -574,7 +574,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
     try {
       const confirmed = salesDataService.confirmSalesData(salesImport.id)
       if (!confirmed) throw new Error('판매데이터 검증 오류가 남아 있어 확정할 수 없습니다. 위의 검증 메시지를 확인해주세요.')
-      const created = settlementService.createSettlementFromSalesData(confirmed.id)
+      const created = await settlementService.prepareSettlementFromSalesData(confirmed.id)
       if (!created) throw new Error('정산 생성 조건을 충족하지 못했습니다. 검수 상태와 정산 가능 상태를 확인해주세요.')
       await cloudSyncService.syncKeys([
         STORAGE_KEYS.salesDataImports,
@@ -628,17 +628,11 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
       ],
     }
     try {
-      let originalSalesFileStoragePath = salesImport.originalSalesFileStoragePath
-      let originalFileWarning = ''
-      try {
-        originalSalesFileStoragePath = await sellerSettlementFileService.uploadOriginal(file, {
-          campaignId: salesImport.campaignId,
-          salesDataImportId: salesImport.id,
-          previousPath: salesImport.originalSalesFileStoragePath,
-        })
-      } catch (error) {
-        originalFileWarning = error instanceof Error ? error.message : '원본 엑셀을 보관하지 못했습니다.'
-      }
+      const originalFile = await sellerSettlementFileService.storeOriginalForImport(file, {
+        campaignId: salesImport.campaignId,
+        salesDataImportId: salesImport.id,
+        previousPath: salesImport.originalSalesFileStoragePath,
+      })
       const hasPeriodStatistics = salesImport.srookPayNormalAmount !== undefined && salesImport.srookPayPurchaseAmount !== undefined
       const periodShippingRevenue = hasPeriodStatistics ? Math.max(salesImport.srookPayNormalAmount! - salesImport.srookPayPurchaseAmount!, 0) : undefined
       const detectedSrookPayFee = isSrookPayCampaign && periodShippingRevenue !== undefined ? calculateSrookPayFee(selectedSales, periodShippingRevenue, DEFAULT_SROOKPAY_FEE_RATE) : undefined
@@ -646,11 +640,11 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
         ...salesImport,
         fileName: file.name,
         fileSize: file.size,
-        originalSalesFileStoragePath,
-        originalSalesFileStoredAt: originalSalesFileStoragePath ? new Date().toISOString() : salesImport.originalSalesFileStoredAt,
+        ...originalFile,
+        sellerExcelExport: undefined,
         sourceType: 'file',
         documentAuthor, documentKind: detectedKind, fileOrigin: uploadChannel === 'wise_shop_link' && documentAuthor === 'company' ? (detectWiseShopFileOrigin(file.name) ?? fileOrigin) : undefined,
-        settlementTerms: captureUploadTerms(uploadChannel, selectedRows),
+        settlementTerms: captureUploadTerms(uploadChannel, selectedRows, salesImport.supplyAudience !== 'vendor'),
         commissionCalculationType: 'sku',
         commissionSyncVersion: PRODUCT_COMMISSION_SYNC_VERSION, commissionSyncIssues: [], commissionSyncUnmatchedRows: 0,
         manualSettlement: undefined,
@@ -686,7 +680,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
       await cloudSyncService.syncKeys([STORAGE_KEYS.salesDataImports, STORAGE_KEYS.salesDataRows])
       setPendingUpload(null)
       setUploadReview(null)
-      if (originalFileWarning) setUploadError(`판매 데이터는 저장했지만 셀러 공유용 원본 파일은 보관하지 못했습니다. ${originalFileWarning}`)
+      setUploadError('')
       onSync()
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : '분석 결과를 저장하지 못했습니다.')
@@ -716,7 +710,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
       const sheets = await inspectSalesWorkbook(file)
       const scope = `${campaign?.brandId || campaign?.brandName || salesImport.campaignId}::${documentAuthor}::${uploadChannel === 'wise_shop_link' && documentAuthor === 'company' ? (detectedOrigin ?? fileOrigin) : 'auto'}`
       const learned = sheets.length === 1 ? findLearnedRule(sheets, scope, storageService.getItem<ColumnRule[]>(STORAGE_KEYS.salesColumnRules, [])) : undefined
-      const parsed = await parseSalesDataFile(learned ? mapSalesSheet(sheets[learned.sheet], learned.row, learned.mapping) : file, salesImport, priceCandidates)
+      const parsed = await parseSalesDataFile(learned ? mapSalesSheet(sheets[learned.sheet], learned.row, learned.mapping) : file, salesImport, priceCandidates, uploadChannel || undefined)
       if (learned) parsed.analysis.warnings.push('이 업체에서 확인한 용어 분류를 재사용했습니다. 수량·판매가·합계를 검증했습니다.')
       if (shouldAskPendingPaymentPolicy(parsed.analysis)) setPendingUpload({ file, parsed })
       else await saveParsedUpload(file, parsed, 'exclude')
@@ -740,7 +734,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
     try {
       const conditions = getUploadConditions(await productService.listProducts(), campaign, salesImport)
       setUploadConditions(conditions.all)
-      const parsed = await parseSalesDataFile(mapSalesSheet(columnReview.sheets[sheet], row, mapping), salesImport, conditions.candidates)
+      const parsed = await parseSalesDataFile(mapSalesSheet(columnReview.sheets[sheet], row, mapping), salesImport, conditions.candidates, uploadChannel || undefined)
       parsed.analysis.sheetName = columnReview.sheets[sheet].name
       parsed.analysis.headerRow = row + 1
       parsed.analysis.warnings.push('사용자가 확인한 열 분류를 적용했습니다. 수수료는 상품·SKU 연결 기준으로 별도 검증합니다.')
@@ -775,8 +769,8 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
     try {
       const products = await productService.listProducts()
       const catalog = getUploadConditions(products, campaign, salesImport).candidates
-      const parsed = await parseSalesDataFile(priceRetry.file, salesImport, [...candidates, ...catalog])
-      try { if (!uploadChannel) throw new Error('판매 링크 확인 필요'); captureUploadTerms(uploadChannel, parsed.rowsIncludingPending); reviewedUploads.current.add(parsed) } catch { /* Only unresolved conditions need another review. */ }
+      const parsed = await parseSalesDataFile(priceRetry.file, salesImport, [...candidates, ...catalog], uploadChannel || undefined)
+      try { if (!uploadChannel) throw new Error('판매 링크 확인 필요'); captureUploadTerms(uploadChannel, parsed.rowsIncludingPending, salesImport.supplyAudience !== 'vendor'); reviewedUploads.current.add(parsed) } catch { /* Only unresolved conditions need another review. */ }
       parsed.analysis.warnings.push('검색·가격 비교에서 확인한 SKU와 수수료 조건을 적용했습니다.')
       if (shouldAskPendingPaymentPolicy(parsed.analysis)) setPendingUpload({ file: priceRetry.file, parsed })
       else await saveParsedUpload(priceRetry.file, parsed, 'exclude')
@@ -819,7 +813,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           <div><dt>판매 기간</dt><dd>{salesImport.salesStartDate || '-'} ~ {salesImport.salesEndDate || '-'}</dd></div>
           <div><dt>담당 매니저</dt><dd>{campaign?.managerName}</dd></div>
           <div><dt>MD</dt><dd>{campaign?.mdName}</dd></div>
-          <div><dt>판매 링크</dt><dd><LandingPageBadge landingPageType={campaign?.landingPageType ?? campaign?.salesChannelType} linkOwner={campaign?.linkOwner} /></dd></div>
+          <div><dt>판매 링크</dt><dd><LandingPageBadge landingPageType={campaignChannel(campaign, salesImport)} linkOwner={campaign?.linkOwner} /></dd></div>
           <div><dt>데이터 출처</dt><dd>{salesImport.sourceType}</dd></div>
           <div><dt>업로드 담당자</dt><dd>{salesImport.uploadedBy || '-'}</dd></div>
           <div><dt>업로드 시간</dt><dd>{salesImport.uploadedAt || '-'}</dd></div>
@@ -864,6 +858,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           <p>업체마다 열 이름과 위치가 달라도 상품·수량·판매가·주문 상태를 찾아 정산용 표로 변환합니다. 분석 후 반드시 결과를 확인해주세요.</p>
           <dl>
             <div><dt>파일명</dt><dd>{salesImport.fileName || '-'}</dd></div>
+            {salesImport.originalSalesFileStorageError && <div role="status"><dt>원본 보관 확인 필요</dt><dd>판매데이터 반영과 정산서 작성은 가능합니다. 원본 보관 및 구매내역 링크 생성은 별도 확인이 필요합니다. {salesImport.originalSalesFileStorageError}</dd></div>}
             <div><dt>파일 크기</dt><dd>{formatFileSize(salesImport.fileSize)}</dd></div>
             <div><dt>업로드 시간</dt><dd>{salesImport.uploadedAt || '-'}</dd></div>
             <div><dt>현재 검수 상태</dt><dd>{salesImport.reviewStatus}</dd></div>
@@ -872,12 +867,12 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           {lastSelectedFile && <button type="button" className="secondary-button" disabled={uploading} onClick={() => { setColumnPreview(null); setPendingUpload(null); void inspectSalesWorkbook(lastSelectedFile).then((sheets) => setColumnReview({ file: lastSelectedFile, sheets })).catch((error) => setUploadError(String(error))) }}>열 의미 확인·수정 / 양식 다시 학습</button>}
           {columnReview && <div onChange={() => setColumnPreview(null)}><SalesColumnReview key={columnReview.file.name} sheets={columnReview.sheets} busy={uploading} onAnalyze={(sheet, row, mapping) => void previewColumns(sheet, row, mapping)} onClose={() => { setColumnReview(null); setColumnPreview(null) }} /></div>}
           {columnPreview && <section className="inline-notice"><strong>분류 결과 확인</strong><p>{columnPreview.parsed.rows.length}개 옵션 · 순판매 {columnPreview.parsed.analysis.includedQuantity.toLocaleString()}개 · 순매출 {formatCurrency(columnPreview.parsed.analysis.includedGrossSales)}</p><p>취소 {columnPreview.parsed.rows.reduce((sum, row) => sum + row.canceledQuantity, 0)}개 · 반품 {columnPreview.parsed.rows.reduce((sum, row) => sum + row.refundedQuantity, 0)}개</p><button type="button" className="primary-button" disabled={uploading} onClick={() => void rememberColumns()}>결과 적용하고 이 업체 양식 기억</button></section>}
-          {priceRetry && <UploadConditionsReview refreshing={conditionsLoading} onRefresh={() => setCatalogRefresh((value) => value + 1)} supplyAudience={supply.isVendor ? 'vendor' : 'seller'} vendorName={supply.isVendor ? supply.recipient : undefined} draftKey={`${salesImport.id}:${priceRetry.file.name}:${priceRetry.file.lastModified}:prices`} key={priceRetry.file.name + priceRetry.file.lastModified + '-missing-prices'} rows={priceRetry.options.map((optionName) => calculateSalesRow({ id: optionName, salesDataImportId: salesImport.id, campaignId: salesImport.campaignId, optionName, quantity: 0, unitPrice: 0, priceSource: 'sku', canceledQuantity: 0, refundedQuantity: 0 }))} conditions={uploadConditions} preferredProductIds={Array.from(new Set([campaign?.productId ?? '', ...(campaign?.campaignProducts?.map((item) => item.productId) ?? []), ...uploadConditions.filter((item) => campaign?.productName && item.productName.replace(/[^a-z0-9가-힣]/gi, '').startsWith(campaign.productName.replace(/[^a-z0-9가-힣]/gi, ''))).map((item) => item.productId)]))} busy={uploading} error={uploadError} onApply={(edited) => void retryWithConfirmedPrices(edited)} onCancel={() => { setPriceRetry(null); setUploadError('') }} />}
+          {priceRetry && <UploadConditionsReview sellerCheckout={uploadChannel === 'seller_checkout'} refreshing={conditionsLoading} onRefresh={() => setCatalogRefresh((value) => value + 1)} supplyAudience={supply.isVendor ? 'vendor' : 'seller'} vendorName={supply.isVendor ? supply.recipient : undefined} draftKey={`${salesImport.id}:${priceRetry.file.name}:${priceRetry.file.lastModified}:prices`} key={priceRetry.file.name + priceRetry.file.lastModified + '-missing-prices'} rows={priceRetry.options.map((optionName) => calculateSalesRow({ id: optionName, salesDataImportId: salesImport.id, campaignId: salesImport.campaignId, optionName, quantity: 0, unitPrice: 0, priceSource: 'sku', canceledQuantity: 0, refundedQuantity: 0 }))} conditions={uploadConditions} preferredProductIds={Array.from(new Set([campaign?.productId ?? '', ...(campaign?.campaignProducts?.map((item) => item.productId) ?? []), ...uploadConditions.filter((item) => campaign?.productName && item.productName.replace(/[^a-z0-9가-힣]/gi, '').startsWith(campaign.productName.replace(/[^a-z0-9가-힣]/gi, ''))).map((item) => item.productId)]))} busy={uploading} error={uploadError} onApply={(edited) => void retryWithConfirmedPrices(edited)} onCancel={() => { setPriceRetry(null); setUploadError('') }} />}
           <input accept=".xlsx,.xls,.csv" hidden onChange={(event) => void uploadFile(event.target.files?.[0])} ref={fileInputRef} type="file" />
           <div className="sales-upload-actions"><button className="primary-button" disabled={uploading || directEditLocked} onClick={() => fileInputRef.current?.click()} type="button">{uploading ? '분석 중...' : '정산서 선택'}</button><button className="secondary-button" disabled={uploading || directEditLocked} onClick={() => onManualInput({ ...salesImport, documentAuthor, documentKind: 'combined_commission' })} type="button">수기 입력</button></div>
         </section>
 
-        {uploadReview && <><div className="inline-notice"><strong>분석 결과 확인</strong><span>자료 작성: {documentAuthor ? authorLabels[documentAuthor] : '미선택'} · {documentKindLabels[uploadReview.parsed.analysis.sourceDocumentType === 'supplier_dispatch' ? 'supplier_cost' : uploadReview.parsed.analysis.sourceDocumentType === 'supplier_settlement' ? 'supplier_net_settlement' : 'customer_sales']}</span><span>정산 반영 예정 수량: {uploadReview.parsed.analysis.includedQuantity + (uploadReview.policy === 'include' ? uploadReview.parsed.analysis.pendingPaymentQuantity : 0)}개</span></div><UploadConditionsReview refreshing={conditionsLoading} onRefresh={() => setCatalogRefresh((value) => value + 1)} supplyAudience={supply.isVendor ? 'vendor' : 'seller'} vendorName={supply.isVendor ? supply.recipient : undefined} draftKey={`${salesImport.id}:${uploadReview.file.name}:${uploadReview.file.lastModified}:review`} key={uploadReview.file.name + uploadReview.file.lastModified} rows={uploadReview.parsed.rowsIncludingPending} conditions={uploadConditions} preferredProductIds={Array.from(new Set([campaign?.productId ?? '', ...(campaign?.campaignProducts?.map((item) => item.productId) ?? []), ...uploadConditions.filter((item) => campaign?.productName && item.productName.replace(/[^a-z0-9가-힣]/gi, '').startsWith(campaign.productName.replace(/[^a-z0-9가-힣]/gi, ''))).map((item) => item.productId)]))} busy={uploading} error={uploadError} onApply={(edited) => void applyUploadConditions(edited)} onCancel={() => { setUploadReview(null); setUploadError('') }} /></>}
+        {uploadReview && <><div className="inline-notice"><strong>분석 결과 확인</strong><span>자료 작성: {documentAuthor ? authorLabels[documentAuthor] : '미선택'} · {documentKindLabels[uploadReview.parsed.analysis.sourceDocumentType === 'supplier_dispatch' ? 'supplier_cost' : uploadReview.parsed.analysis.sourceDocumentType === 'supplier_settlement' ? 'supplier_net_settlement' : 'customer_sales']}</span><span>정산 반영 예정 수량: {uploadReview.parsed.analysis.includedQuantity + (uploadReview.policy === 'include' ? uploadReview.parsed.analysis.pendingPaymentQuantity : 0)}개</span></div><UploadConditionsReview sellerCheckout={uploadChannel === 'seller_checkout'} refreshing={conditionsLoading} onRefresh={() => setCatalogRefresh((value) => value + 1)} supplyAudience={supply.isVendor ? 'vendor' : 'seller'} vendorName={supply.isVendor ? supply.recipient : undefined} draftKey={`${salesImport.id}:${uploadReview.file.name}:${uploadReview.file.lastModified}:review`} key={uploadReview.file.name + uploadReview.file.lastModified} rows={uploadReview.parsed.rowsIncludingPending} conditions={uploadConditions} preferredProductIds={Array.from(new Set([campaign?.productId ?? '', ...(campaign?.campaignProducts?.map((item) => item.productId) ?? []), ...uploadConditions.filter((item) => campaign?.productName && item.productName.replace(/[^a-z0-9가-힣]/gi, '').startsWith(campaign.productName.replace(/[^a-z0-9가-힣]/gi, ''))).map((item) => item.productId)]))} busy={uploading} error={uploadError} onApply={(edited) => void applyUploadConditions(edited)} onCancel={() => { setUploadReview(null); setUploadError('') }} /></>}
 
         {salesImport.settlementTerms && <section className="inline-notice"><strong>공구 정산 조건 저장됨</strong><span>{channelLabels[salesImport.settlementTerms.salesChannelType]} · 자료 작성: {salesImport.documentAuthor ? authorLabels[salesImport.documentAuthor] : '미확인'} · {salesImport.documentKind ? documentKindLabels[salesImport.documentKind] : '내용 미확인'}</span><small>SKU별 판매가·수수료는 확인 당시 조건을 사용합니다. 변경이 필요하면 판매 수량·조건 수정에서 조정하세요.</small></section>}
 
@@ -934,7 +929,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
         <section className="sales-ai-card">
           <div className="checklist-head"><h3>판매 옵션과 연결된 상품·SKU</h3><button className="secondary-button" disabled={directEditLocked} onClick={() => onManualInput(salesImport)} type="button">상품·SKU 연결 수정</button></div>
           <p>파일의 옵션명과 연결 상품을 함께 확인하세요. 판매가가 같아도 다른 상품일 수 있습니다.</p>
-          <div className="table-scroll"><table className="data-table"><thead><tr><th>판매 옵션</th><th>연결 상품·SKU</th><th>판매가</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td>{row.optionName}</td><td>{row.productName || '연결 확인 필요'}<small className="sku-match-meta">{row.skuId || 'SKU 미연결'}</small></td><td>{formatCurrency(row.unitPrice)}</td></tr>)}</tbody></table></div>
+          <div className="table-scroll"><table className="data-table"><thead><tr><th>판매 옵션</th><th>연결 상품·SKU</th><th>판매가</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td>{row.optionName}</td><td>{row.productName || '연결 확인 필요'}<small className="sku-match-meta">{row.skuOptionName || row.skuId || 'SKU 미연결'}</small>{row.detailOption && <small className="sku-match-meta">세부옵션: {row.detailOption}</small>}</td><td>{formatCurrency(row.unitPrice)}</td></tr>)}</tbody></table></div>
           {directEditLocked && <p>정산 관리에서 확정을 해제한 뒤 수정해주세요.</p>}
         </section>
 
@@ -1001,23 +996,23 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
         </section>}
 
         <section className="sales-ai-card sales-event-entry">
-          <div className="checklist-head"><div><h3>차감·조정내역</h3><p>품목·적용 단가·인원·지원율을 입력하면 부담 주체별 정산과 공급가 차이를 자동 반영합니다.</p></div><div className="sales-event-entry__heading-actions"><span>{eventDrafts.length}건 · {formatCurrency(eventDrafts.reduce((sum, event) => sum + Math.max(event.amount, 0), 0))}</span><button className="secondary-button" disabled={directEditLocked} onClick={() => { setEventDrafts((events) => [...events, createEventCostDraft()]); setEventSaveStatus(null) }} type="button">+ 차감내역 추가</button></div></div>
+          <div className="checklist-head"><div><h3>차감·지급내역</h3><p>샘플비도 품목·단가·수량·부담 주체를 지정해 입력할 수 있습니다. 차감내역은 정산금에서 빼고, 지급내역은 선택한 대상의 정산금에 더합니다. 샘플관리에서 등록한 비용과 중복 입력하지 마세요.</p></div><div className="sales-event-entry__heading-actions"><span>{eventDrafts.length}건 · {formatCurrency(eventDrafts.reduce((sum, event) => sum + Math.max(event.amount, 0), 0))}</span><button className="secondary-button" disabled={directEditLocked} onClick={() => { setEventDrafts((events) => [...events, createEventCostDraft()]); setEventSaveStatus(null) }} type="button">+ 차감내역 추가</button><button className="secondary-button" disabled={directEditLocked} onClick={() => { setEventDrafts(events => [...events, createEventCostDraft('payment')]); setEventSaveStatus(null) }} type="button">+ 지급내역 추가</button></div></div>
           {directEditLocked && <div className="inline-notice settlement-warning"><strong>확정 정산서 · 수정 잠김</strong><span>정산 관리에서 `확정 해제` 후 이벤트를 추가·수정·삭제할 수 있습니다.</span></div>}
           <div className="sales-event-entry__list">
-            {eventDrafts.map((event, index) => {
+            {[...eventDrafts].sort((a,b)=>Number(a.direction === 'payment')-Number(b.direction === 'payment') || ['seller','company','manager','brand','company_manager_prepaid'].indexOf(a.owner)-['seller','company','manager','brand','company_manager_prepaid'].indexOf(b.owner)).map((event, index) => {
               const savedEvent = savedEventCosts.find((item) => item.id === event.id)
               const isSaved = Boolean(savedEvent && savedEvent.name === event.name.trim() && savedEvent.amount === Math.max(Math.round(event.amount), 0) && savedEvent.owner === event.owner)
               const deduction = settlementEventDeductions.find((item) => item.id === eventDeductionId(salesImport.id, event.id))
               const isReflected = Boolean(isSaved && deduction && deduction.title === event.name.trim() && deduction.amount === Math.max(Math.round(event.amount), 0) && deduction.costOwner === (event.owner === 'company_manager_prepaid' ? 'company' : event.owner) && (event.owner !== 'company_manager_prepaid' || deduction.applyLocation === 'manager_reimbursement'))
               const status = !isSaved ? '저장 전' : !linkedSettlement ? '정산서 생성 시 반영' : isReflected ? (event.owner === 'brand' ? '정산 기록 완료' : directEditLocked ? '확정 정산서 반영 완료' : '정산 반영 완료') : '정산 미반영'
               return <article className="sales-event-entry__item" key={event.id}>
-                <div className="sales-event-entry__item-head"><strong>이벤트 {index + 1}</strong><span className={`sales-event-entry__status ${isReflected || (!linkedSettlement && isSaved) ? 'is-complete' : !isSaved ? 'is-pending' : 'is-warning'}`}>{status}</span></div>
-                <div className="sales-event-entry__grid"><label className="form-field"><span>품목</span><input disabled={directEditLocked} placeholder="예: HEPA 필터 1개입" value={event.name} onChange={(change) => updateEventDraft(event.id, { name: change.target.value })} /></label><label className="form-field"><span>적용 단가</span><NumericInput disabled={directEditLocked} min="0" type="number" value={event.unitPrice ?? event.amount} onChange={(change) => updateEventDraft(event.id, { unitPrice: Number(change.target.value) })} /></label><label className="form-field"><span>인원/수량</span><NumericInput disabled={directEditLocked} min="0" type="number" value={event.quantity ?? 1} onChange={(change) => updateEventDraft(event.id, { quantity: Number(change.target.value) })} /></label><label className="form-field"><span>회사 실제원가 · 선택</span><NumericInput disabled={directEditLocked} min="0" placeholder="공급가 차이 계산 시" type="number" value={event.companyUnitCost ?? ''} onChange={(change) => updateEventDraft(event.id, { companyUnitCost: change.target.value === '' ? undefined : Number(change.target.value) })} /></label><label className="form-field"><span>공급사 지원율(%)</span><NumericInput disabled={directEditLocked} min="0" max="100" type="number" value={event.supplierSupportRate ?? 0} onChange={(change) => updateEventDraft(event.id, { supplierSupportRate: Number(change.target.value) })} /></label><label className="form-field"><span>정산 반영액</span><input disabled readOnly value={event.amount.toLocaleString('ko-KR')} /></label><label className="form-field"><span>부담 주체</span><select disabled={directEditLocked} value={event.owner} onChange={(change) => updateEventDraft(event.id, { owner: change.target.value as SalesEventCost['owner'] })}><option value="company">회사 부담 · 배분 전 차감</option><option value="company_manager_prepaid">회사 부담(매니저 선지급) · 매니저 지급액에 가산</option><option value="seller">셀러 부담 · 셀러 지급액에서 차감</option><option value="manager">매니저 부담 · 매니저 지급액에서 차감</option><option value="brand">공급사 부담 · 기록만</option></select></label><button className="secondary-button sales-event-entry__remove" disabled={directEditLocked} onClick={() => removeEventDraft(event.id)} type="button">삭제</button></div>
+                <div className="sales-event-entry__item-head"><strong>{event.direction === 'payment' ? '지급내역' : event.owner === 'company_manager_prepaid' ? '회사 부담 · 매니저 선지급 환급' : '차감내역'} {index + 1}</strong><span className={`sales-event-entry__status ${isReflected || (!linkedSettlement && isSaved) ? 'is-complete' : !isSaved ? 'is-pending' : 'is-warning'}`}>{status}</span></div>
+                <div className="sales-event-entry__grid"><label className="form-field"><span>품목</span><input disabled={directEditLocked} placeholder="예: HEPA 필터 1개입" value={event.name} onChange={(change) => updateEventDraft(event.id, { name: change.target.value })} /></label><label className="form-field"><span>적용 단가</span><NumericInput disabled={directEditLocked} min="0" type="number" value={event.unitPrice ?? event.amount} onChange={(change) => updateEventDraft(event.id, { unitPrice: Number(change.target.value) })} /></label><label className="form-field"><span>인원/수량</span><NumericInput disabled={directEditLocked} min="0" type="number" value={event.quantity ?? 1} onChange={(change) => updateEventDraft(event.id, { quantity: Number(change.target.value) })} /></label><label className="form-field"><span>회사 실제원가 · 선택</span><NumericInput disabled={directEditLocked || event.direction === 'payment'} min="0" placeholder="공급가 차이 계산 시" type="number" value={event.companyUnitCost ?? ''} onChange={(change) => updateEventDraft(event.id, { companyUnitCost: change.target.value === '' ? undefined : Number(change.target.value) })} /></label><label className="form-field"><span>공급사 지원율(%)</span><NumericInput disabled={directEditLocked || event.direction === 'payment'} min="0" max="100" type="number" value={event.supplierSupportRate ?? 0} onChange={(change) => updateEventDraft(event.id, { supplierSupportRate: Number(change.target.value) })} /></label><label className="form-field"><span>정산 반영액</span><input disabled readOnly value={`${event.direction === 'payment' ? '+' : '−'} ${event.amount.toLocaleString('ko-KR')}`} /></label><label className="form-field"><span>{event.direction === 'payment' ? '지급 대상' : '부담 주체'}</span><select disabled={directEditLocked} value={event.owner} onChange={(change) => updateEventDraft(event.id, { owner: change.target.value as SalesEventCost['owner'] })}>{event.direction === 'payment' ? <><option value="seller">셀러</option><option value="company">회사</option><option value="manager">매니저</option></> : <><option value="seller">셀러 부담 · 셀러 지급액에서 차감</option><option value="company">{event.direction ? '회사 부담 · 배분 전 차감' : '회사 부담 · 배분 전 차감'}</option><option value="manager">매니저 부담 · 매니저 지급액에서 차감</option><option value="company_manager_prepaid">회사 부담(매니저 선지급) · 매니저 정산금에 가산</option><option value="brand">공급사 부담 · 기록 후 공급사 정산에서 반영</option></>}</select></label><button className="secondary-button sales-event-entry__remove" disabled={directEditLocked} onClick={() => removeEventDraft(event.id)} type="button">삭제</button></div>
               </article>
             })}
             {!eventDrafts.length && <div className="sales-event-entry__empty">등록된 차감·조정내역이 없습니다.</div>}
           </div>
-          <div className="sales-event-entry__footer"><button className="primary-button" disabled={directEditLocked} onClick={() => void saveEventCosts()} type="button">{directEditLocked ? '확정 해제 후 수정 가능' : '이벤트 전체 저장'}</button>{eventSaveStatus && <span className={`sales-event-entry__save-status is-${eventSaveStatus.tone}`}>{eventSaveStatus.message}</span>}</div>
+          <div className="sales-event-entry__footer"><button className="primary-button" disabled={directEditLocked} onClick={() => void saveEventCosts()} type="button">{directEditLocked ? '확정 해제 후 수정 가능' : '차감·지급내역 전체 저장'}</button>{eventSaveStatus && <span className={`sales-event-entry__save-status is-${eventSaveStatus.tone}`}>{eventSaveStatus.message}</span>}</div>
         </section>
 
         <section className="sales-ai-card">
@@ -1132,6 +1127,8 @@ function ManualSalesDataModal({ salesImport, rows, onClose, onSave }: { salesImp
   const [vendorName, setVendorName] = useState(salesImport?.settlementVendorName ?? campaignService.getCampaignById(salesImport?.campaignId ?? '')?.settlementVendorName ?? '')
   const [vendorTerms, setVendorTerms] = useState(() => storageService.getItem<Array<{vendor: string; skuId: string; rate: number; updatedAt: string}>>(STORAGE_KEYS.vendorSkuTerms, []))
   const [draftRows, setDraftRows] = useState(() => rows.length ? rows : [])
+  const [selectedManualRows, setSelectedManualRows] = useState<string[]>([])
+  const [bulkSellerRate, setBulkSellerRate] = useState('20')
   const [rateDraft, setRateDraft] = useState({ total: salesImport?.totalCommissionRate?.toString() ?? '', seller: (salesImport?.sellerCommissionRate ?? salesImport?.commissionRate)?.toString() ?? '' })
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -1309,7 +1306,7 @@ function ManualSalesDataModal({ salesImport, rows, onClose, onSave }: { salesImp
       if (supplyAudience === 'vendor' && (!vendorName.trim() || draftRows.some((row) => row.sellerCommissionRate === undefined))) throw new Error('벤더명과 모든 SKU의 벤더 수수료 조건을 등록해주세요.')
       const totals = calculateSalesTotals(preparedRows, preparedImport)
       const nextImport: SalesDataImport = { ...preparedImport,
-        settlementTerms: salesImport.settlementTerms ? captureUploadTerms(manualChannel || salesImport.settlementTerms.salesChannelType, preparedRows) : undefined,
+        settlementTerms: salesImport.settlementTerms ? captureUploadTerms(manualChannel || salesImport.settlementTerms.salesChannelType, preparedRows, salesImport.settlementTerms.sellerCheckoutPricingVersion === 2) : undefined,
         totalQuantity: totals.totalQuantity, totalSalesAmount: totals.totalSalesAmount,
         sourceType: reportEnabled ? 'manual' : salesImport.sourceType,
         fileName: reportEnabled ? '카톡·수기 정산' : salesImport.fileName,
@@ -1385,31 +1382,37 @@ function ManualSalesDataModal({ salesImport, rows, onClose, onSave }: { salesImp
         </div>}
         </details>
         <h4>2. 제품과 수량 확인</h4>
-        <div className="manual-row-list">
+        <div className="inline-form"><label><input type="checkbox" checked={draftRows.length > 0 && draftRows.every(row => selectedManualRows.includes(row.id))} onChange={event => setSelectedManualRows(event.target.checked ? draftRows.map(row => row.id) : [])} /> 전체 선택</label><label>셀러/벤더 수수료 (%)<input type="number" min="0" max="100" step="any" value={bulkSellerRate} onChange={event => setBulkSellerRate(event.target.value)} /></label>{[20,25,30].map(rate => <button className="secondary-button" type="button" key={rate} onClick={() => setBulkSellerRate(String(rate))}>{rate}%</button>)}<button type="button" className="primary-button" disabled={!selectedManualRows.length || saving || salesImport.commissionCalculationType === 'campaign_total'} onClick={() => {
+            const rate = Number(bulkSellerRate)
+            if (!bulkSellerRate.trim() || !Number.isFinite(rate) || rate < 0 || rate > 100 || draftRows.some(row => selectedManualRows.includes(row.id) && (row.totalCommissionRate ?? salesImport.totalCommissionRate ?? -1) < rate)) { setSaveError('총수수료율을 확인하고 그 이하의 수수료를 입력해주세요.'); return }
+            selectedManualRows.forEach(id => updateRow(id, 'sellerCommissionRate', bulkSellerRate))
+            setSaveError('')
+          }}>선택 항목 일괄 적용</button></div>
+        <div className="manual-table-wrap"><table className="data-table manual-edit-table"><thead><tr><th>선택</th><th>상품·옵션</th><th>연결 SKU</th><th>판매수량</th><th>판매가</th><th>공급가</th><th>취소·환불·수수료</th><th>수정</th></tr></thead><tbody>
           {draftRows.map((row) => (
-            <div className={`manual-row${salesImport.commissionCalculationType === 'campaign_total' ? ' is-campaign-total' : ''}`} key={row.id}>
-              <label className="manual-option-name"><span>{row.productName || '제품·옵션'}</span><input value={row.optionName} onChange={(event) => updateRow(row.id, 'optionName', event.target.value)} /></label>
-              <label className="manual-sku-change"><span>연결 상품·SKU 변경</span><input aria-label={`${row.optionName} 연결 상품 검색`} placeholder="알텐바흐 등 상품명 검색" value={skuSearch} onChange={(event) => setSkuSearch(event.target.value)} /><select value={row.skuId ?? ''} onChange={(event) => {
+            <tr key={row.id}><td><input type="checkbox" aria-label={`${row.optionName} 선택`} checked={selectedManualRows.includes(row.id)} onChange={event => setSelectedManualRows(value => event.target.checked ? [...value, row.id] : value.filter(id => id !== row.id))} /></td>
+              <td><label className="manual-option-name"><span>{row.productName || '제품·옵션'}</span><input value={row.optionName} onChange={(event) => updateRow(row.id, 'optionName', event.target.value)} /></label></td>
+              <td><label className="manual-sku-change"><span>연결 상품·SKU 변경</span><input aria-label={`${row.optionName} 연결 상품 검색`} placeholder="알텐바흐 등 상품명 검색" value={skuSearch} onChange={(event) => setSkuSearch(event.target.value)} /><select value={row.skuId ?? ''} onChange={(event) => {
                 const product = products.find((item) => item.skus.some((sku) => sku.id === event.target.value))
                 const sku = product?.skus.find((item) => item.id === event.target.value)
                 if (!product || !sku) return
                 setDraftRows((items) => items.map((item) => item.id !== row.id ? item : ({ ...calculateSalesRow({ ...item, skuId: sku.id, productId: product.id, productName: `[${product.productName}] ${sku.productName || sku.optionName}`, agreedUnitPrice: sku.groupBuyPrice, settlementSupplyPrice: undefined, totalCommissionRate: sku.totalCommissionRate ?? product.totalCommissionRate, sellerCommissionRate: resolveAudienceRate(sku.id) }), sellerCommissionRate: resolveAudienceRate(sku.id) })))
-              }}><option value="">SKU 선택</option>{products.flatMap((product) => product.skus.filter((sku) => sku.id === row.skuId || (sku.active && (skuSearch.trim() ? normalizeProductMatchText(product.brandName + product.productName + sku.optionName).includes(normalizeProductMatchText(skuSearch)) : product.id === row.productId))).map((sku) => <option key={sku.id} value={sku.id}>{product.productName} · {sku.optionName}</option>))}</select><small>판매 옵션·수량·실판매가는 유지하며 선택 SKU의 수수료를 적용합니다.</small></label>
-              <label><span>{reportEnabled && quantityBasis === 'net' ? '최종 정산 수량' : '판매수량'}</span><NumericInput type="number" min="0" inputMode="numeric" value={row.quantity} onChange={(event) => updateRow(row.id, 'quantity', event.target.value)} /></label>
-              <label><span>판매가</span><NumericInput type="number" min="0" inputMode="decimal" value={row.unitPrice} onChange={(event) => updateRow(row.id, 'unitPrice', event.target.value)} /></label>
-              <label className="manual-supply-price"><span>이번 정산 공급가 (1회 적용)</span><NumericInput type="number" min="0" max={row.unitPrice} inputMode="numeric" placeholder={row.totalCommissionRate === undefined ? '공급가 입력' : String(Math.round(row.unitPrice * (1 - row.totalCommissionRate / 100)))} value={row.settlementSupplyPrice ?? ''} onChange={(event) => updateSettlementSupplyPrice(row.id, event.target.value)} /><small>상품 DB는 변경하지 않습니다. 입력 시 총수수료율을 자동 계산합니다.</small></label>
-              <details className="manual-row-details"><summary>취소·환불 / 수수료 수정</summary><div className="manual-row-extra">
+              }}><option value="">SKU 선택</option>{products.flatMap((product) => product.skus.filter((sku) => sku.id === row.skuId || (sku.active && (skuSearch.trim() ? normalizeProductMatchText(product.brandName + product.productName + sku.optionName).includes(normalizeProductMatchText(skuSearch)) : product.id === row.productId))).map((sku) => <option key={sku.id} value={sku.id}>{product.productName} · {sku.optionName}</option>))}</select><small>판매 옵션·수량·실판매가는 유지하며 선택 SKU의 수수료를 적용합니다.</small></label></td>
+              <td><label><span>{reportEnabled && quantityBasis === 'net' ? '최종 정산 수량' : '판매수량'}</span><NumericInput type="number" min="0" inputMode="numeric" value={row.quantity} onChange={(event) => updateRow(row.id, 'quantity', event.target.value)} /></label></td>
+              <td><label><span>판매가</span><NumericInput type="number" min="0" inputMode="decimal" value={row.unitPrice} onChange={(event) => updateRow(row.id, 'unitPrice', event.target.value)} /></label></td>
+              <td><label className="manual-supply-price"><span>이번 정산 공급가 (1회 적용)</span><NumericInput type="number" min="0" max={row.unitPrice} inputMode="numeric" placeholder={row.totalCommissionRate === undefined ? '공급가 입력' : String(Math.round(row.unitPrice * (1 - row.totalCommissionRate / 100)))} value={row.settlementSupplyPrice ?? ''} onChange={(event) => updateSettlementSupplyPrice(row.id, event.target.value)} /><small>상품 DB는 변경하지 않습니다. 입력 시 총수수료율을 자동 계산합니다.</small></label></td>
+              <td><details className="manual-row-details" open><summary>취소·환불 / 수수료 수정</summary><div className="manual-row-extra">
               <label><span>취소수량</span><NumericInput type="number" disabled={reportEnabled && quantityBasis === 'net'} value={reportEnabled && quantityBasis === 'net' ? 0 : row.canceledQuantity} onChange={(event) => updateRow(row.id, 'canceledQuantity', event.target.value)} /></label>
               <label><span>환불수량</span><NumericInput type="number" disabled={reportEnabled && quantityBasis === 'net'} value={reportEnabled && quantityBasis === 'net' ? 0 : row.refundedQuantity} onChange={(event) => updateRow(row.id, 'refundedQuantity', event.target.value)} /></label>
               {salesImport.commissionCalculationType !== 'campaign_total' && <>
                 <label><span>총 수수료율(%)</span><NumericInput min="0" max="100" step="0.1" type="number" value={row.totalCommissionRate ?? salesImport.totalCommissionRate ?? ''} onChange={(event) => updateRow(row.id, 'totalCommissionRate', event.target.value)} /></label>
                 <label><span>{supplyAudience === 'vendor' ? '벤더 수수료율(%) · 미등록 시 입력 필요' : '셀러 수수료율(%)'}</span><NumericInput min="0" max="100" step="0.1" type="number" value={row.sellerCommissionRate ?? (supplyAudience === 'vendor' ? undefined : salesImport.sellerCommissionRate ?? salesImport.commissionRate) ?? ''} onChange={(event) => updateRow(row.id, 'sellerCommissionRate', event.target.value)} /></label>
               </>}
-              </div></details>
-              <button className="secondary-button" onClick={() => setDraftRows((current) => current.filter((item) => item.id !== row.id))} type="button">삭제</button>
-            </div>
+              </div></details></td>
+              <td><button className="secondary-button" onClick={() => setDraftRows((current) => current.filter((item) => item.id !== row.id))} type="button">삭제</button></td>
+            </tr>
           ))}
-        </div>
+        </tbody></table></div>
         {!catalogLoading && !draftRows.length && <p>공구에 연결된 SKU가 없습니다. 아래 ‘상품·SKU 추가’에서 선택하거나 행을 추가해주세요.</p>}
         <details className="manual-secondary" open={pickerExpanded} onToggle={(event) => setPickerExpanded(event.currentTarget.open)}><summary>상품·SKU 추가</summary>
         <div className="manual-sku-search">
@@ -1462,3 +1465,4 @@ function ManualSalesDataModal({ salesImport, rows, onClose, onSave }: { salesImp
     </div>
   )
 }
+import './operational-tables.css'

@@ -75,7 +75,7 @@ export const managerPaymentService = {
       if ((salesDataService.getSalesDataImportById(settlement.salesDataImportId)?.supplyAudience ?? campaign.supplyAudience) === 'vendor' || isCompanyDirectManager(campaign.managerId, campaign.managerName)) return []
       const businessType = this.getBusinessType(campaign.managerName, campaign.managerId)
       const grossManagerAmount = settlement.currentCalculation.managerBaseShareAmount
-      const reimbursement = settlement.currentCalculation.managerReimbursementTotal
+      const reimbursement = settlement.currentCalculation.managerReimbursementTotal + (settlement.currentCalculation.managerAdditionalPayment ?? 0)
       const tax = businessType === 'freelancer'
         ? calculateWithholding(grossManagerAmount, settlement.currentCalculation.managerDeductionTotal)
         : undefined

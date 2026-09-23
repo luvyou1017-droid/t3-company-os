@@ -6,7 +6,8 @@ import type {
   SellerSettlementValidation,
   SellerSettlementItem,
 } from '../types/sellerSettlement'
-import { calculateWithholding } from './withholdingTax'
+import type { Settlement } from '../types/settlement'
+import { calculateWithholding } from './withholdingTax.ts'
 
 function amount(value: number, label: string) {
   if (!Number.isFinite(value) || Number.isNaN(value) || value < 0) throw new Error(`${label}은 0 이상의 유한한 숫자여야 합니다.`)
@@ -41,18 +42,46 @@ export const calculateVatExcludedAmount = (grossAmount: number) => Math.round(am
 export const calculateWithholdingTax = (withholdingBaseAmount: number) =>
   calculateWithholding(amount(withholdingBaseAmount, '원천징수 기준 금액')).totalWithholdingTaxAmount
 
-export function calculateFinalSellerPayment(gross: number, businessType: SellerBusinessType, deductions: number) {
+// No migration: legacy confirmed snapshots retain the previous payout policy.
+export function sellerPayoutVersion(settlement: Settlement): 1 | 2 {
+  const confirmed = settlement.status !== 'revision_required' && (settlement.settlementConfirmed ??
+    (Boolean(settlement.calculationSnapshot) || ['manager_reviewed', 'approval_pending', 'approved', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)))
+  return confirmed ? settlement.calculationSnapshot?.sellerPayoutVersion ?? settlement.currentCalculation.sellerPayoutVersion ?? 1 : 2
+}
+
+export function calculateFinalSellerPayment(gross: number, businessType: SellerBusinessType, deductions: number, version: 1 | 2 = 2, additionalPayments = 0, receivableOffset = 0) {
+  if (version === 2) {
+    const offset = amount(receivableOffset, '미수금 상계')
+    const deduction = amount(deductions, '셀러 차감')
+    if (offset > deduction) throw new Error('미수금 상계액이 차감 합계를 초과합니다.')
+    const signedAmount = amount(gross, '셀러 수수료') - (deduction - offset) + amount(additionalPayments, '셀러 추가 지급')
+    const settlementAmount = Math.max(signedAmount, 0)
+    const withholding = calculateWithholding(settlementAmount)
+    const vatExcludedAmount = withholding.withholdingBaseAmount
+    const freelancer = businessType === 'freelancer'
+    const general = businessType === 'corporation' || businessType === 'general_business'
+    const payable = general ? settlementAmount : freelancer ? withholding.finalPaymentAmount : vatExcludedAmount
+    return {
+      sellerReceivableAmount: Math.max(-signedAmount, 0),
+      taxDocumentAmount: general ? settlementAmount : vatExcludedAmount, vatExcludedAmount,
+      withholdingBaseAmount: freelancer ? vatExcludedAmount : 0,
+      withholdingTaxAmount: freelancer ? withholding.totalWithholdingTaxAmount : 0,
+      finalSellerPaymentAmount: Math.max(payable - offset, 0),
+      unappliedReceivableOffset: Math.max(offset - payable, 0),
+      withholding: freelancer ? withholding : undefined,
+    }
+  }
   const grossAmount = amount(gross, '셀러 수수료')
   const deductionAmount = amount(deductions, '셀러 부담 차감')
   const vatExcludedAmount = calculateVatExcludedAmount(grossAmount)
   if (businessType === 'corporation' || businessType === 'general_business') {
-    return { taxDocumentAmount: grossAmount, vatExcludedAmount, withholdingBaseAmount: 0, withholdingTaxAmount: 0, finalSellerPaymentAmount: amount(grossAmount - deductionAmount, '최종 지급액') }
+    return { taxDocumentAmount: grossAmount, vatExcludedAmount, withholdingBaseAmount: 0, withholdingTaxAmount: 0, finalSellerPaymentAmount: amount(grossAmount - deductionAmount + additionalPayments, '최종 지급액') }
   }
   if (businessType === 'simplified_business') {
-    return { taxDocumentAmount: vatExcludedAmount, vatExcludedAmount, withholdingBaseAmount: 0, withholdingTaxAmount: 0, finalSellerPaymentAmount: amount(vatExcludedAmount - deductionAmount, '최종 지급액') }
+    return { taxDocumentAmount: vatExcludedAmount, vatExcludedAmount, withholdingBaseAmount: 0, withholdingTaxAmount: 0, finalSellerPaymentAmount: amount(vatExcludedAmount - deductionAmount + additionalPayments, '최종 지급액') }
   }
   const withholdingTaxAmount = calculateWithholding(grossAmount).totalWithholdingTaxAmount
-  return { taxDocumentAmount: vatExcludedAmount, vatExcludedAmount, withholdingBaseAmount: vatExcludedAmount, withholdingTaxAmount, finalSellerPaymentAmount: amount(vatExcludedAmount - withholdingTaxAmount - deductionAmount, '최종 지급액') }
+  return { taxDocumentAmount: vatExcludedAmount, vatExcludedAmount, withholdingBaseAmount: vatExcludedAmount, withholdingTaxAmount, finalSellerPaymentAmount: amount(vatExcludedAmount - withholdingTaxAmount - deductionAmount + additionalPayments, '최종 지급액') }
 }
 
 export const getRecommendedEvidenceType = (businessType: SellerBusinessType): SellerEvidenceType =>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { sampleService } from '../../features/samples/services/sampleService'
 import type { SampleFilter, SampleRequest } from '../../features/samples/types'
-import { CreateSampleModal } from './components/CreateSampleModal'
+import { SampleOrderPanel } from './components/SampleOrderPanel'
 import { SampleDetailDrawer } from './components/SampleDetailDrawer'
 import { SampleFilters } from './components/SampleFilters'
 import { SampleSummaryCards } from './components/SampleSummaryCards'
@@ -24,7 +24,6 @@ export function SampleManagementPage({ initialSampleId }: { initialSampleId?: st
   const [samples, setSamples] = useState<SampleRequest[]>(() => sampleService.listSamples())
   const [filter, setFilter] = useState<SampleFilter>(initialFilter)
   const [selectedSample, setSelectedSample] = useState<SampleRequest | null>(null)
-  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     const next = sampleService.listSamples()
@@ -47,24 +46,21 @@ export function SampleManagementPage({ initialSampleId }: { initialSampleId?: st
     setSelectedSample(next.find((item) => item.id === sample.id) ?? sample)
   }
 
-  const createSample = (sample: SampleRequest) => {
-    sampleService.createSample(sample)
-    setSamples(sampleService.listSamples())
-    setCreating(false)
-  }
-
   return (
     <section className="campaign-schedule-page">
+      <SampleOrderPanel initialSampleId={initialSampleId} />
+      {samples.length > 0 && <details open={Boolean(initialSampleId && samples.some((sample) => sample.id === initialSampleId))}>
+      <summary>기존 샘플 이력 ({samples.length}건)</summary>
       <section className="schedule-summary">
-        <div className="schedule-summary__title"><div><p className="page-eyebrow">Sample Operations</p><h2>샘플 관리</h2></div><button className="primary-button" onClick={() => setCreating(true)} type="button">새 샘플 요청</button></div>
+        <div className="schedule-summary__title"><div><h2>기존 샘플 이력</h2><p>이전 기록과 정산 연결은 그대로 유지됩니다. 신규 요청은 위 샘플관리에서 등록해주세요.</p></div></div>
         <SampleSummaryCards samples={samples} onSelect={(quick) => setFilter({ ...filter, quick })} />
       </section>
       <section className="panel">
         <div className="panel__header"><div><h2>샘플 목록</h2><p>공동구매 일정에 연결된 샘플 요청, 발주, 배송, 회수, 비용 반영 상태를 관리합니다.</p></div><strong className="result-count">{filtered.length}건</strong></div>
         <div className="schedule-panel__body"><SampleFilters filter={filter} onChange={setFilter} samples={samples} /><SampleTable onSelect={setSelectedSample} samples={filtered} /></div>
       </section>
+      </details>}
       <SampleDetailDrawer onClose={() => setSelectedSample(null)} onUpdate={updateSample} sample={selectedSample} />
-      {creating && <CreateSampleModal onClose={() => setCreating(false)} onCreate={createSample} />}
     </section>
   )
 }

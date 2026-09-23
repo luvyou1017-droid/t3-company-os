@@ -1,3 +1,4 @@
+import { AutomaticSyncAlert } from './features/automaticSync/AutomaticSyncAlert'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { AppLayout } from './app/layouts/AppLayout'
 
@@ -298,7 +299,7 @@ function AuthorizedAppContent({ activePage, children, onNavigate, onOpenRelated 
   }, [activePage, onNavigate, profile.role])
 
   if (!canAccessPage(profile.role, activePage)) return null
-  return <AppLayout activePage={activePage} onNavigate={onNavigate} onOpenRelated={onOpenRelated}><Suspense fallback={<div className="page-loading" role="status">화면을 불러오는 중입니다…</div>}>{children}</Suspense></AppLayout>
+  return <AppLayout activePage={activePage} onNavigate={onNavigate} onOpenRelated={onOpenRelated}><AutomaticSyncAlert onOpen={() => onNavigate('가져오기/내보내기')} /><Suspense fallback={<div className="page-loading" role="status">화면을 불러오는 중입니다…</div>}>{children}</Suspense></AppLayout>
 }
 
 function parseMasterRoute(): { page: AppPage; productId?: string } | null {

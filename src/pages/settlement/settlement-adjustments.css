@@ -1,0 +1,6 @@
+.seller-document__table .settlement-payment-credit th,
+.seller-document__table .settlement-payment-credit td {
+  color: #15803d;
+  background: #f0fdf4;
+  font-weight: 600;
+}

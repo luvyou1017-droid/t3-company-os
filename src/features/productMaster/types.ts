@@ -8,6 +8,55 @@ export type SellerPortalStatus = 'available' | 'coming_soon' | 'paused' | 'sold_
 export type ProductBadge = 'new' | 'popular' | 'recommended' | 'recently_successful'
 export type ProductStockStatus = 'available' | 'limited' | 'out_of_stock' | 'discontinued'
 export type ProductSkuPricingType = 'fixed' | 'quantity_tier'
+export type ProductLifecycleStatus = 'active' | 'inactive' | 'archived'
+
+/** Current commercial terms. Identity fields never belong in this object. */
+export interface ProductTradeTerms {
+  regularPrice?: number
+  salePrice?: number
+  companySupplyPrice?: number
+  sellerSupplyPrice?: number
+  sellerCommissionRate?: number
+  shippingFee?: number
+  freeShippingThreshold?: number
+  otherTerms?: string
+  sourceFileName?: string
+  capturedAt?: string
+}
+
+export interface ProductOperatingInfo {
+  courierName?: string
+  baseShippingFee?: number
+  freeShippingThreshold?: number
+  jejuExtraFee?: number
+  islandExtraFee?: number
+  returnShippingFee?: number
+  exchangeShippingFee?: number
+  bundleShippingAvailable?: boolean
+  orderDeadlineTime?: string
+  stockInfo?: string
+  manufactureInfo?: string
+  shelfLifeInfo?: string
+  linkProvided?: boolean
+  sampleSupportType?: string
+}
+
+export interface ProposalSupplierInfo {
+  vendorName?: string
+  businessRegistrationNumber?: string
+  address?: string
+  account?: string
+  taxInvoiceEmail?: string
+  orderContact?: string
+  orderEmail?: string
+  csContact?: string
+  csEmail?: string
+  settlementContact?: string
+  settlementEmail?: string
+  mainBusinessEmail?: string
+  businessHours?: string
+  salesHurdle?: string
+}
 
 export interface ProductPolicy {
   regularPrice: number
@@ -33,6 +82,7 @@ export interface ProductPolicy {
 export type ProductPolicyOverrides = Partial<ProductPolicy>
 
 export interface ProductSku {
+  sampleOnly?: boolean
   id: string
   skuCode: string
   productId: string
@@ -40,6 +90,8 @@ export interface ProductSku {
   category?: string
   optionName: string
   optionValues?: Record<string, string>
+  lifecycleStatus?: ProductLifecycleStatus
+  currentTradeTerms?: ProductTradeTerms
   pricingType?: ProductSkuPricingType
   minimumQuantity?: number
   maximumQuantity?: number
@@ -103,6 +155,7 @@ export interface ProductCampaignReference {
 }
 
 export interface ProductMaster {
+  sampleOnly?: boolean
   supplyAudience?: 'seller' | 'vendor'
   settlementVendorName?: string
   id: string
@@ -112,6 +165,10 @@ export interface ProductMaster {
   brandId: string
   brandName: string
   productName: string
+  lifecycleStatus?: ProductLifecycleStatus
+  currentTradeTerms?: ProductTradeTerms
+  operatingInfo?: ProductOperatingInfo
+  proposalSupplierInfo?: ProposalSupplierInfo
   category?: string
   subCategory?: string
   imageUrl?: string

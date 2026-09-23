@@ -4,13 +4,17 @@ import type { ProductMaster } from '../../../features/productMaster/types'
 import type { ProductMasterPermission } from '../../../features/productMaster/permissions'
 import { ProductBulkImportPanel } from './ProductBulkImportPanel'
 import { ProposalRateReview } from './ProposalRateReview'
+import { QuickSkuRegistrationModal } from './QuickSkuRegistrationModal'
 
 const money = (value: number) => `${value.toLocaleString('ko-KR')}원`
 const formatRate = (value: number) => Number(value.toFixed(2)).toLocaleString('ko-KR', { maximumFractionDigits: 2 })
 type ViewMode = 'proposal' | 'admin'
+const LIST_STATE_KEY = 't3-product-list-state-v1'
+type StoredListState = { query: string; brand: string; includeInactive: boolean; viewMode: ViewMode; scrollY: number }
+const readListState = (): StoredListState => { try { return JSON.parse(sessionStorage.getItem(LIST_STATE_KEY) ?? '') as StoredListState } catch { return { query: '', brand: '', includeInactive: false, viewMode: 'proposal', scrollY: 0 } } }
 
 function configurations(product: ProductMaster) {
-  const active = product.skus.filter((sku) => sku.active)
+  const active = product.skus.filter((sku) => sku.active && !sku.sampleOnly)
   return active.length ? active : [{ id: product.id, productName: product.productName, optionName: '기본 구성', regularPrice: product.regularPrice, groupBuyPrice: product.salePrice, sellerCommissionRate: product.sellerCommissionRate }]
 }
 
@@ -30,20 +34,36 @@ function proposalText(product: ProductMaster) {
 }
 
 export function ProductListPage({ onOpen, permission }: { onOpen: (id?: string) => void; permission: ProductMasterPermission }) {
+  const [restored] = useState(readListState)
   const [products, setProducts] = useState<ProductMaster[]>([])
-  const [query, setQuery] = useState('')
-  const [brand, setBrand] = useState('')
-  const [includeInactive, setIncludeInactive] = useState(false)
-  const [viewMode, setViewMode] = useState<ViewMode>('proposal')
+  const [query, setQuery] = useState(restored.query)
+  const [brand, setBrand] = useState(restored.brand)
+  const [includeInactive, setIncludeInactive] = useState(restored.includeInactive)
+  const [viewMode, setViewMode] = useState<ViewMode>(restored.viewMode)
   const [copied, setCopied] = useState('')
   const [showBulkImport, setShowBulkImport] = useState(false)
-  const load = () => productService.listProducts().then(setProducts)
-  useEffect(() => { void load() }, [])
+  const [showQuickSku, setShowQuickSku] = useState(false)
+  const load = () => productService.listProductsForImport().then(setProducts)
+  useEffect(() => {
+    let active = true
+    let frame = 0
+    void productService.listProductsForImport().then((items) => {
+      if (!active) return
+      setProducts(items)
+      frame = window.requestAnimationFrame(() => { if (active) window.scrollTo({ top: restored.scrollY }) })
+    }).catch(() => { if (active) setCopied('상품을 불러오지 못했습니다. 다시 시도해주세요.') })
+    return () => { active = false; window.cancelAnimationFrame(frame) }
+  }, [restored.scrollY])
+  useEffect(() => { sessionStorage.setItem(LIST_STATE_KEY, JSON.stringify({ query, brand, includeInactive, viewMode, scrollY: window.scrollY })) }, [query, brand, includeInactive, viewMode])
+  const openProduct = (id?: string) => {
+    sessionStorage.setItem(LIST_STATE_KEY, JSON.stringify({ query, brand, includeInactive, viewMode, scrollY: window.scrollY }))
+    onOpen(id)
+  }
 
   const brands = useMemo(() => [...new Set(products.map((product) => product.brandName))].sort((a, b) => a.localeCompare(b, 'ko')), [products])
   const filtered = useMemo(() => products.filter((product) => {
     const text = `${product.brandName} ${product.productName} ${product.vendorName ?? ''} ${product.settlementVendorName ?? ''}`.toLowerCase()
-    return ((viewMode === 'admin' && includeInactive) || product.active) && (!query || text.includes(query.toLowerCase())) && (!brand || product.brandName === brand)
+    return (viewMode === 'admin' || (!product.sampleOnly && product.skus.some(sku => !sku.sampleOnly))) && ((viewMode === 'admin' && includeInactive) || (product.lifecycleStatus ?? (product.active ? 'active' : 'inactive')) === 'active') && (!query || text.includes(query.toLowerCase())) && (!brand || product.brandName === brand)
   }).sort((a, b) => a.brandName.localeCompare(b.brandName, 'ko') || a.productName.localeCompare(b.productName, 'ko')), [products, query, brand, includeInactive, viewMode])
   const grouped = useMemo(() => {
     const map = new Map<string, ProductMaster[]>()
@@ -71,7 +91,7 @@ export function ProductListPage({ onOpen, permission }: { onOpen: (id?: string) 
     {permission.canEdit && <ProposalRateReview products={products} onDone={load} />}
     <div className="master-page__heading">
       <div><p className="page-eyebrow">SELLER PROPOSAL CATALOG</p><h1>브랜드·상품 제안서</h1><p>셀러에게 안내할 구성과 공구 조건을 한눈에 확인하고 바로 복사합니다.</p></div>
-      <div className="proposal-heading-actions"><button className="secondary-button" onClick={copySellerCatalogUrl}>카탈로그 주소 복사</button><button className="secondary-button" onClick={openSellerCatalog}>셀러 화면 열기</button><div className="proposal-view-toggle"><button className={viewMode === 'proposal' ? 'is-active' : ''} onClick={() => setViewMode('proposal')}>셀러 제안 보기</button><button className={viewMode === 'admin' ? 'is-active' : ''} onClick={() => setViewMode('admin')}>내부 관리</button></div>{permission.canCreate && <button className="secondary-button" onClick={() => setShowBulkImport(true)}>제안서 일괄 등록</button>}{permission.canCreate && <button className="primary-button" onClick={() => onOpen()}>상품 추가</button>}</div>
+      <div className="proposal-heading-actions"><button type="button" className="secondary-button" onClick={copySellerCatalogUrl}>카탈로그 주소 복사</button><button type="button" className="secondary-button" onClick={openSellerCatalog}>셀러 화면 열기</button><div className="proposal-view-toggle"><button type="button" className={viewMode === 'proposal' ? 'is-active' : ''} onClick={() => setViewMode('proposal')}>셀러 제안 보기</button><button type="button" className={viewMode === 'admin' ? 'is-active' : ''} onClick={() => setViewMode('admin')}>내부 관리</button></div>{permission.canCreate && <button type="button" className="secondary-button" onClick={() => setShowQuickSku(true)}>+ 빠른 SKU 등록</button>}{permission.canCreate && <button type="button" className="secondary-button" onClick={() => setShowBulkImport(true)}>제안서 일괄 등록</button>}{permission.canCreate && <button type="button" className="primary-button" onClick={() => openProduct()}>상품 추가</button>}</div>
     </div>
     {copied && <div className="copy-toast" role="status">✓ {copied}</div>}
     <div className="proposal-filters"><input aria-label="상품 검색" placeholder="브랜드 또는 상품명 검색" value={query} onChange={(event) => setQuery(event.target.value)} /><select aria-label="브랜드 선택" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">전체 브랜드</option>{brands.map((item) => <option key={item}>{item}</option>)}</select>{viewMode === 'admin' && <label className="checkbox-label"><input checked={includeInactive} onChange={(event) => setIncludeInactive(event.target.checked)} type="checkbox" /> 미사용 포함</label>}</div>
@@ -82,11 +102,12 @@ export function ProductListPage({ onOpen, permission }: { onOpen: (id?: string) 
         <div className="proposal-product-list">{group.items.map((product) => <article className="proposal-product" key={product.id}>
           <div className="proposal-product__intro"><div className="product-thumb">{product.representativeImageUrl || product.imageUrl ? <img src={product.representativeImageUrl ?? product.imageUrl} alt="" /> : '이미지 없음'}</div><div><h3>{product.productName}{product.supplyAudience === 'vendor' ? ` · ${product.settlementVendorName} 전용` : ''}</h3><p>{product.category ?? '카테고리 미등록'} · {product.vendorName ?? '공급처 미지정'}</p></div></div>
           <div className="proposal-price-table"><div className="proposal-price-head"><span>상품명</span><span>구성</span><span>정상가</span><span>공구가</span><span>할인</span><span>{product.supplyAudience === 'vendor' ? '벤더 수수료' : '셀러 수수료'}</span></div>{configurations(product).map((item) => <div className="proposal-price-row" key={item.id}><strong>{item.productName ?? product.productName}</strong><span>{item.optionName}</span><span>{money(item.regularPrice)}</span><b>{money(item.groupBuyPrice)}</b><em>{discount(item.regularPrice, item.groupBuyPrice)}%</em><span>{formatRate(item.sellerCommissionRate ?? product.sellerCommissionRate)}%</span></div>)}</div>
-          <div className="proposal-product__foot"><p>배송 {product.shippingFee ? money(product.shippingFee) : '무료'} · 샘플 {product.sampleAvailable ? (product.sampleSupportType || '지원 가능') : '협의'} · 진행 레퍼런스 {(product.campaignReferences ?? []).length}건</p><div>{product.productUrl && <a className="secondary-button product-link-button" href={product.productUrl} target="_blank" rel="noreferrer">상품 링크</a>}<button className="copy-button" onClick={() => void copy(product.productName, proposalText(product))}>상품 복사</button><button className="secondary-button" onClick={() => onOpen(product.id)}>{permission.canEdit ? '상세 수정' : '상세 보기'}</button></div></div>
+          <div className="proposal-product__foot"><p>배송 {product.shippingFee ? money(product.shippingFee) : '무료'} · 샘플 {product.sampleAvailable ? (product.sampleSupportType || '지원 가능') : '협의'} · 진행 레퍼런스 {(product.campaignReferences ?? []).length}건</p><div>{product.productUrl && <a className="secondary-button product-link-button" href={product.productUrl} target="_blank" rel="noreferrer">상품 링크</a>}<button type="button" className="copy-button" onClick={() => void copy(product.productName, proposalText(product))}>상품 복사</button><button type="button" className="secondary-button" onClick={() => openProduct(product.id)}>{permission.canEdit ? '상세 수정' : '상세 보기'}</button></div></div>
         </article>)}</div>
       </section>)}
       {!grouped.length && <div className="workspace-empty"><h2>표시할 상품이 없습니다.</h2><p>상품을 추가하거나 검색 조건을 바꿔주세요.</p></div>}
-    </div> : <div className="panel"><div className="panel__header"><div><h2>내부 상품 관리</h2><p>공급가, 구성 코드, 공개 상태처럼 운영에 필요한 상세 정보를 관리합니다. 미사용 상품은 신규 공구 선택 목록에서 제외됩니다.</p></div></div><div className="table-wrap"><table className="product-master-table"><thead><tr><th>브랜드</th><th>상품명</th><th>공급처</th><th>구성 수</th><th>공구가</th><th>셀러 공개</th><th>상태</th><th>관리</th></tr></thead><tbody>{filtered.map((product) => <tr key={product.id}><td>{product.brandName}</td><td>{product.productName}{product.supplyAudience === 'vendor' ? ` · ${product.settlementVendorName} 전용` : ''}</td><td>{product.vendorName ?? '-'}</td><td>{configurations(product).length}개</td><td>{money(Math.min(...configurations(product).map((item) => item.groupBuyPrice)))}</td><td>{product.sellerPortalVisible ? '공개' : '비공개'}</td><td>{product.active ? '사용 중' : '미사용'}</td><td><div className="table-actions"><button onClick={() => onOpen(product.id)}>{permission.canEdit ? '상세 수정' : '상세 보기'}</button>{permission.canDeactivate && <button className={product.active ? 'danger-text' : 'text-button'} onClick={() => void toggleActive(product)}>{product.active ? '미사용 전환' : '사용 중 전환'}</button>}</div></td></tr>)}</tbody></table></div></div>}
+    </div> : <div className="panel"><div className="panel__header"><div><h2>내부 상품 관리</h2><p>공급가, 구성 코드, 공개 상태처럼 운영에 필요한 상세 정보를 관리합니다. 미사용·삭제 보관 항목도 기존 이력 연결은 유지됩니다.</p></div></div><div className="table-wrap"><table className="product-master-table"><thead><tr><th>브랜드</th><th>상품명</th><th>공급처</th><th>구성 수</th><th>공구가</th><th>셀러 공개</th><th>상태</th><th>관리</th></tr></thead><tbody>{filtered.map((product) => { const status = product.lifecycleStatus ?? (product.active ? 'active' : 'inactive'); return <tr key={product.id}><td>{product.brandName}</td><td>{product.productName}{product.supplyAudience === 'vendor' ? ` · ${product.settlementVendorName} 전용` : ''}</td><td>{product.vendorName ?? '-'}</td><td>{configurations(product).length}개</td><td>{money(Math.min(...configurations(product).map((item) => item.groupBuyPrice)))}</td><td>{product.sellerPortalVisible ? '공개' : '비공개'}</td><td>{status === 'archived' ? '삭제 보관' : status === 'active' ? '사용' : '미사용'}</td><td><div className="table-actions"><button type="button" onClick={() => openProduct(product.id)}>{permission.canEdit ? '상세 수정' : '상세 보기'}</button>{permission.canDeactivate && status !== 'archived' && <button type="button" className={product.active ? 'danger-text' : 'text-button'} onClick={() => void toggleActive(product)}>{product.active ? '미사용 전환' : '사용 중 전환'}</button>}{permission.canDeactivate && <button type="button" className="text-button" onClick={() => void productService.setProductLifecycleStatus(product.id, status === 'archived' ? 'inactive' : 'archived').then(load)}>{status === 'archived' ? '보관 해제' : '삭제 보관'}</button>}</div></td></tr>})}</tbody></table></div></div>}
     {showBulkImport && <ProductBulkImportPanel existingProducts={products} onClose={() => setShowBulkImport(false)} onDone={load} />}
+    <QuickSkuRegistrationModal open={showQuickSku} onClose={() => setShowQuickSku(false)} onRegistered={() => void load()} />
   </section>
 }

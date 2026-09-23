@@ -104,6 +104,7 @@ export function captureProposalSnapshots(selections: CampaignProductSelection[],
 
 export function normalizeCampaignProducts(campaign: Campaign): CampaignProductSelection[] {
   if (campaign.campaignProducts?.length) return campaign.campaignProducts
+  if (!campaign.productId) return []
   return [{ id: `legacy-${campaign.id}-${campaign.productId}`, brandId: campaign.brandId, brandName: campaign.brandName, productId: campaign.productId, productName: campaign.productName, displayOrder: 0 }]
 }
 

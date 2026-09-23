@@ -1,3 +1,7 @@
+import { settlementService } from '../../shared/services/settlementService'
+import { salesDataService } from '../../shared/services/salesDataService'
+import { campaignSettlementStage } from '../../shared/utils/campaignSettlementStage'
+import { campaignDeletionService } from '../../shared/services/campaignDeletionService'
 import { useEffect, useMemo, useState } from 'react'
 import { currentManagerName } from '../../features/campaignSchedules/mockData'
 import {
@@ -23,10 +27,9 @@ import { CampaignSummary } from './components/CampaignSummary'
 import { CampaignTable } from './components/CampaignTable'
 import { CampaignViewTabs } from './components/CampaignViewTabs'
 import { useCompanyAuth } from '../../features/auth/AuthGate'
-import { salesDataService } from '../../shared/services/salesDataService'
 import { cloudSyncService } from '../../shared/services/cloudSyncService'
+import { getCampaignSalesChannel } from '../../shared/utils/campaignSalesChannel'
 
-const CAMPAIGN_RETENTION_START = '2026-08-01'
 
 const initialFilters: CampaignFilters = {
   search: '',
@@ -84,7 +87,10 @@ function matchesDateRange(schedule: CampaignSchedule, filters: CampaignFilters) 
 }
 
 function toSchedule(campaign: Campaign): CampaignSchedule {
+  const settlement = settlementService.getSettlements().find(item => item.campaignId === campaign.id && item.status !== 'canceled')
+  const sales = salesDataService.getSalesDataImports().find(item => item.campaignId === campaign.id)
   return {
+    settlementStage: campaignSettlementStage(campaign, settlement, sales),
     id: campaign.id,
     campaignName: campaign.campaignName,
     sellerName: campaign.sellerName,
@@ -95,7 +101,7 @@ function toSchedule(campaign: Campaign): CampaignSchedule {
     startDate: campaign.startDate || undefined,
     endDate: campaign.endDate || undefined,
     linkOwner: campaign.linkOwner,
-    landingPageType: campaign.landingPageType ?? campaign.salesChannelType,
+    landingPageType: getCampaignSalesChannel(campaign),
     landingPageCompleted: Boolean(campaign.landingPageCompleted),
     sellerBusinessType: campaign.businessType,
     pendingTaskCount: campaign.pendingTaskCount ?? 0,
@@ -123,9 +129,37 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
   const [selectedSchedule, setSelectedSchedule] = useState<CampaignSchedule | null>(null)
   const [creating, setCreating] = useState(() => window.location.pathname === '/campaigns/new')
   const [notice, setNotice] = useState('')
+  const [showTrash, setShowTrash] = useState(false)
+  const [restoring, setRestoring] = useState('')
+  const permanentlyDelete = async (campaign: Campaign) => {
+    if (restoring || !['ceo', 'admin'].includes(profile.role)) return
+    if (!window.confirm(`“${campaign.campaignName}” 일정을 완전삭제할까요? 연결 자료가 있으면 삭제되지 않습니다. 삭제 후에는 복구할 수 없습니다.`)) return
+    setRestoring(campaign.id)
+    try {
+      await campaignDeletionService.remove(campaign.id, campaign.updatedAt)
+      campaignService.saveCampaigns(campaignService.getCampaigns().filter(item => item.id !== campaign.id))
+      setCampaigns(campaignService.getCampaigns())
+      await cloudSyncService.syncKeys([STORAGE_KEYS.campaigns])
+      setNotice('연결 없는 일정 1건을 완전삭제했습니다. 휴지통에서 복구할 수 없습니다.')
+    } catch (error) { setNotice(error instanceof Error ? error.message : '연결 검사에 실패해 삭제하지 않았습니다.') }
+    finally { setRestoring('') }
+  }
+  const restore = async (campaign: Campaign) => {
+    if (restoring) return
+    setRestoring(campaign.id)
+    try {
+      const restored = { ...campaign, deletedAt: undefined, deletedBy: undefined, updatedAt: new Date().toISOString() }
+      if (getDataProviderMode() === 'supabase') await new SupabaseCampaignRepository().upsert(restored)
+      campaignService.saveCampaigns(campaignService.getCampaigns().map(item => item.id === campaign.id ? restored : item))
+      await cloudSyncService.syncKeys([STORAGE_KEYS.campaigns])
+      setCampaigns(campaignService.getCampaigns())
+      setNotice('동일한 일정 ID로 복구했습니다. 연결 자료는 유지됩니다.')
+    } catch (error) { setNotice(error instanceof Error ? error.message : '복구하지 못했습니다.') }
+    finally { setRestoring('') }
+  }
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => campaignService.getCampaigns())
 
-  const campaignSchedules = useMemo(() => campaigns.map(toSchedule), [campaigns])
+  const campaignSchedules = useMemo(() => campaigns.filter(item => !item.deletedAt).map(toSchedule), [campaigns])
 
   useEffect(() => {
     requestAnimationFrame(() => window.scrollTo({ top: savedState.scrollY }))
@@ -138,21 +172,7 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
     repository.list()
       .then(async (items) => {
         if (!active) return
-        const obsolete = items.filter((item) => item.startDate && item.startDate < CAMPAIGN_RETENTION_START)
-        const canApplyRetention = profile.role === 'ceo' || profile.role === 'admin'
-        if (obsolete.length && canApplyRetention) {
-          await repository.deleteBeforeStartDate(CAMPAIGN_RETENTION_START)
-          if (!active) return
-          const obsoleteIds = new Set(obsolete.map((item) => item.id))
-          campaignService.saveCampaigns(campaignService.getCampaigns().filter((item) => !obsoleteIds.has(item.id)))
-          const removedSalesSlots = salesDataService.removeEmptyCampaignImportsMany(obsoleteIds)
-          await cloudSyncService.syncKeys([STORAGE_KEYS.campaigns, STORAGE_KEYS.salesDataImports, STORAGE_KEYS.salesDataRows])
-          if (!active) return
-          setNotice(`8월 이전 공구 일정 ${obsolete.length}건과 연결된 빈 판매 데이터 ${removedSalesSlots}건을 공용 DB에서 정리했습니다.`)
-        }
-        const sharedCampaigns = items
-          .filter((item) => !item.startDate || item.startDate >= CAMPAIGN_RETENTION_START)
-          .sort((a, b) => b.startDate.localeCompare(a.startDate))
+        const sharedCampaigns = items.sort((a, b) => b.startDate.localeCompare(a.startDate))
         campaignService.saveCampaigns(sharedCampaigns)
         setCampaigns(sharedCampaigns)
       })
@@ -190,7 +210,7 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
         matchesDateRange(schedule, filters)
       )
     }).sort(compareCampaignSchedules)
-  }, [activeTab, filters])
+  }, [activeTab, filters, campaignSchedules])
 
   const handleCreateClick = () => {
     setNotice('')
@@ -222,15 +242,17 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
         <div className="panel__header">
           <div>
             <h2>일정 목록</h2>
-            <p>8월 1일 이후 전체 일정을 표시합니다. 오늘 시작 → 진행 중 → 진행 예정 → 종료 순서이며 D-day는 시작일 기준입니다.</p>
+            <p>삭제되지 않은 전체 일정을 표시합니다. 오늘 시작 → 진행 중 → 진행 예정 → 종료 순서이며 D-day는 시작일 기준입니다.</p>
           </div>
           <strong className="result-count">{filteredSchedules.length}건</strong>
         </div>
 
         <div className="schedule-panel__body">
+          <div className="button-row"><button className={!showTrash ? 'primary-button' : 'secondary-button'} type="button" onClick={() => setShowTrash(false)}>일정 목록</button><button className={showTrash ? 'primary-button' : 'secondary-button'} type="button" onClick={() => setShowTrash(true)}>삭제된 일정 ({campaigns.filter(item => item.deletedAt).length})</button></div>
+          {showTrash ? <div className="comparison-table-wrap"><p>복구 시 기존 ID와 이력을 유지합니다. 완전삭제는 운영 DB의 정산·상품·샘플·공용 이력 연결 검사 후에만 진행하며, 연결되었거나 확인할 수 없는 일정은 삭제하지 않습니다.</p><table className="comparison-table"><thead><tr><th>공구명</th><th>담당자</th><th>삭제일</th><th>복구</th></tr></thead><tbody>{campaigns.filter(item => item.deletedAt).map(item => <tr key={item.id}><td>{item.campaignName}</td><td>{item.managerName}</td><td>{item.deletedAt?.slice(0, 10)}</td><td><button type="button" className="secondary-button" disabled={Boolean(restoring) || !['ceo', 'admin'].includes(profile.role)} onClick={() => void restore(item)}>복구</button><button type="button" className="danger-button" disabled={Boolean(restoring) || !['ceo', 'admin'].includes(profile.role)} onClick={() => void permanentlyDelete(item)}>{restoring === item.id ? '확인 중…' : '완전삭제'}</button></td></tr>)}</tbody></table></div> : <>
           <CampaignViewTabs activeTab={activeTab} onChange={setActiveTab} />
           <CampaignFiltersPanel filters={filters} onChange={setFilters} schedules={campaignSchedules} />
-          <CampaignTable onSelect={(schedule) => onOpenDetail(schedule.id)} schedules={filteredSchedules} />
+          <CampaignTable onSelect={(schedule) => onOpenDetail(schedule.id)} schedules={filteredSchedules} /></>}
         </div>
       </section>
 

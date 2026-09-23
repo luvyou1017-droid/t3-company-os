@@ -1,3 +1,4 @@
+import { scheduleRequiredErrors, mergeNotionCampaign } from '../utils/campaignReadiness'
 import type { Campaign, CampaignSalesChannelType, LinkOwner } from '../types/campaign'
 import type { NotionCampaignMigrationPreview, NotionIntegratedListRecord } from '../types/notionMigration'
 
@@ -27,17 +28,18 @@ export function mapNotionIntegratedListRecord(record: NotionIntegratedListRecord
   const channel = record.landingPage ? channelMap[record.landingPage] : undefined
   const warnings: string[] = []
   if (!channel) warnings.push('랜딩페이지 방식 확인 필요')
-  if (!record.endDate) warnings.push('종료일이 없어 시작일과 동일하게 임시 적용')
-  if (!record.supplierId || !record.supplierName) warnings.push('공급처 연결 확인 필요')
+  if (!record.productId) warnings.push('상품 연결 필요')
+  if (!record.supplierId || !record.supplierName) warnings.push('공급처 미연결')
 
   const campaign: Campaign = {
-    id: `notion-${record.sourceId}`,
+    id: `notion-${record.sourceId.replace(/-/g, '').toLowerCase()}`,
     campaignCode: notionCampaignCode(record.sourceId),
     campaignName: record.title,
     sellerId: record.sellerId,
     sellerName: record.sellerName,
-    brandId: record.supplierId ?? `unresolved-supplier-${record.sourceId}`,
-    brandName: record.supplierName ?? '공급처 확인 필요',
+    supplierId: record.supplierId, supplierName: record.supplierName,
+    supplyAudience: record.supplyAudience, settlementVendorName: record.settlementVendorName,
+    brandId: '', brandName: '',
     productId: record.productId,
     productName: record.productName,
     managerId: record.managerId,
@@ -45,7 +47,7 @@ export function mapNotionIntegratedListRecord(record: NotionIntegratedListRecord
     mdId: record.managerId,
     mdName: record.managerName,
     startDate: record.startDate,
-    endDate: record.endDate ?? record.startDate,
+    endDate: record.endDate ?? '',
     linkOwner: channel?.linkOwner ?? '자사',
     salesChannelType: channel?.salesChannelType,
     businessType: '미정',
@@ -63,7 +65,8 @@ export function mapNotionIntegratedListRecord(record: NotionIntegratedListRecord
     notionImportMetadata: { sourceId: record.sourceId, importedAt: migratedAt, provider: 'notion' },
   }
 
-  return { source: record, campaign, warnings }
+  warnings.push('정산조건 확인 필요')
+  return { source: record, campaign, warnings, blockingErrors: scheduleRequiredErrors(campaign) }
 }
 
 export const notionCampaignMigrationService = {
@@ -76,13 +79,19 @@ export const notionCampaignMigrationService = {
       const errors: string[] = []
       if (seen.has(record.sourceId)) errors.push(`${record.title}: 중복된 Notion sourceId`)
       seen.add(record.sourceId)
-      if (!record.title || !record.sellerId || !record.productId || !record.managerId || !record.startDate) errors.push(`${record.title || record.sourceId}: 필수 관계 또는 일정 누락`)
+      errors.push(...mapNotionIntegratedListRecord(record).blockingErrors.map(error => `${record.title || record.sourceId}: ${error}`))
       return errors
     })
   },
   mergeCampaigns(existing: Campaign[], previews: NotionCampaignMigrationPreview[]) {
-    const incomingSourceIds = new Set(previews.map((item) => item.source.sourceId))
-    const preserved = existing.filter((campaign) => !campaign.notionImportMetadata?.sourceId || !incomingSourceIds.has(campaign.notionImportMetadata.sourceId))
-    return [...previews.map((item) => item.campaign), ...preserved]
+    const next = [...existing]
+    for (const item of previews) {
+      const matches = next.filter(c => c.notionImportMetadata?.sourceId?.replace(/-/g, '') === item.source.sourceId.replace(/-/g, ''))
+      if (matches.length > 1) throw new Error(`${item.source.title}: 동일 Notion ID 중복 연결 확인 필요`)
+      const merged = mergeNotionCampaign(matches[0], item.campaign)
+      if (matches[0]) next[next.indexOf(matches[0])] = merged
+      else next.push(merged)
+    }
+    return next
   },
 }

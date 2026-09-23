@@ -33,6 +33,8 @@ export type SellerSettlementRule = {
 }
 
 export type SellerSettlementCalculation = {
+  withholding?: import('./withholdingTax').WithholdingCalculation
+  sellerPayoutVersion?: 1 | 2
   productSalesAmount: number
   shippingAmount: number
   totalCollectedAmount: number

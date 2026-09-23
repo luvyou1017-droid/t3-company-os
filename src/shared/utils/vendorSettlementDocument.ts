@@ -5,17 +5,27 @@ import { campaignChannel } from './uploadSettlementConditions'
 export function calculateVendorDocument(rows: SalesDataRow[], source: SalesDataImport, campaign?: Campaign) {
   const channel = campaignChannel(campaign, source)
   const receivable = channel === 'seller_checkout'
+  const supplyBasis = receivable && source.supplyAudience !== 'vendor' && source.settlementTerms?.sellerCheckoutPricingVersion === 2
   const items = rows.map((row) => {
     const quantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0)
     const rate = row.sellerCommissionRate
     const validRate = rate !== undefined && Number.isFinite(rate) && rate >= 0 && rate <= 100
+    const condition = source.settlementTerms?.skuConditions.find((item) => item.skuId === row.skuId)
+    const savedSupply = row.sellerSupplyPrice ?? condition?.sellerSupplyPrice
+    const supplyUnitPrice = supplyBasis
+      ? savedSupply
+      : undefined
+    if (supplyBasis) {
+      const validSupply = supplyUnitPrice !== undefined && Number.isFinite(supplyUnitPrice) && supplyUnitPrice >= 0
+      return { row, quantity, rate, commission: validSupply ? 0 : undefined, supplyUnitPrice, supplyAmount: validSupply ? Math.round(supplyUnitPrice * quantity) : undefined }
+    }
     const commission = validRate ? Math.round(row.netSales * rate / 100) : undefined
-    return { row, quantity, rate, commission, supplyAmount: commission === undefined ? undefined : row.netSales - commission }
+    return { row, quantity, rate, commission, supplyUnitPrice: validRate ? row.unitPrice - Math.round(row.unitPrice * rate / 100) : undefined, supplyAmount: commission === undefined ? undefined : row.netSales - commission }
   })
   const missingRate = items.some((item) => item.commission === undefined)
   const salesTotal = items.reduce((sum, item) => sum + item.row.netSales, 0)
   const commissionTotal = missingRate ? undefined : items.reduce((sum, item) => sum + item.commission!, 0)
-  const supplyTotal = commissionTotal === undefined ? undefined : salesTotal - commissionTotal
+  const supplyTotal = missingRate ? undefined : items.reduce((sum, item) => sum + item.supplyAmount!, 0)
   // Seller-checkout files often expose the collected customer shipping only as
   // supplierShippingCost. In that flow it is also the amount the seller must
   // remit to the company, so use it as the final fallback for the receivable.
@@ -31,5 +41,5 @@ export function calculateVendorDocument(rows: SalesDataRow[], source: SalesDataI
   const finalAmount = !channel ? undefined : receivable
     ? supplyTotal === undefined || !shippingKnown ? undefined : supplyTotal + shipping!
     : commissionTotal
-  return { items, channel, receivable, salesTotal, commissionTotal, supplyTotal, shipping: shippingKnown ? shipping : undefined, finalAmount }
+  return { items, supplyBasis, channel, receivable, salesTotal, commissionTotal, supplyTotal, shipping: shippingKnown ? shipping : undefined, finalAmount }
 }

@@ -1,3 +1,4 @@
+import { matchFlavorPack } from './flavorPackMatching'
 import type { ProductMaster } from '../../features/productMaster/types'
 import type { Campaign, CampaignSalesChannelType } from '../types/campaign'
 import type { SalesDataImport, SalesDataRow } from '../types/salesData'
@@ -29,15 +30,21 @@ export function getUploadConditions(products: ProductMaster[], campaign?: Campai
   const catalog: SettlementSkuCondition[] = products.filter((product) => product.supplyAudience !== 'vendor' || (audience === 'vendor' && product.settlementVendorName === vendor?.trim())).flatMap((product) => product.skus.filter((sku) => sku.active).map((sku) => {
     const vendorRate = vendorTerms.find((term) => term.vendor.trim() === vendor?.trim() && term.skuId === sku.id)?.rate
     const dedicated = product.supplyAudience === 'vendor'
-    return { skuId: sku.id, productId: product.id, productName: `[${product.productName}] ${sku.productName || sku.optionName}`, optionName: sku.optionName,
+    return { skuId: sku.id, productId: product.id, productName: `[${product.productName}] ${sku.productName || sku.optionName}`, optionName: sku.optionName, skuOptionName: sku.optionName,
       supplyLabel: dedicated ? `${product.settlementVendorName} 공급` : audience === 'vendor' && vendorRate !== undefined ? `${vendor} 공급` : '셀러공급',
       conditionOrigin: audience === 'vendor' && !dedicated && vendorRate === undefined ? '벤더 조건 확인 필요' : '상품 DB',
-      groupBuyPrice: sku.groupBuyPrice, totalCommissionRate: sku.totalCommissionRate ?? product.totalCommissionRate,
+      sellerSupplyPrice: sku.currentTradeTerms?.sellerSupplyPrice, groupBuyPrice: sku.groupBuyPrice, totalCommissionRate: sku.totalCommissionRate ?? product.totalCommissionRate,
       sellerCommissionRate: audience === 'vendor' ? vendorRate ?? (dedicated ? sku.sellerCommissionRate ?? product.sellerCommissionRate : undefined) : sku.sellerCommissionRate ?? product.sellerCommissionRate }
   }))
   const savedConditions = saved.map((item) => ({ ...item, supplyLabel: audience === 'vendor' ? vendor ? `${vendor} 공급` : '벤더공급' : '셀러공급', conditionOrigin: '이 공구 저장 조건' }))
   const historicalConditions = historical.map((item) => ({ ...item, supplyLabel: catalog.find((candidate) => candidate.skuId === item.skuId)?.supplyLabel || item.supplyLabel || (audience === 'vendor' ? '벤더공급' : '셀러공급'), conditionOrigin: '공급 대상·수수료 확인 필요', ...(audience === 'vendor' ? { sellerCommissionRate: catalog.find((candidate) => candidate.skuId === item.skuId)?.sellerCommissionRate } : {}) }))
   const all = [...savedConditions, ...historicalConditions, ...catalog].filter((item, index, items) => items.findIndex((other) => other.skuId === item.skuId) === index)
+  // Resolve identity labels by ID only; keep the settlement's saved monetary conditions.
+  const selectable = all.map(item => {
+    const master = products.flatMap(product => product.skus).find(sku => sku.id === item.skuId)
+    return master ? { ...item, optionName: master.optionName, skuOptionName: master.optionName } : item
+  })
+
   const productIds = new Set([campaign?.productId, ...(campaign?.campaignProducts?.map((item) => item.productId) ?? [])])
   const normalize = (text: string) => text.toLowerCase().replace(/[^a-z0-9가-힣]/g, '')
   if (campaign?.productName) {
@@ -47,16 +54,18 @@ export function getUploadConditions(products: ProductMaster[], campaign?: Campai
   const automatic = all.filter((item) => productIds.has(item.productId) || saved.some((other) => other.skuId === item.skuId))
   const asCandidate = (item: SettlementSkuCondition): SalesPriceCandidate => ({ ...item, exactMatchOnly: true })
   return {
-    all: all.map((item) => { const parent = products.find((product) => product.id === item.productId); return parent && !item.productName.startsWith('[') ? { ...item, productName: `[${parent.productName}] ${item.productName}` } : item }),
+    all: selectable.map((item) => { const parent = products.find((product) => product.id === item.productId); return parent && !item.productName.startsWith('[') ? { ...item, productName: `[${parent.productName}] ${item.productName}` } : item }),
     candidates: [...saved.filter((item) => item.salesOptionName).map((item) => ({ ...asCandidate(item), optionName: item.salesOptionName!, confirmed: true })), ...automatic.map(asCandidate)],
   }
 }
 
-export function captureUploadTerms(channel: CampaignSalesChannelType, rows: SalesDataRow[]): SettlementTerms {
+export function captureUploadTerms(channel: CampaignSalesChannelType, rows: SalesDataRow[], sellerSupplyBasis = false): SettlementTerms {
   if (!rows.length || rows.some((row) => !row.skuId || !Number.isFinite(row.agreedUnitPrice ?? row.unitPrice) || (row.agreedUnitPrice ?? row.unitPrice) <= 0
     || row.totalCommissionRate === undefined || row.sellerCommissionRate === undefined || !Number.isFinite(row.totalCommissionRate) || !Number.isFinite(row.sellerCommissionRate)
     || row.totalCommissionRate <= 0 || row.totalCommissionRate > 100 || row.sellerCommissionRate < 0 || row.sellerCommissionRate > row.totalCommissionRate)) throw new Error('모든 판매행의 SKU·판매가·총수수료율·셀러수수료율을 확인해주세요.')
-  return { salesChannelType: channel, moneyCollector: collectorForChannel[channel], confirmedAt: new Date().toISOString(), skuConditions: rows.map((row) => ({ skuId: row.skuId!, productId: row.productId ?? '', productName: row.productName ?? '', optionName: row.optionName, salesOptionName: row.optionName, groupBuyPrice: row.agreedUnitPrice ?? row.unitPrice, totalCommissionRate: row.totalCommissionRate, sellerCommissionRate: row.sellerCommissionRate })) }
+  if (channel === 'seller_checkout' && sellerSupplyBasis && rows.some(row => row.sellerSupplyPrice === undefined)) throw new Error('셀러 링크의 셀러 적용 공급가를 확인해주세요. 공급가에서 수수료를 다시 차감하지 않습니다.')
+  if (rows.some(row => row.sellerSupplyPrice !== undefined && (!Number.isFinite(row.sellerSupplyPrice) || row.sellerSupplyPrice < 0))) throw new Error('셀러 적용 공급가를 확인해주세요.')
+  return { sellerCheckoutPricingVersion: channel === 'seller_checkout' && sellerSupplyBasis ? 2 : undefined, salesChannelType: channel, moneyCollector: collectorForChannel[channel], confirmedAt: new Date().toISOString(), skuConditions: rows.map((row) => ({ skuId: row.skuId!, productId: row.productId ?? '', productName: row.productName ?? '', optionName: row.skuOptionName ?? row.optionName, salesOptionName: row.optionName, detailOption: row.detailOption, skuOptionName: row.skuOptionName, sellerSupplyPrice: row.sellerSupplyPrice, groupBuyPrice: row.agreedUnitPrice ?? row.unitPrice, totalCommissionRate: row.totalCommissionRate, sellerCommissionRate: row.sellerCommissionRate })) }
 }
 
 export function applyReviewedUpload(parsed: Awaited<ReturnType<typeof parseSalesDataFile>>, edited: SalesDataRow[]) {
@@ -66,7 +75,8 @@ export function applyReviewedUpload(parsed: Awaited<ReturnType<typeof parseSales
     const patch = patches.get(key(row))
     if (!patch) throw new Error('검토 중 판매행이 변경되었습니다. 파일을 다시 선택해주세요.')
     return calculateSalesRow({ ...row, skuId: patch.skuId, productId: patch.productId, productName: patch.productName,
-      unitPrice: patch.unitPrice, agreedUnitPrice: patch.agreedUnitPrice, priceSource: patch.priceSource,
+      skuOptionName: patch.skuOptionName ?? row.skuOptionName, detailOption: patch.detailOption ?? (patch.skuOptionName ? matchFlavorPack(row.optionName, patch.skuOptionName)?.detailOption : row.detailOption),
+      sellerSupplyPrice: patch.sellerSupplyPrice, unitPrice: patch.unitPrice, agreedUnitPrice: patch.agreedUnitPrice, priceSource: patch.priceSource,
       totalCommissionRate: patch.totalCommissionRate, sellerCommissionRate: patch.sellerCommissionRate })
   }
   const rows = parsed.rows.map(apply)

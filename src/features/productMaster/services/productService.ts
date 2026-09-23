@@ -3,69 +3,35 @@ import { supabase } from '../../../shared/lib/supabase'
 import { LocalProductRepository } from '../repositories/LocalProductRepository'
 import { SupabaseProductRepository } from '../repositories/SupabaseProductRepository'
 import type { ProductRepository } from '../repositories/productRepository'
-import type { BrandMaster, CampaignProductMasterSnapshot, PartnerCatalogProduct, ProductMaster, ProductMasterInput, ProductPolicy, ProductPolicyOverrides, ProductSku, ResolvedProductPolicy, SellerCatalogProduct, VendorMaster } from '../types'
+import type { BrandMaster, CampaignProductMasterSnapshot, PartnerCatalogProduct, ProductLifecycleStatus, ProductMaster, ProductMasterInput, ProductPolicy, ProductPolicyOverrides, ProductSku, ProductTradeTerms, ResolvedProductPolicy, SellerCatalogProduct, VendorMaster } from '../types'
 
 const repository: ProductRepository = getDataProviderMode() === 'supabase' && supabase
   ? new SupabaseProductRepository(supabase)
   : new LocalProductRepository()
 
-const normalizeProductName = (value?: string) => String(value ?? '').toLowerCase().replace(/[^0-9a-z가-힣]/g, '')
-const foodSaverSkuNames = new Set([
-  '20cm진공밀봉롤',
-  '28cm진공밀봉롤',
-  '슬림진공포장기vs0185',
-  '하이엔드진공포장기fm5460',
-].map(normalizeProductName))
-let foodSaverRepair: Promise<ProductMaster[]> | undefined
+export const normalizeProductIdentity = (value?: string) => String(value ?? '').toLocaleLowerCase('ko-KR').replace(/[^0-9a-z가-힣]/g, '')
 
-async function listProductsWithLegacyRepairs() {
-  if (foodSaverRepair) return foodSaverRepair
-  foodSaverRepair = (async () => {
-    let products = await repository.listProducts()
-    const inactiveMigrationMarker = '[MAYERHOME_DEDICATED_DRYER_UNUSED_20260915]'
-    const dedicatedMayerhomeDryers = products.filter((product) => normalizeProductName(product.productName).includes(normalizeProductName('마이어홈'))
-      && normalizeProductName(product.productName).includes(normalizeProductName('드라이기'))
-      && !product.internalMemo?.includes(inactiveMigrationMarker))
-    for (const product of dedicatedMayerhomeDryers) await repository.updateProduct({ ...product, active: false, internalMemo: `${product.internalMemo ?? ''} ${inactiveMigrationMarker}`.trim(), updatedAt: new Date().toISOString(), version: product.version + 1 })
-    if (dedicatedMayerhomeDryers.length) products = await repository.listProducts()
-    const splitProducts = products.filter((product) => product.active
-      && normalizeProductName(product.brandName) === normalizeProductName('푸드세이버')
-      && (normalizeProductName(product.productName) === normalizeProductName('푸드세이버') || foodSaverSkuNames.has(normalizeProductName(product.productName))))
-    if (splitProducts.length <= 1) return products
-
-    const canonical = splitProducts.find((product) => normalizeProductName(product.productName) === normalizeProductName('푸드세이버')) ?? splitProducts[0]
-    const now = new Date().toISOString()
-    const skuEntries = splitProducts.flatMap((product) => product.skus.map((sku): [string, ProductSku] => [sku.id, {
-      ...sku,
-      productId: canonical.id,
-      productName: sku.productName || product.productName,
-      updatedAt: now,
-    }]))
-    const skus = [...new Map<string, ProductSku>(skuEntries).values()]
-    const representative = skus.find((sku) => sku.representative) ?? skus[0]
-    const commissionPolicies = new Set(skus.map((sku) => `${sku.totalCommissionRate}:${sku.sellerCommissionRate}`))
-    const campaignReferences = [...new Map(splitProducts.flatMap((product) => product.campaignReferences ?? []).map((reference) => [reference.id, reference])).values()]
-    await repository.updateProduct({
-      ...canonical,
-      productName: '푸드세이버',
-      regularPrice: representative?.regularPrice ?? canonical.regularPrice,
-      salePrice: representative?.groupBuyPrice ?? canonical.salePrice,
-      supplyPrice: representative?.supplyPrice ?? canonical.supplyPrice,
-      totalCommissionRate: representative?.totalCommissionRate ?? canonical.totalCommissionRate,
-      sellerCommissionRate: representative?.sellerCommissionRate ?? canonical.sellerCommissionRate,
-      companyCommissionRate: (representative?.totalCommissionRate ?? canonical.totalCommissionRate) - (representative?.sellerCommissionRate ?? canonical.sellerCommissionRate),
-      commissionCalculationType: commissionPolicies.size > 1 ? 'sku' : canonical.commissionCalculationType,
-      skus,
-      campaignReferences,
-      updatedAt: now,
-      version: canonical.version + 1,
-    })
-    for (const duplicate of splitProducts) {
-      if (duplicate.id !== canonical.id) await repository.deactivateProduct(duplicate.id)
+const isSimilarIdentity = (left: string, right: string) => {
+  const a = normalizeProductIdentity(left)
+  const b = normalizeProductIdentity(right)
+  if (!a || !b) return false
+  if (a.includes(b) || b.includes(a)) return true
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= a.length; i += 1) {
+    let diagonal = previous[0]
+    previous[0] = i
+    for (let j = 1; j <= b.length; j += 1) {
+      const before = previous[j]
+      previous[j] = Math.min(previous[j] + 1, previous[j - 1] + 1, diagonal + Number(a[i - 1] !== b[j - 1]))
+      diagonal = before
     }
-    return repository.listProducts()
-  })().finally(() => { foodSaverRepair = undefined })
-  return foodSaverRepair
+  }
+  return previous[b.length] <= Math.max(1, Math.floor(Math.max(a.length, b.length) * 0.2))
+}
+
+export function findProductIdentityCandidates(products: ProductMaster[], brandName: string, productName: string) {
+  const normalizedBrand = normalizeProductIdentity(brandName)
+  return products.filter((product) => normalizeProductIdentity(product.brandName) === normalizedBrand && isSimilarIdentity(product.productName, productName))
 }
 
 export function validateProductPolicy(product: Pick<ProductMaster, 'defaultSalesChannelType' | 'supplierLinkAvailable' | 'supplierLinkPgPolicy' | 'supplierLinkPgDeductionRate' | 'wiseShopAvailable' | 'sellerCheckoutAvailable' | 'brandPgSupportAvailable' | 'brandPgSupportRate'>) {
@@ -172,8 +138,9 @@ function range(values: number[], fallback: number): [number, number] {
 }
 
 export function toSellerCatalogProduct(product: ProductMaster): SellerCatalogProduct | null {
-  if (!product.active || !product.sellerPortalVisible) return null
-  const visibleSkus = product.skus.filter((sku) => sku.active && sku.sellerPortalVisible !== false)
+  if (product.sampleOnly || !product.active || !product.sellerPortalVisible) return null
+  const visibleSkus = product.skus.filter((sku) => !sku.sampleOnly && sku.active && sku.sellerPortalVisible !== false)
+  if (product.skus.length && !visibleSkus.length) return null
   return {
     id: product.id, brandName: product.brandName, productName: product.productName, category: product.category,
     representativeImageUrl: product.representativeImageUrl ?? product.imageUrl, productUrl: product.productUrl,
@@ -189,8 +156,9 @@ export function toSellerCatalogProduct(product: ProductMaster): SellerCatalogPro
 }
 
 export function toPartnerCatalogProduct(product: ProductMaster): PartnerCatalogProduct | null {
-  if (!product.active || !product.partnerPortalVisible) return null
-  const visibleSkus = product.skus.filter((sku) => sku.active)
+  if (product.sampleOnly || !product.active || !product.partnerPortalVisible) return null
+  const visibleSkus = product.skus.filter((sku) => sku.active && !sku.sampleOnly)
+  if (product.skus.length && !visibleSkus.length) return null
   return {
     id: product.id,
     brandName: product.brandName,
@@ -215,14 +183,16 @@ export function toPartnerCatalogProduct(product: ProductMaster): PartnerCatalogP
 }
 
 export const productService = {
-  listProducts: () => listProductsWithLegacyRepairs(),
+  // Reads are side-effect free. Repair/merge/deactivation must only happen after an explicit user action.
+  listProducts: async () => (await repository.listProducts()).filter(product => !product.sampleOnly).map(product => ({ ...product, skus: product.skus.filter(sku => !sku.sampleOnly) })),
+  listProductsForImport: () => repository.listProducts(),
   getProductById: (id: string) => repository.getProductById(id),
   searchProductsByBrand: (brandId: string, query?: string) => repository.searchProductsByBrand(brandId, query),
   async createProduct(input: ProductMasterInput) {
     const now = new Date().toISOString()
     const id = crypto.randomUUID()
     const product: ProductMaster = {
-      ...input, id, skus: input.skus.map((sku) => ({ ...sku, productId: id })), companyCommissionRate: input.totalCommissionRate - input.sellerCommissionRate,
+      ...input, id, lifecycleStatus: input.lifecycleStatus ?? (input.active ? 'active' : 'inactive'), skus: input.skus.map((sku) => ({ ...sku, productId: id, lifecycleStatus: sku.lifecycleStatus ?? (sku.active ? 'active' : 'inactive') })), companyCommissionRate: input.totalCommissionRate - input.sellerCommissionRate,
       brandPgSupportRate: input.brandPgSupportAvailable ? input.brandPgSupportRate : undefined,
       sellerPortalVisible: input.sellerPortalVisible ?? false,
       sellerPortalStatus: input.sellerPortalStatus ?? 'closed', sampleAvailable: input.sampleAvailable ?? false,
@@ -232,20 +202,97 @@ export const productService = {
     if (policyError) throw new Error(policyError)
     return repository.createProduct(product)
   },
-  async updateProduct(id: string, input: ProductMasterInput) {
+  async updateProduct(id: string, input: ProductMasterInput, expectedSnapshot?: string) {
     const current = await repository.getProductById(id)
     if (!current) throw new Error('상품을 찾을 수 없습니다.')
+    if (expectedSnapshot && JSON.stringify(current) !== expectedSnapshot) throw new Error('검토 이후 상품이 변경되었습니다. 다시 비교해주세요.')
+    const incomingIds = new Set(input.skus.map((sku) => sku.id))
+    const removedIds = current.skus.filter((sku) => !incomingIds.has(sku.id)).map((sku) => sku.id)
+    if (removedIds.length) throw new Error('기존 SKU는 삭제할 수 없습니다. 미사용 또는 삭제 보관 상태로 변경해주세요.')
     const product: ProductMaster = {
-      ...current, ...input, id, skus: input.skus.map((sku) => ({ ...sku, productId: id })), companyCommissionRate: input.totalCommissionRate - input.sellerCommissionRate,
+      ...current, ...input, id, lifecycleStatus: input.lifecycleStatus ?? (input.active ? 'active' : 'inactive'), skus: input.skus.map((sku) => ({ ...sku, productId: id, lifecycleStatus: sku.lifecycleStatus ?? (sku.active ? 'active' : 'inactive') })), companyCommissionRate: input.totalCommissionRate - input.sellerCommissionRate,
       brandPgSupportRate: input.brandPgSupportAvailable ? input.brandPgSupportRate : undefined,
       updatedAt: new Date().toISOString(), version: current.version + 1,
     }
     const policyError = validateProductPolicy(product) ?? validateSkuPolicies(product)
     if (policyError) throw new Error(policyError)
-    return repository.updateProduct(product)
+    return repository.updateProduct(product, expectedSnapshot ? current.version : undefined)
   },
   deactivateProduct: (id: string) => repository.deactivateProduct(id),
   setProductActive: (id: string, active: boolean) => repository.setProductActive(id, active),
+  async setProductLifecycleStatus(id: string, status: ProductLifecycleStatus) {
+    const current = await repository.getProductById(id)
+    if (!current) throw new Error('상품을 찾을 수 없습니다.')
+    return repository.updateProduct({ ...current, lifecycleStatus: status, active: status === 'active', updatedAt: new Date().toISOString(), version: current.version + 1 }, current.version)
+  },
+  findProductIdentityCandidates,
+  async registerQuickSku(input: {
+    productId?: string
+    sampleOnly?: boolean
+    brandName: string
+    productName: string
+    optionName: string
+    detailOption: string
+    vendorName: string
+    companySupplyPrice: number
+    sellerSupplyPrice?: number
+  }) {
+    const products = await repository.listProducts()
+    const candidates = findProductIdentityCandidates(products, input.brandName, input.productName)
+    const exactProducts = candidates.filter((product) => normalizeProductIdentity(product.productName) === normalizeProductIdentity(input.productName))
+    let product = input.productId ? products.find((item) => item.id === input.productId) : exactProducts.length === 1 ? exactProducts[0] : undefined
+    if (!product && input.sampleOnly && !candidates.length) {
+      const brand = products.find(item => normalizeProductIdentity(item.brandName) === normalizeProductIdentity(input.brandName))
+      if (!brand) throw new Error('샘플 전용 상품은 등록된 브랜드명을 선택해주세요.')
+      if (!input.optionName.trim() || !input.vendorName.trim() || !Number.isFinite(input.companySupplyPrice) || input.companySupplyPrice < 0 || (!input.sampleOnly && input.sellerSupplyPrice === undefined) || (input.sellerSupplyPrice !== undefined && (!Number.isFinite(input.sellerSupplyPrice) || input.sellerSupplyPrice < 0))) throw new Error('필수값과 공급가를 확인해주세요.')
+      const now = new Date().toISOString()
+      const id = crypto.randomUUID()
+      product = { id, productCode: `SAMPLE-${id}`, brandId: brand.brandId, brandName: brand.brandName,
+        productName: input.productName.trim(), vendorName: input.vendorName.trim(), sampleOnly: true,
+        regularPrice: 0, salePrice: 0, supplyPrice: input.companySupplyPrice, shippingFee: 0,
+        totalCommissionRate: 0, sellerCommissionRate: 0, companyCommissionRate: 0,
+        defaultSalesChannelType: 'supplier_link', supplierLinkAvailable: true, supplierLinkPgPolicy: 'manual',
+        wiseShopAvailable: false, sellerCheckoutAvailable: false, brandPgSupportAvailable: false,
+        skus: [], sellerPortalVisible: false, sellerPortalStatus: 'closed', sampleAvailable: true,
+        active: true, lifecycleStatus: 'active', createdAt: now, updatedAt: now, version: 0 }
+    }
+    if (!product) throw new Error(candidates.length ? '유사 상품을 먼저 선택해주세요.' : '빠른 SKU 등록은 기존 상품을 선택한 뒤 진행해주세요.')
+    if ((product.lifecycleStatus ?? (product.active ? 'active' : 'inactive')) !== 'active') throw new Error('미사용 또는 삭제 보관 상품에는 SKU를 추가할 수 없습니다.')
+    if (normalizeProductIdentity(product.brandName) !== normalizeProductIdentity(input.brandName)) throw new Error('선택한 상품의 브랜드가 입력한 브랜드와 다릅니다.')
+    if (!input.optionName.trim() || !input.vendorName.trim() || !Number.isFinite(input.companySupplyPrice) || input.companySupplyPrice < 0 || (!input.sampleOnly && input.sellerSupplyPrice === undefined) || (input.sellerSupplyPrice !== undefined && (!Number.isFinite(input.sellerSupplyPrice) || input.sellerSupplyPrice < 0))) throw new Error('필수값과 공급가를 확인해주세요.')
+    const detail = input.detailOption.trim()
+    const exactSku = product.skus.find((sku) => normalizeProductIdentity(sku.optionName) === normalizeProductIdentity(input.optionName)
+      && normalizeProductIdentity(Object.values(sku.optionValues ?? {}).join(' ')) === normalizeProductIdentity(detail))
+    if (exactSku) {
+      if (!exactSku.active || ['inactive','archived'].includes(exactSku.lifecycleStatus ?? '')) throw new Error('동일한 미사용/삭제보관 SKU가 있습니다. 상품 관리에서 확인해주세요. 중복 등록하지 않았습니다.')
+      return { product, sku: exactSku, created: false, candidates }
+    }
+    const now = new Date().toISOString()
+    const tradeTerms: ProductTradeTerms = {
+      companySupplyPrice: Math.floor(input.companySupplyPrice),
+      sellerSupplyPrice: input.sellerSupplyPrice === undefined ? undefined : Math.floor(input.sellerSupplyPrice),
+      capturedAt: now,
+    }
+    const sku: ProductSku = {
+      id: crypto.randomUUID(), skuCode: `SKU-${crypto.randomUUID()}`, productId: product.id, sampleOnly: input.sampleOnly === true,
+      productName: product.productName, optionName: input.optionName.trim(), optionValues: detail ? { 세부옵션: detail } : undefined,
+      currentTradeTerms: tradeTerms, pricingType: 'fixed', regularPrice: 0, groupBuyPrice: 0,
+      supplyPrice: Math.floor(input.companySupplyPrice), sellerPortalVisible: false, representative: false,
+      stockStatus: 'available', lifecycleStatus: 'active', active: true, createdAt: now, updatedAt: now,
+    }
+    const nextProduct = {
+      ...product,
+      vendorName: product.vendorName || input.vendorName.trim(),
+      skus: [...product.skus, sku],
+      updatedAt: now,
+      version: product.version + 1,
+    }
+    const updated = product.version === 0 ? await repository.createProduct(nextProduct) : await repository.updateProduct(nextProduct, product.version)
+    const persisted = await repository.getProductById(updated.id)
+    const savedSku = persisted?.skus.find(item => item.id === sku.id)
+    if (!persisted || !savedSku) throw new Error('SKU 저장 결과를 확인하지 못했습니다. 다시 등록하지 말고 상품 목록을 확인해주세요.')
+    return { product: persisted, sku: savedSku, created: true, candidates }
+  },
   async listSellerCatalog() {
     const products = await repository.listProducts()
     return products.map(toSellerCatalogProduct).filter((product): product is SellerCatalogProduct => Boolean(product))

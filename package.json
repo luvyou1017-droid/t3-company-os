@@ -17,7 +17,9 @@
     "test:supplier-text": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSupplierTextParser.mjs",
     "test:wise-settlement-fixture": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runWiseVendorSettlementFixture.mjs",
     "test:cloud-sync": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runCloudSyncModel.mjs",
+    "test:product-import-safety": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runProductImportSafety.mjs",
     "test:scenarios": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runOperationalScenarios.mjs",
+    "test:notion-sellers": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runNotionSellerSync.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

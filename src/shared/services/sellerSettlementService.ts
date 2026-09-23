@@ -1,3 +1,4 @@
+import { sellerAdditionalPayments } from '../utils/settlementAdjustments'
 import type {
   SalesChannelType,
   SellerBusinessType,
@@ -10,6 +11,7 @@ import {
   calculateCompanyRemittanceToSupplier,
   calculateEffectiveSellerCommissionRate,
   calculateFinalSellerPayment,
+  sellerPayoutVersion,
   calculateProductSalesAmount,
   calculateSellerRemittanceToCompany,
   calculateShippingAmount,
@@ -19,6 +21,7 @@ import {
   calculateVendorCommissionAmount,
   getRecommendedEvidenceType,
 } from '../utils/sellerSettlement'
+import { sellerMasterService } from './sellerMasterService'
 import { calculateSellerProductSubtotal } from '../utils/settlementDocument'
 import { campaignService } from './campaignService'
 import { salesDataService } from './salesDataService'
@@ -35,6 +38,9 @@ function salesChannelForCampaign(campaignId: string): SalesChannelType {
 }
 
 function businessTypeForCampaign(campaignId: string): SellerBusinessType {
+  const campaign = campaignService.getCampaignById(campaignId)
+  const businessType = campaign && sellerMasterService.getSellerById(campaign.sellerId)?.businessType
+  if (businessType) return businessType
   if (campaignId === 'SCH-005') return 'simplified_business'
   if (campaignId === 'SCH-009') return 'freelancer'
   return campaignService.getCampaignById(campaignId)?.businessType === '법인사업자' ? 'corporation' : 'general_business'
@@ -88,10 +94,9 @@ function calculate(rule: SellerSettlementRule, settlementId: string): SellerSett
   const supplierCostAmount = calculateSupplierCostAmount(productSalesAmount, totalCommissionAmount)
   const sellerRemittanceToCompany = calculateSellerRemittanceToCompany(productSalesAmount, sellerCommissionAmount, shippingAmount)
   const sellerDeductions = settlement.currentCalculation.sellerDeductionTotal
-  const additionalPayments = settlementService.getDeductionsBySettlementId(settlementId)
-    .filter((item) => item.applyLocation === 'seller_payment' && item.type === 'promotion')
-    .reduce((sum, item) => sum + item.amount, 0)
-  const tax = calculateFinalSellerPayment(sellerCommissionAmount, rule.businessType, sellerDeductions)
+  const additionalPayments = sellerAdditionalPayments(settlement.currentCalculation.deductions, settlement.currentCalculation.adjustmentCalculationVersion)
+  const payoutVersion = sellerPayoutVersion(settlement)
+  const tax = calculateFinalSellerPayment(sellerCommissionAmount, rule.businessType, sellerDeductions, payoutVersion, additionalPayments, settlement.currentCalculation.sellerReceivableOffset ?? 0)
   return {
     productSalesAmount, shippingAmount,
     totalCollectedAmount: calculateTotalCollectedAmount(productSalesAmount, shippingAmount),
@@ -108,7 +113,8 @@ function calculate(rule: SellerSettlementRule, settlementId: string): SellerSett
     sellerRemittanceToCompany,
     companyRemittanceToSupplier: calculateCompanyRemittanceToSupplier(supplierCostAmount, shippingAmount),
     ...tax,
-    finalSellerPaymentAmount: tax.finalSellerPaymentAmount + additionalPayments,
+    sellerPayoutVersion: payoutVersion,
+    finalSellerPaymentAmount: tax.finalSellerPaymentAmount,
   }
 }
 
@@ -157,11 +163,12 @@ export const sellerSettlementService = {
   getDocumentBySettlementId(settlementId: string) {
     return this.getDocuments().find((item) => item.settlementId === settlementId)
   },
-  createSellerDocument(settlementId: string, persist = true) {
+  createSellerDocument(settlementId: string, persist = true, businessTypeOverride?: SellerBusinessType) {
     const settlement = settlementService.getSettlementById(settlementId)
     if (!settlement) throw new Error('기존 정산을 찾을 수 없습니다.')
     const campaign = campaignService.getCampaignById(settlement.campaignId)
-    const rule = this.ensureSellerSettlementRule(settlement.campaignId)
+    const savedRule = this.ensureSellerSettlementRule(settlement.campaignId)
+    const rule = businessTypeOverride ? { ...savedRule, businessType: businessTypeOverride } : savedRule
     if (!campaign || !rule) throw new Error('셀러 정산 정보를 확인해주세요.')
     if (rule.businessType !== 'freelancer' && (!rule.evidenceConfirmed || !rule.confirmedEvidenceType)) throw new Error('증빙 유형을 최종 확인해주세요.')
     const sales = salesDataService.getSalesDataImportById(settlement.salesDataImportId)

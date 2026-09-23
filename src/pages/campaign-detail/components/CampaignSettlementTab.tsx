@@ -20,11 +20,11 @@ export function CampaignSettlementTab({ campaignId, onOpenSettlement }: Campaign
   const settlements = settlementService.getSettlementByCampaignId(campaignId)
   const readySales = salesDataService.getSalesDataByCampaignId(campaignId).imports.find((item) => item.reviewStatus === '확정 완료' && item.settlementStatus === '정산 가능')
 
-  const createSettlement = () => {
+  const createSettlement = async () => {
     if (!readySales) return
     setCreationError('')
     try {
-      const settlement = settlementService.createSettlementFromSalesData(readySales.id)
+      const settlement = await settlementService.prepareSettlementFromSalesData(readySales.id)
       if (!settlement) throw new Error('정산 생성 조건을 충족하지 못했습니다. 판매데이터 검수 상태를 확인해주세요.')
       onOpenSettlement?.(settlement.id)
     } catch (error) {

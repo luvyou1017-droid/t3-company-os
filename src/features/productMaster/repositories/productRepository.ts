@@ -4,7 +4,7 @@ export interface ProductRepository {
   listProducts(): Promise<ProductMaster[]>
   getProductById(id: string): Promise<ProductMaster | null>
   createProduct(product: ProductMaster): Promise<ProductMaster>
-  updateProduct(product: ProductMaster): Promise<ProductMaster>
+  updateProduct(product: ProductMaster, expectedVersion?: number): Promise<ProductMaster>
   deactivateProduct(id: string): Promise<ProductMaster>
   setProductActive(id: string, active: boolean): Promise<ProductMaster>
   searchProductsByBrand(brandId: string, query?: string): Promise<ProductMaster[]>

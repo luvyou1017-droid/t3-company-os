@@ -5,7 +5,7 @@ import type { ProductRepository } from './productRepository'
 export class SupabaseProductRepository implements ProductRepository {
   private client: SupabaseClient
   constructor(client: SupabaseClient) { this.client = client }
-  private fromRow(row: Record<string, unknown>) { return (row.metadata ?? row) as ProductMaster }
+  private fromRow(row: Record<string, unknown>) { return { ...((row.metadata ?? row) as ProductMaster), id: String(row.id), version: Number(row.version ?? (row.metadata as ProductMaster)?.version ?? 1) } }
   private toRow(product: ProductMaster) {
     return {
       id: product.id,
@@ -43,7 +43,13 @@ export class SupabaseProductRepository implements ProductRepository {
     if (error) throw error
     return this.fromRow(data)
   }
-  async updateProduct(product: ProductMaster) {
+  async updateProduct(product: ProductMaster, expectedVersion?: number) {
+    if (expectedVersion !== undefined) {
+      const { data, error } = await this.client.from('products').update(this.toRow(product)).eq('id', product.id).eq('version', expectedVersion).select().maybeSingle()
+      if (error) throw error
+      if (!data) throw new Error('다른 사용자가 상품을 변경했습니다. 다시 비교해주세요.')
+      return this.fromRow(data)
+    }
     const { data, error } = await this.client.from('products').upsert(this.toRow(product)).select().single()
     if (error) throw error
     return this.fromRow(data)
@@ -54,7 +60,7 @@ export class SupabaseProductRepository implements ProductRepository {
   async setProductActive(id: string, active: boolean) {
     const product = await this.getProductById(id)
     if (!product) throw new Error('상품을 찾을 수 없습니다.')
-    return this.updateProduct({ ...product, active, updatedAt: new Date().toISOString(), version: product.version + 1 })
+    return this.updateProduct({ ...product, active, lifecycleStatus: active ? 'active' : 'inactive', updatedAt: new Date().toISOString(), version: product.version + 1 })
   }
   async searchProductsByBrand(brandId: string, query = '') {
     const products = await this.listProducts()

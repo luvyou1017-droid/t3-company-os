@@ -7,12 +7,13 @@ export function truncateToTenWon(value: number) {
 }
 
 export function calculateWithholding(grossSettlementAmount: number, deductions = 0): WithholdingCalculation {
+  if (!Number.isFinite(grossSettlementAmount) || !Number.isFinite(deductions) || grossSettlementAmount < 0 || deductions < 0) throw new Error('원천세 계산 금액을 확인해주세요.')
   const gross = Math.round(grossSettlementAmount)
   const deductionAmount = Math.round(deductions)
   const withholdingBaseAmount = Math.round(gross / 1.1)
   const incomeTaxRaw = withholdingBaseAmount * 0.03
   const incomeTaxAmount = truncateToTenWon(incomeTaxRaw)
-  const localIncomeTaxRaw = withholdingBaseAmount * 0.003
+  const localIncomeTaxRaw = incomeTaxAmount * 0.1
   const localIncomeTaxAmount = truncateToTenWon(localIncomeTaxRaw)
   const totalWithholdingTaxAmount = incomeTaxAmount + localIncomeTaxAmount
   const finalPaymentAmount = withholdingBaseAmount - totalWithholdingTaxAmount - deductionAmount
@@ -29,7 +30,7 @@ export function calculateWithholding(grossSettlementAmount: number, deductions =
     log: [
       `부가세 제외 기준금액 = Math.round(${gross.toLocaleString('ko-KR')} / 1.1) = ${withholdingBaseAmount.toLocaleString('ko-KR')}원`,
       `소득세 3% = truncateToTenWon(${withholdingBaseAmount.toLocaleString('ko-KR')} × 0.03 = ${incomeTaxRaw}) = ${incomeTaxAmount.toLocaleString('ko-KR')}원`,
-      `지방소득세 0.3% = truncateToTenWon(${withholdingBaseAmount.toLocaleString('ko-KR')} × 0.003 = ${localIncomeTaxRaw}) = ${localIncomeTaxAmount.toLocaleString('ko-KR')}원`,
+      `지방소득세 (절삭 소득세의 10%) = truncateToTenWon(${incomeTaxAmount.toLocaleString('ko-KR')} × 0.1 = ${localIncomeTaxRaw}) = ${localIncomeTaxAmount.toLocaleString('ko-KR')}원`,
       `총 원천징수액 = ${incomeTaxAmount.toLocaleString('ko-KR')} + ${localIncomeTaxAmount.toLocaleString('ko-KR')} = ${totalWithholdingTaxAmount.toLocaleString('ko-KR')}원`,
       `최종 지급액 = ${withholdingBaseAmount.toLocaleString('ko-KR')} - ${totalWithholdingTaxAmount.toLocaleString('ko-KR')} - ${deductionAmount.toLocaleString('ko-KR')} = ${finalPaymentAmount.toLocaleString('ko-KR')}원`,
     ],
