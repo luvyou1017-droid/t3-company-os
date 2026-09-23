@@ -53,14 +53,7 @@ const paymentDueDate = '2026-07-22'
 
 function settlementCreationErrors(salesImport: SalesDataImport) {
   const campaign = campaignService.getCampaignById(salesImport.campaignId)
-  const sellerProfile = campaign && sellerMasterService.getSettlementProfile(campaign.sellerId, campaign.sellerBusinessId)
-  return settlementReadinessErrors(campaign, campaignProductCatalogService.getManagedProducts(), salesDataService.getRowsByImportId(salesImport.id), salesImport, {
-    exists: Boolean(campaign && sellerMasterService.getSellerById(campaign.sellerId)),
-    businessType: sellerProfile?.businessType,
-    bankName: sellerProfile?.bankName,
-    accountNumber: sellerProfile?.accountNumber,
-    accountHolder: sellerProfile?.accountHolder,
-  })
+  return settlementReadinessErrors(campaign, campaignProductCatalogService.getManagedProducts(), salesDataService.getRowsByImportId(salesImport.id), salesImport)
 }
 
 function isLegacyMockSettlement(settlement: Settlement) {
@@ -573,9 +566,6 @@ export const settlementService = {
   async prepareSettlementFromSalesData(salesDataImportId: string, initialStatus: SettlementStatus = 'draft') {
     if (!this.getSettlements().some(item => item.salesDataImportId === salesDataImportId)) {
       campaignProductCatalogService.registerProductMasters(await productService.listProducts())
-      const salesImport = salesDataService.getSalesDataImportById(salesDataImportId)
-      const sellerId = salesImport && campaignService.getCampaignById(salesImport.campaignId)?.sellerId
-      if (sellerId) await sellerMasterService.loadSellerById(sellerId)
     }
     return this.createSettlementFromSalesData(salesDataImportId, initialStatus)
   },

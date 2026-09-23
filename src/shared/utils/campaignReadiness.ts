@@ -32,7 +32,7 @@ export function campaignReadiness(c: Campaign, products: ProductMaster[] = []) {
   const tasks = [!productLinked && '상품 연결 필요', !supplierLinked && '공급처 미연결', termErrors.length > 0 && '정산조건 확인 필요'].filter(Boolean) as string[]
   return { productLinked, supplierLinked, tasks, label: tasks.length ? tasks.join(' · ') : '정산 준비 완료' }
 }
-export function settlementReadinessErrors(c: Campaign | undefined, products: ProductMaster[], rows?: SalesDataRow[], source?: Pick<SalesDataImport, 'settlementTerms' | 'supplyAudience' | 'commissionSyncUnmatchedRows'>, seller?: { exists: boolean; businessType?: string; bankName?: string; accountNumber?: string; accountHolder?: string }) {
+export function settlementReadinessErrors(c: Campaign | undefined, products: ProductMaster[], rows?: SalesDataRow[], source?: Pick<SalesDataImport, 'settlementTerms' | 'supplyAudience' | 'commissionSyncUnmatchedRows'>) {
   if (!c) return ['공구일정 연결 필요']
   const errors: string[] = []
   const campaignChannel = c.salesChannelType
@@ -40,12 +40,6 @@ export function settlementReadinessErrors(c: Campaign | undefined, products: Pro
   const channel = termsChannel ?? campaignChannel
   if (!channel || !['seller', 'vendor'].includes(source?.supplyAudience ?? c.supplyAudience ?? '')) errors.push('거래구분 미등록')
   else if ((campaignChannel && termsChannel && campaignChannel !== termsChannel) || (c.supplyAudience && source?.supplyAudience && c.supplyAudience !== source.supplyAudience)) errors.push('거래구분 불일치')
-  const audience = source?.supplyAudience ?? c.supplyAudience
-  if (audience === 'seller' && seller) {
-    if (!seller.exists) errors.push('셀러 마스터 미등록')
-    if (!seller.businessType) errors.push('셀러 사업자 유형 미등록')
-    if (!seller.bankName?.trim() || !seller.accountNumber?.trim() || !seller.accountHolder?.trim()) errors.push('셀러 계좌정보 미등록')
-  }
   if ((source?.commissionSyncUnmatchedRows ?? 0) > 0) errors.push('SKU 매칭 필요')
   const targets = rows?.length ? rows.filter(r => r.netQuantity > 0).map(r => ({ productId: r.productId || c.productId, skuId: r.skuId, sellerSupplyPrice: r.sellerSupplyPrice, sellerCommissionRate: r.sellerCommissionRate }))
     : (c.campaignProducts?.length ? c.campaignProducts : [{ productId: c.productId }]).map(p => ({ productId: p.productId, skuId: undefined, sellerSupplyPrice: undefined, sellerCommissionRate: undefined }))
@@ -55,7 +49,6 @@ export function settlementReadinessErrors(c: Campaign | undefined, products: Pro
     const product = products.find(p => p.id === target.productId || (target.skuId && p.skus.some(s => s.id === target.skuId)))
     const sku = product?.skus.find(s => s.id === target.skuId)
     if (!product || (rows && !sku)) { errors.push('SKU 매칭 필요'); continue }
-    if (!linkedId(campaignSupplierId(c)) && !linkedId(product.vendorId)) errors.push('공급처 미연결')
     const terms = sku?.currentTradeTerms ?? product.currentTradeTerms
     const cost = terms?.companySupplyPrice ?? sku?.policyOverrides?.supplyPrice ?? sku?.supplyPrice ?? product.supplyPrice
     // Legacy zero is frequently a parser default; only an explicit term confirms zero.
