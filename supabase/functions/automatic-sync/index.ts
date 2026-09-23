@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2.117.1'
 
 type SyncKind = 'campaign' | 'proposal'
 type Change = {
@@ -197,11 +197,15 @@ Deno.serve(async (request) => {
       const token = (request.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
       const { data, error } = await admin.auth.getUser(token)
       if (error || !data.user) return response({ error: 'Unauthorized' }, 401)
-      const { data: profile } = await admin
+      const caller = createClient(env('SUPABASE_URL')!, env('SUPABASE_ANON_KEY')!, {
+        global: { headers: { Authorization: `Bearer ${token}` } },
+      })
+      const { data: profile, error: profileError } = await caller
         .from('profiles')
         .select('role,active,approval_status')
         .eq('id', data.user.id)
         .maybeSingle()
+      if (profileError) return response({ error: 'Profile lookup failed' }, 500)
       if (!profile?.active || profile.approval_status !== 'approved' || !['ceo', 'admin'].includes(profile.role)) {
         return response({ error: 'Forbidden' }, 403)
       }

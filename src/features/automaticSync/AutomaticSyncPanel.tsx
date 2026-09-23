@@ -40,7 +40,7 @@ export function AutomaticSyncPanel() {
   const count = (state: Change['state']) => latest?.changes.filter(change => change.entity === '일정' && change.state === state).length ?? 0
   const visible = latest?.changes.filter(change => change.entity === '일정' && (!filter || change.state === filter)) ?? []
   return <section className="auto-sync-panel">
-    <div className="auto-sync-heading"><div><h2>Notion 일정 동기화</h2><p>2026년 8월 1일 이후 시작 일정만 조회 → 기존 일정 비교 → 후보 검토. 수동 실행과 월요일 09:00(한국시간) 자동 실행은 같은 서버 로직을 사용합니다.</p></div><button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void refresh()}>현황 새로고침</button><button className="primary-button" disabled={Boolean(busy) || !job?.configured} onClick={() => void run()}>{busy === 'run' ? '동기화 중…' : 'Notion 일정 동기화'}</button></div>
+    <div className="auto-sync-heading"><div><h2>Notion 일정 동기화</h2><p>2026년 8월 1일 이후 시작 일정만 조회 → 기존 일정 비교 → 후보 검토. 수동 실행과 월요일 09:00(한국시간) 자동 실행은 같은 서버 로직을 사용합니다.</p></div><button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void refresh()}>{busy === 'status' ? '현황 확인 중…' : '현황 새로고침'}</button><button className="primary-button" disabled={Boolean(busy) || job?.configured === false} onClick={() => void run()}>{busy === 'run' ? '동기화 중…' : 'Notion 일정 동기화'}</button></div>
     {error && <p role="alert" className="auto-sync-error">{error}</p>}
     {message && <p role="status">{message}</p>}
     {job?.configuration_error && <p role="alert">{job.configuration_error}</p>}
