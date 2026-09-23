@@ -1,0 +1,10 @@
+.manual-table-wrap { overflow: auto; max-height: 65vh; }
+.manual-edit-table { width: 100%; min-width: 1080px; border-collapse: collapse; font-size: 14px; }
+.manual-edit-table th { position: sticky; top: 0; background: #f1f5fa; z-index: 1; text-align: left; }
+.manual-edit-table td, .manual-edit-table th { padding: 12px; border-bottom: 1px solid #dde4ef; vertical-align: top; }
+.manual-edit-table tbody tr:nth-child(even) { background: #f8faff; }
+.manual-edit-table input:not([type=checkbox]), .manual-edit-table select { width: 100%; min-width: 95px; box-sizing: border-box; min-height: 40px; }
+.manual-edit-table .manual-option-name, .manual-edit-table .manual-sku-change { display: grid; gap: 6px; min-width: 180px; }
+.manual-edit-table .manual-row-extra { display: grid; grid-template-columns: repeat(2, minmax(100px, 1fr)); gap: 8px; }
+.manual-edit-table .manual-row-extra label { display: grid; gap: 4px; }
+.manual-edit-table small { display: block; margin-top: 6px; }

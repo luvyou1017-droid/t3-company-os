@@ -31,8 +31,10 @@ export class LocalProductRepository implements ProductRepository {
   async listProducts() { return this.read() }
   async getProductById(id: string) { return this.read().find((product) => product.id === id) ?? null }
   async createProduct(product: ProductMaster) { this.write([product, ...this.read()]); return product }
-  async updateProduct(product: ProductMaster) {
-    this.write(this.read().map((candidate) => candidate.id === product.id ? product : candidate))
+  async updateProduct(product: ProductMaster, expectedVersion?: number) {
+    const products = this.read()
+    if (expectedVersion !== undefined && products.find(item => item.id === product.id)?.version !== expectedVersion) throw new Error('상품이 변경되었습니다. 다시 비교해주세요.')
+    this.write(products.map((candidate) => candidate.id === product.id ? product : candidate))
     return product
   }
   async deactivateProduct(id: string) {
@@ -41,7 +43,7 @@ export class LocalProductRepository implements ProductRepository {
   async setProductActive(id: string, active: boolean) {
     const product = await this.getProductById(id)
     if (!product) throw new Error('상품을 찾을 수 없습니다.')
-    return this.updateProduct({ ...product, active, updatedAt: new Date().toISOString(), version: product.version + 1 })
+    return this.updateProduct({ ...product, active, lifecycleStatus: active ? 'active' : 'inactive', updatedAt: new Date().toISOString(), version: product.version + 1 })
   }
   async searchProductsByBrand(brandId: string, query = '') {
     const normalized = query.trim().toLowerCase()

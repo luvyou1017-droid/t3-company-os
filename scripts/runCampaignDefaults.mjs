@@ -7,6 +7,7 @@ const { sellerMasterService } = await import('../src/shared/services/sellerMaste
 const { campaignProductCatalogService, validateProductSalesLinkPolicy } = await import('../src/shared/services/campaignProductCatalogService.ts')
 const { captureProposalSnapshots, getCampaignEventErrors } = await import('../src/shared/services/campaignCreationService.ts')
 const { getCommonAvailableSalesChannels, resolveProductSalesChannelDefaults } = await import('../src/shared/utils/campaignDefaults.ts')
+const { getCampaignSalesChannel } = await import('../src/shared/utils/campaignSalesChannel.ts')
 const { campaignDraftService } = await import('../src/shared/services/campaignDraftService.ts')
 
 const selection = (id, displayOrder) => {
@@ -45,6 +46,8 @@ const checks = [
   ['배송비 snapshot 유지', snapshot.shippingAmount === 0],
   ['업체링크 %p 차감 snapshot', supplierSnapshot.supplierLinkPgDeductionRate === 5 && supplierSnapshot.actualCommissionRate === supplierSnapshot.totalCommissionRate - 5],
   ['업체링크 스룩페이 비용 미생성', supplierSnapshot.actualSalesChannel === 'supplier_link' && supplierSnapshot.actualPgCost === undefined],
+  ['수정된 판매 링크가 이전 landingPageType보다 우선', getCampaignSalesChannel({ salesChannelType: 'supplier_link', landingPageType: 'seller_checkout', linkOwner: '브랜드사' }) === 'supplier_link'],
+  ['레거시 공구의 링크 주체 fallback', getCampaignSalesChannel({ linkOwner: '셀러' }) === 'seller_checkout'],
   ['자동 적용 출처와 override draft 복원', restored?.salesChannelSource === 'manual' && restored.salesChannelManuallyOverridden && restored.sellerExtraPgRate === 2],
   ['이벤트 필수값 규칙', getCampaignEventErrors({ id: 'e', payer: 'vendor', eventType: 'first_come', rewardUnitPrice: 0, plannedQuantity: 0, estimatedTotalAmount: 0 }).length === 3],
 ]

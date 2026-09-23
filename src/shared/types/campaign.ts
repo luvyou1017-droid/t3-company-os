@@ -10,12 +10,16 @@ export type CampaignSalesChannelType = 'supplier_link' | 'wise_shop_link' | 'sel
 
 export type Campaign = {
   id: string
+  deletedAt?: string
+  deletedBy?: string
   campaignCode: string
   campaignName: string
   sellerId: string
   sellerName: string
   sellerBusinessId?: string
   sellerBusinessName?: string
+  supplierId?: string
+  supplierName?: string
   supplyAudience?: 'seller' | 'vendor'
   settlementVendorName?: string
   brandId: string

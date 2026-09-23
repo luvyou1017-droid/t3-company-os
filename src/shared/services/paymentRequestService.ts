@@ -248,8 +248,12 @@ export const paymentRequestService = {
   createPaymentRequest(settlementId: string, requestedBy: string, options: CreatePaymentRequestOptions = {}) {
     // A payment request must snapshot the latest confirmed SKU-level settlement.
     // Reusing a persisted document can apply stale or campaign-level commission rates.
-    const document = sellerSettlementService.createSellerDocument(settlementId, false)
-    const rule = sellerSettlementService.getSellerSettlementRule(document.campaignId)
+    const sourceSettlement = settlementService.getSettlementById(settlementId)
+    const sourceCampaign = sourceSettlement && campaignService.getCampaignById(sourceSettlement.campaignId)
+    const requestedBusinessType = sourceCampaign && sellerMasterService.getSellerById(sourceCampaign.sellerId)?.businessType
+    const document = sellerSettlementService.createSellerDocument(settlementId, false, requestedBusinessType)
+    const storedRule = sellerSettlementService.getSellerSettlementRule(document.campaignId)
+    const rule = storedRule && { ...storedRule, businessType: document.businessType, ...(document.businessType === 'freelancer' ? { evidenceConfirmed: true, confirmedEvidenceType: 'withholding_3_3' as const } : {}) }
     if (!rule) throw new Error('셀러 정산 규칙이 없습니다.')
     const validation = validateSellerSettlement(rule, document.calculation)
     if (!validation.valid) throw new Error(validation.errors.join('\n'))
@@ -266,19 +270,20 @@ export const paymentRequestService = {
       : requestValidation.reasons
     if (blockingReasons.length) throw new Error(blockingReasons.join('\n'))
     const c = document.calculation
-    const withholding = calculateWithholding(c.sellerGrossSettlementAmount, c.sellerDeductions)
+    const withholding = c.withholding ?? calculateWithholding(c.sellerGrossSettlementAmount, c.sellerDeductions)
     let taxItem
     if (rule.businessType === 'freelancer') {
       try {
         taxItem = withholdingTaxService.upsert({
           settlementId, ownerType: 'seller', ownerId: document.sellerId, ownerName: document.sellerName,
-          grossSettlementAmount: c.sellerGrossSettlementAmount, deductions: c.sellerDeductions,
+          grossSettlementAmount: c.sellerGrossSettlementAmount, deductions: c.sellerDeductions, calculation: withholding,
           sourceVersion: settlementService.getSettlementById(settlementId)?.settlementVersion ?? 1, updatedBy: requestedBy,
         })
       } catch { throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.') }
       if (!taxItem) throw new Error('원천세 등록에 실패했습니다. 지급 요청은 생성되지 않았습니다.')
+      if (taxItem.withholdingBaseAmount !== withholding.withholdingBaseAmount || taxItem.totalWithholdingTaxAmount !== withholding.totalWithholdingTaxAmount || taxItem.finalPaymentAmount !== withholding.finalPaymentAmount) throw new Error('이미 마감된 원천세 금액과 다릅니다. 기존 내역을 유지하고 정산 새 버전으로 확인해주세요.')
     }
-    const sellerProfile = sellerMasterService.getSellerById(document.sellerId)
+    const sellerProfile = sellerMasterService.getSettlementProfile(document.sellerId, campaignService.getCampaignById(document.campaignId)?.sellerBusinessId)
     const request = save({
       id: `payment-request-${crypto.randomUUID()}`, campaignId: document.campaignId, settlementId,
       sellerId: document.sellerId, direction: document.salesChannelType === 'seller_checkout' ? 'seller_to_company' : 'company_to_seller',
@@ -327,7 +332,7 @@ export const paymentRequestService = {
       : validation.reasons
     if (blockingReasons.length) throw new Error(blockingReasons.join('\n'))
     const deductions = settlement.currentCalculation.managerDeductionTotal
-    const reimbursement = settlement.currentCalculation.managerReimbursementTotal
+    const reimbursement = settlement.currentCalculation.managerReimbursementTotal + (settlement.currentCalculation.managerAdditionalPayment ?? 0)
     const taxableGross = settlement.currentCalculation.managerBaseShareAmount
     const gross = taxableGross + reimbursement
     const tax = calculateWithholding(taxableGross, deductions)
@@ -376,7 +381,7 @@ export const paymentRequestService = {
   markPaymentCompleted(id: string, completedBy = '허수정') {
     const current = this.getPaymentRequestById(id)
     if (!current || current.status !== 'approved') throw new Error('대표 승인 완료 후에만 지급 완료 처리할 수 있습니다.')
-    const request = transition(id, 'payment_completed', { completedBy, completedAt: now() })
+    const request = transition(id, 'payment_completed', { completedBy, completedAt: now(), actualPaidAmount: current.finalPaymentAmount })
     if (request.recipientType === 'seller') settlementService.markSellerPaymentCompleted(request.settlementId)
     else settlementService.markManagerPaymentCompleted(request.settlementId)
     return request

@@ -1,3 +1,9 @@
+import { settlementReadinessErrors } from '../utils/campaignReadiness'
+import { campaignProductCatalogService } from './campaignProductCatalogService'
+import { productService } from '../../features/productMaster/services/productService'
+import { reconcileReceivable, offsetDeductions, allocatedAmount } from '../utils/sellerReceivable'
+import { sellerAdditionalPayments } from '../utils/settlementAdjustments'
+import { calculateSupplierPayment } from '../utils/supplierPayment'
 import type { WorkType } from '../../features/myWork/types'
 import { canEditSettlement, type AppUserRole } from '../data/users'
 import type { SampleCostOwner, SampleRequest } from '../../features/samples/types'
@@ -21,6 +27,7 @@ import type {
 } from '../types/settlement'
 import {
   calculateSettlement,
+  managerShareCalculated,
   canMoveToApproval,
   canMoveToPaymentReady,
   compareSettlementVersions as compareVersions,
@@ -28,12 +35,14 @@ import {
   isSettlementCompleted,
   validateSettlement,
 } from '../utils/settlement'
+import { calculateFinalSellerPayment } from '../utils/sellerSettlement'
 import { validateSalesRows } from '../utils/salesData'
 import { campaignService } from './campaignService'
 import { campaignEventOperationService } from './campaignEventOperationService'
 import { notificationService } from './notificationService'
 import { salesDataService } from './salesDataService'
 import { syncProductCommissionRates } from './productCommissionSyncService'
+import { sellerMasterService } from './sellerMasterService'
 import { sampleService } from './sampleService'
 import { STORAGE_KEYS, storageService } from './storageService'
 import { workService } from './workService'
@@ -169,14 +178,18 @@ function createSalesDeductions(settlementId: string, salesImport: SalesDataImpor
     })
   }
   getSalesEventCosts(salesImport).forEach((event) => {
-    const managerPrepaid = event.owner === 'company_manager_prepaid'
+    const managerPrepaid = event.direction !== 'payment' && event.owner === 'company_manager_prepaid'
+    if (event.direction === 'payment' && !['seller','company','manager'].includes(event.owner)) throw new Error('지급 대상을 확인해주세요.')
     const costOwner = event.owner === 'company_manager_prepaid' ? 'company' : event.owner
-    const applyLocation = managerPrepaid ? 'manager_reimbursement' : costOwner === 'company' ? 'net_company_commission' : costOwner === 'seller' ? 'seller_payment' : costOwner === 'manager' ? 'manager_payment' : 'record_only'
+    const applyLocation = managerPrepaid ? 'manager_reimbursement' : event.direction && costOwner === 'company' ? 'company_payment' : costOwner === 'company' ? 'net_company_commission' : costOwner === 'seller' ? 'seller_payment' : costOwner === 'manager' ? 'manager_payment' : 'record_only'
     items.push({
       id: event.id === 'legacy' ? `deduction-${salesImport.id}-event` : `deduction-${salesImport.id}-event-${event.id}`,
       settlementId,
       campaignId: salesImport.campaignId,
       type: 'event',
+      direction: event.direction,
+      unitPrice: event.unitPrice,
+      quantity: event.quantity,
       title: event.name || '차감·조정내역',
       amount: event.amount,
       costOwner,
@@ -190,7 +203,7 @@ function createSalesDeductions(settlementId: string, salesImport: SalesDataImpor
       createdAt,
       updatedAt: createdAt,
     })
-    if (costOwner === 'seller' && event.unitPrice !== undefined && event.companyUnitCost !== undefined && event.quantity !== undefined) {
+    if (event.direction !== 'payment' && costOwner === 'seller' && event.unitPrice !== undefined && event.companyUnitCost !== undefined && event.quantity !== undefined) {
       const quantity = Math.max(Math.round(event.quantity), 0)
       const supportMultiplier = 1 - Math.min(Math.max(event.supplierSupportRate ?? 0, 0), 100) / 100
       const priceDifference = Math.max(Math.round((event.unitPrice - event.companyUnitCost) * quantity * supportMultiplier), 0)
@@ -290,10 +303,15 @@ function isEligibleSalesData(salesImport: SalesDataImport) {
 }
 
 function withRecalculation(settlement: Settlement, reason = '계산 실행'): Settlement {
+  if (settlementService.isSettlementConfirmed(settlement)) return settlement
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
   if (!salesImport) return settlement
   const rows = salesDataService.getRowsByImportId(salesImport.id)
-  const deductions = settlementService.getDeductionsBySettlementId(settlement.id)
+  const events = getSalesEventCosts(salesImport)
+  const deductions = settlementService.getDeductionsBySettlementId(settlement.id).map(item => {
+    const event = events.find(event => item.linkedData === `sales_data:${salesImport.id}:event:${event.id}`)
+    return event ? { ...item, unitPrice: item.unitPrice ?? event.unitPrice, quantity: item.quantity ?? event.quantity } : item
+  })
   const currentCalculation = calculateSettlement(salesImport, rows, deductions, settlement.taxType)
   const calculationSteps = createCalculationSteps(currentCalculation)
   const next: Settlement = { ...settlement, currentCalculation, calculationSteps, updatedAt: now() }
@@ -310,13 +328,34 @@ export const settlementService = {
     if (cleaned.length) return this.refreshRevisionFlags(cleaned).map((item) => {
       const source = salesDataService.getSalesDataImportById(item.salesDataImportId)
       if ((source?.supplyAudience ?? campaignService.getCampaignById(item.campaignId)?.supplyAudience) !== 'vendor') return item
-      return { ...item, currentCalculation: { ...item.currentCalculation, managerShareRate: 0, companyShareRate: 100, managerBaseShareAmount: 0, managerAmount: 0, companyAmount: item.currentCalculation.distributableVendorCommission } }
+      return { ...item, currentCalculation: { ...item.currentCalculation, managerShareRate: 0, companyShareRate: 100, managerBaseShareAmount: 0, managerAmount: item.currentCalculation.managerAdditionalPayment ?? 0, companyAmount: item.currentCalculation.distributableVendorCommission - (item.currentCalculation.companyDirectDeduction ?? 0) + (item.currentCalculation.companyAdditionalPayment ?? 0) } }
     })
     if (getDataProviderMode() === 'supabase') return []
     return this.seedInitialSettlements()
   },
+  saveSupplierPayment(id: string, terms: import('../utils/supplierPayment').SupplierPayment) {
+    const settlement = this.getSettlementById(id)
+    if (!settlement || this.isSettlementConfirmed(settlement)) throw new Error('확정 정산은 공급사 지급조건을 수정할 수 없습니다. 기존 정산 수정 절차를 이용해주세요.')
+    if (calculateSupplierPayment(terms, salesDataService.getRowsByImportId(settlement.salesDataImportId)).amount === undefined) throw new Error('회사 실제 공급가·수량·공급사 지급 배송비를 확인해주세요.')
+    const next = { ...settlement, supplierPayment: structuredClone(terms), updatedAt: new Date().toISOString() }
+    this.saveSettlements(this.getSettlements().map(item => item.id === id ? next : item))
+    return next
+  },
   saveSettlements(settlements: Settlement[]) {
-    storageService.setItem(STORAGE_KEYS.settlements, settlements)
+    const previous = storageService.getItem<Settlement[]>(STORAGE_KEYS.settlements, [])
+    for (const prior of previous) {
+      if ((prior.sellerReceivable || prior.sellerReceivableOffsets?.length) && !settlements.some(s => s.id === prior.id)) throw new Error('미수금 또는 상계 이력이 있는 정산은 삭제할 수 없습니다.')
+    }
+    const reconciled = settlements.map(s => {
+      const prior = previous.find(p => p.id === s.id)
+      if (prior?.sellerReceivableOffsets?.length && JSON.stringify(prior.sellerReceivableOffsets) !== JSON.stringify(s.sellerReceivableOffsets)) throw new Error('미수금 상계는 미수금 관리에서 변경해주세요.')
+      if (prior && prior.status !== 'canceled' && s.status === 'canceled' && (prior.sellerReceivable || prior.sellerReceivableOffsets?.length)) throw new Error('미수금 또는 상계 처리를 먼저 확인해주세요.')
+      return reconcileReceivable(s, prior, campaignService.getCampaignById(s.campaignId)?.sellerId)
+    })
+    for (const s of reconciled) {
+      if (s.sellerReceivable && allocatedAmount(reconciled, s.sellerReceivable.id) > s.sellerReceivable.amount) throw new Error('이미 상계한 미수금보다 원금을 낮출 수 없습니다.')
+    }
+    storageService.setItem(STORAGE_KEYS.settlements, reconciled)
   },
   getDeductions() {
     return storageService.getItem<SettlementDeduction[]>(STORAGE_KEYS.settlementDeductions, [])
@@ -367,6 +406,7 @@ export const settlementService = {
     const settlement = this.getSettlements().find((item) => item.salesDataImportId === salesDataImportId)
     const salesImport = salesDataService.getSalesDataImportById(salesDataImportId)
     if (!settlement || !salesImport) return undefined
+    if (this.isSettlementConfirmed(settlement)) return settlement
     const eventPrefix = `sales_data:${salesDataImportId}:event:`
     const nextEvents = createSalesDeductions(settlement.id, salesImport).filter((item) => item.linkedData.startsWith(eventPrefix))
     const others = this.getDeductions().filter((item) => !((item.type === 'event' || item.type === 'promotion') && item.linkedData.startsWith(eventPrefix)))
@@ -377,6 +417,7 @@ export const settlementService = {
     const settlement = this.getSettlements().find((item) => item.salesDataImportId === salesDataImportId)
     const salesImport = salesDataService.getSalesDataImportById(salesDataImportId)
     if (!settlement || !salesImport) return undefined
+    if (this.isSettlementConfirmed(settlement)) return settlement
     const nextItems = createSalesDeductions(settlement.id, salesImport)
     const others = this.getDeductions().filter((item) => !item.linkedData.startsWith(`sales_data:${salesDataImportId}`))
     this.saveDeductions([...nextItems, ...others])
@@ -389,7 +430,8 @@ export const settlementService = {
     return this.getSettlementVersions().filter((item) => item.settlementId === settlementId).sort((a, b) => b.version - a.version)
   },
   getDeductionsBySettlementId(settlementId: string) {
-    return this.getDeductions().filter((item) => item.settlementId === settlementId)
+    const raw = storageService.getItem<Settlement[]>(STORAGE_KEYS.settlements, []).find(s => s.id === settlementId)
+    return [...this.getDeductions().filter(item => item.settlementId === settlementId && !item.linkedData.startsWith('receivable:')), ...(raw ? offsetDeductions(raw) : [])]
   },
   getActivityLogsBySettlementId(settlementId: string) {
     return this.getActivityLogs().filter((item) => item.settlementId === settlementId).sort((a, b) => b.at.localeCompare(a.at))
@@ -419,7 +461,9 @@ export const settlementService = {
 
     readyImports.slice(0, 3).forEach((salesImport, index) => {
       const campaign = campaignService.getCampaignById(salesImport.campaignId)
-      const id = `settlement-${salesImport.id}`
+      const readinessErrors = settlementReadinessErrors(campaign, campaignProductCatalogService.getManagedProducts(), salesDataService.getRowsByImportId(salesImport.id))
+    if (readinessErrors.length) throw new Error(`정산 전 확인 필요: ${readinessErrors.join(' · ')}`)
+    const id = `settlement-${salesImport.id}`
       const createdAt = now()
       const itemDeductions = [...createSampleDeductions(id, salesImport.campaignId, sampleService.getSamplesByCampaignId(salesImport.campaignId)), ...createSalesDeductions(id, salesImport)]
       const status: SettlementStatus = index === 2 ? 'approved' : index === 1 ? 'review_pending' : 'draft'
@@ -488,6 +532,7 @@ export const settlementService = {
   },
   refreshRevisionFlags(settlements: Settlement[]) {
     const next = settlements.map((settlement) => {
+      if (this.isSettlementConfirmed(settlement)) return settlement
       const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
       if (!salesImport) return settlement
       const deductions = this.getDeductionsBySettlementId(settlement.id)
@@ -504,6 +549,12 @@ export const settlementService = {
     })
     return next
   },
+  async prepareSettlementFromSalesData(salesDataImportId: string, initialStatus: SettlementStatus = 'draft') {
+    if (!this.getSettlements().some(item => item.salesDataImportId === salesDataImportId)) {
+      campaignProductCatalogService.registerProductMasters(await productService.listProducts())
+    }
+    return this.createSettlementFromSalesData(salesDataImportId, initialStatus)
+  },
   createSettlementFromSalesData(salesDataImportId: string, initialStatus: SettlementStatus = 'draft') {
     const salesImport = salesDataService.getSalesDataImportById(salesDataImportId)
     const existing = this.getSettlements().find((item) => item.salesDataImportId === salesDataImportId)
@@ -513,6 +564,8 @@ export const settlementService = {
     }
     if (!salesImport || !isEligibleSalesData(salesImport)) return undefined
     const campaign = campaignService.getCampaignById(salesImport.campaignId)
+    const readinessErrors = settlementReadinessErrors(campaign, campaignProductCatalogService.getManagedProducts(), salesDataService.getRowsByImportId(salesImport.id))
+    if (readinessErrors.length) throw new Error(`정산 전 확인 필요: ${readinessErrors.join(' · ')}`)
     const id = `settlement-${salesImport.id}`
     const createdAt = now()
     const deductions = [...createSampleDeductions(id, salesImport.campaignId, sampleService.getSamplesByCampaignId(salesImport.campaignId)), ...createSalesDeductions(id, salesImport)]
@@ -567,7 +620,7 @@ export const settlementService = {
       const netQuantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0)
       return { ...row, grossSales: row.quantity * row.unitPrice, netQuantity, netSales: netQuantity * row.unitPrice }
     })
-    return calculateSettlement({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate }, rows, input.deductions, settlement.taxType, calculatedBy)
+    return calculateSettlement({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate }, rows, [...input.deductions.filter(d => !d.linkedData.startsWith('receivable:')), ...offsetDeductions(settlement)], settlement.taxType, calculatedBy)
   },
   saveRevision(input: SettlementRevisionDraft, changedBy: string, role: AppUserRole) {
     const settlement = this.getSettlementById(input.settlementId)
@@ -581,6 +634,8 @@ export const settlementService = {
     const previousDeductions = this.getDeductionsBySettlementId(settlement.id).map((item) => ({ ...item }))
     const previousInput: SettlementRevisionDraft = { settlementId: settlement.id, reason: settlement.sourceChangeReason || '수정 전 적용값', rows: previousRows, totalCommissionRate: salesImport.totalCommissionRate ?? settlement.currentCalculation.totalCommissionRate, sellerCommissionRate: salesImport.sellerCommissionRate ?? settlement.currentCalculation.sellerCommissionRate, deductions: previousDeductions }
     const calculation = this.previewRevision(input, changedBy)
+    reconcileReceivable({ ...settlement, currentCalculation: calculation }, settlement, campaignService.getCampaignById(settlement.campaignId)?.sellerId)
+    if (settlement.sellerReceivable && allocatedAmount(this.getSettlements(), settlement.sellerReceivable.id) > (calculation.sellerReceivableAmount ?? 0)) throw new Error('미수금 상계를 먼저 취소해주세요.')
     const rows = input.rows.map((row) => { const netQuantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0); return { ...row, grossSales: row.quantity * row.unitPrice, netQuantity, netSales: netQuantity * row.unitPrice } })
     salesDataService.saveRows([...rows, ...salesDataService.getSalesDataRows().filter((row) => row.salesDataImportId !== settlement.salesDataImportId)])
     salesDataService.updateSalesDataImport({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate, totalQuantity: rows.reduce((sum, row) => sum + row.quantity, 0), totalSalesAmount: rows.reduce((sum, row) => sum + row.grossSales, 0) })
@@ -658,16 +713,26 @@ export const settlementService = {
     return Boolean(settlement.calculationSnapshot) || legacyConfirmedStatuses.includes(settlement.status)
   },
   confirmSettlement(settlementId: string, confirmedBy = '허수정') {
-    const settlement = this.getSettlementById(settlementId)
+    let settlement = this.getSettlementById(settlementId)
     if (!settlement) throw new Error('정산서를 찾을 수 없습니다.')
     if (this.getPendingRevisionRequest(settlementId)) throw new Error('해결되지 않은 수정 요청을 먼저 처리해주세요.')
+    if (!this.isSettlementConfirmed(settlement) && settlement.currentCalculation.adjustmentCalculationVersion !== 2 && settlement.currentCalculation.deductions.some(item => item.reflected && item.direction)) {
+      settlement = withRecalculation(settlement, '확정 전 차감·지급 배분 계산 확인')
+    }
     const eventErrors = campaignEventOperationService.validateForSettlementConfirmation(settlement.campaignId)
     if (eventErrors.length) throw new Error(`정산서를 확정할 수 없습니다.\n${eventErrors.join('\n')}`)
     const validation = validateSettlement(settlement)
     if (!validation.valid) throw new Error(`정산서를 확정할 수 없습니다.\n${validation.errors.join('\n')}`)
+    if (this.isSettlementConfirmed(settlement)) return settlement
     const confirmedAt = now()
-    const snapshot = settlement.currentCalculation
-    const next: Settlement = { ...settlement, settlementConfirmed: true, settlementConfirmedAt: confirmedAt, settlementConfirmedBy: confirmedBy, settlementConfirmedVersion: settlement.settlementVersion, calculationSnapshot: snapshot, originalSnapshot: settlement.originalSnapshot ?? snapshot, updatedAt: confirmedAt, hasSourceChanged: false, sourceChangeReason: undefined }
+    const current = settlement.currentCalculation
+    const additionalPayments = sellerAdditionalPayments(settlement.currentCalculation.deductions, settlement.currentCalculation.adjustmentCalculationVersion)
+    const campaign = campaignService.getCampaignById(settlement.campaignId)
+    const businessType = (campaign && sellerMasterService.getSellerById(campaign.sellerId)?.businessType) ?? (settlement.taxType === 'withholding_3_3' ? 'freelancer' : settlement.taxType === 'cash_receipt' ? 'simplified_business' : 'general_business')
+    const payout = calculateFinalSellerPayment(current.sellerCommissionAmount, businessType, current.sellerDeductionTotal, 2, additionalPayments, current.sellerReceivableOffset ?? 0)
+    if ((payout.unappliedReceivableOffset ?? 0) > 0) throw new Error('현재 사업자 유형의 지급 가능액보다 상계액이 큽니다. 상계를 취소한 후 다시 확인해주세요.')
+    const snapshot = { ...current, sellerPayoutVersion: 2 as const, finalSellerPaymentAmount: payout.finalSellerPaymentAmount, sellerPaymentAmount: payout.finalSellerPaymentAmount, taxAmount: payout.withholdingTaxAmount }
+    const next: Settlement = { ...settlement, settlementConfirmed: true, settlementConfirmedAt: confirmedAt, settlementConfirmedBy: confirmedBy, settlementConfirmedVersion: settlement.settlementVersion, currentCalculation: snapshot, calculationSnapshot: snapshot, originalSnapshot: settlement.originalSnapshot ?? snapshot, updatedAt: confirmedAt, hasSourceChanged: false, sourceChangeReason: undefined }
     this.saveSettlements(this.getSettlements().map((item) => item.id === settlementId ? next : item))
     salesDataService.markSettlementReady(settlement.salesDataImportId)
     this.createSettlementVersion(next, '정산서 확정', confirmedBy)
@@ -700,6 +765,7 @@ export const settlementService = {
       changedAt: now(),
       changedBy,
       reason,
+      supplierPayment: settlement.supplierPayment ? structuredClone(settlement.supplierPayment) : undefined,
       beforeAmount: previous?.snapshot.finalPaymentAmount ?? 0,
       afterAmount: settlement.currentCalculation.finalPaymentAmount,
       status: settlement.status,
@@ -719,6 +785,7 @@ export const settlementService = {
   addDeduction(settlementId: string, deduction: Omit<SettlementDeduction, 'id' | 'settlementId' | 'createdAt' | 'updatedAt'>, reason = '차감 항목 추가') {
     const settlement = this.getSettlementById(settlementId)
     if (!settlement) return undefined
+    if (this.isSettlementConfirmed(settlement) || settlement.sellerReceivableOffsets?.length || (settlement.sellerReceivable && settlement.sellerReceivable.status !== '미처리')) throw new Error('확정 또는 미수금 처리 중인 정산입니다. 미수금 처리를 먼저 확인해주세요.')
     const createdAt = now()
     const nextDeduction: SettlementDeduction = { ...deduction, id: crypto.randomUUID(), settlementId, createdAt, updatedAt: createdAt }
     this.saveDeductions([nextDeduction, ...this.getDeductions()])
@@ -729,6 +796,7 @@ export const settlementService = {
   updateDeduction(nextDeduction: SettlementDeduction, reason = '차감 항목 수정') {
     const settlement = this.getSettlementById(nextDeduction.settlementId)
     if (!settlement) return undefined
+    if (this.isSettlementConfirmed(settlement) || nextDeduction.linkedData.startsWith('receivable:') || settlement.sellerReceivableOffsets?.length || (settlement.sellerReceivable && settlement.sellerReceivable.status !== '미처리')) throw new Error('미수금 상계는 미수금 관리에서 변경해주세요. 확정 정산은 변경하지 않았습니다.')
     this.saveDeductions(this.getDeductions().map((item) => (item.id === nextDeduction.id ? { ...nextDeduction, updatedAt: now() } : item)))
     const next = this.bumpVersion(settlement, reason)
     this.addActivity(next, 'deduction_updated', settlement.status, next.status, reason)
@@ -737,6 +805,7 @@ export const settlementService = {
   removeDeduction(settlementId: string, deductionId: string, reason = '차감 항목 삭제') {
     const settlement = this.getSettlementById(settlementId)
     if (!settlement) return undefined
+    if (this.isSettlementConfirmed(settlement) || settlement.sellerReceivableOffsets?.length || (settlement.sellerReceivable && settlement.sellerReceivable.status !== '미처리')) throw new Error('미수금 상계는 미수금 관리에서 변경해주세요. 확정 정산은 변경하지 않았습니다.')
     const targetDeduction = this.getDeductions().find((item) => item.id === deductionId)
     if (targetDeduction && ['approved', 'approval_pending', 'payment_ready', 'partially_paid', 'completed'].includes(settlement.status)) {
       return this.bumpVersion(settlement, '승인 이후 차감 항목 수정 버전 생성')
@@ -781,7 +850,7 @@ export const settlementService = {
   },
   completeManagerReview(settlementId: string) {
     const settlement = this.getSettlementById(settlementId)
-    if (!settlement || !Object.values(settlement.reviewChecklist).every(Boolean)) return undefined
+    if (!settlement || !Object.entries(settlement.reviewChecklist).every(([key, value]) => key === 'managerShareConfirmed' ? managerShareCalculated(settlement.currentCalculation) : value)) return undefined
     const snapshot = settlement.currentCalculation
     const next = { ...settlement, status: 'manager_reviewed' as const, calculationSnapshot: snapshot, originalSnapshot: settlement.originalSnapshot ?? snapshot, updatedAt: now() }
     this.saveSettlements(this.getSettlements().map((item) => (item.id === settlementId ? next : item)))

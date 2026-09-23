@@ -1,3 +1,4 @@
+import { matchFlavorPack, parseFlavorPack } from './flavorPackMatching'
 import * as XLSX from 'xlsx'
 import type { SalesDataImport, SalesDataRow, SalesFileAnalysis } from '../types/salesData.ts'
 import { calculateSalesRow } from './salesData.ts'
@@ -8,8 +9,11 @@ type Cell = string | number | boolean | Date | null | undefined
 type ParsedColumn = 'orderId' | 'product' | 'option' | 'quantity' | 'unitPrice' | 'grossSales' | 'collectedAmount' | 'orderStatus' | 'claimStatus' | 'eventType'
 
 export type SalesPriceCandidate = {
+  skuOptionName?: string
+  detailOption?: string
   productName: string
   optionName: string
+  sellerSupplyPrice?: number
   groupBuyPrice: number
   confirmed?: boolean
   exactMatchOnly?: boolean
@@ -37,7 +41,7 @@ const aliases: Record<ParsedColumn, string[]> = {
   quantity: ['수량', '판매수량', '주문수량', 'quantity', 'qty'],
   unitPrice: ['옵션판매가', '개당판매가', '공동구매가', '판매단가', '단가', '결제단가', 'unitprice'],
   // 할인 전 금액과 할인 후 금액이 모두 있는 파일은 실제 정산 기준 금액을 우선합니다.
-  grossSales: ['상품금액(옵션포함)', '최종매출', '총주문금액', '실결제금액', '총판매가', '총판매금액', '결제금액', '판매금액', '판매가', '총매출', '옵션별총액', 'amount'],
+  grossSales: ['상품금액(옵션포함)', '최종매출', '총주문금액', '실결제금액', '총판매가', '총판매금액', '상품합계', '결제금액', '판매금액', '판매가', '총매출', '옵션별총액', 'amount'],
   collectedAmount: ['결제금액(통합)', '실결제금액', '총결제금액', '결제금액', '총주문금액'],
   orderStatus: ['주문상태', '결제상태', '배송상태', 'status'],
   claimStatus: ['클레임상태', '취소상태', '환불상태', '반품상태', 'claimstatus'],
@@ -141,7 +145,7 @@ function extractEmbeddedPriceCandidates(rows: Cell[][]) {
   return candidates
 }
 
-export async function parseSalesDataFile(file: File, salesImport: SalesDataImport, priceCandidates: SalesPriceCandidate[] = []): Promise<{ rows: SalesDataRow[]; rowsIncludingPending: SalesDataRow[]; analysis: SalesFileAnalysis }> {
+export async function parseSalesDataFile(file: File, salesImport: SalesDataImport, priceCandidates: SalesPriceCandidate[] = [], channel = salesImport.settlementTerms?.salesChannelType): Promise<{ rows: SalesDataRow[]; rowsIncludingPending: SalesDataRow[]; analysis: SalesFileAnalysis }> {
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
   // Supplier workbooks can contain an invoice, a final product summary and
   // duplicate order/CS sheets. Read the explicit net summary exactly once.
@@ -168,7 +172,7 @@ export async function parseSalesDataFile(file: File, salesImport: SalesDataImpor
     if (normalized.length === 1) continue
     const clean = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(clean, XLSX.utils.aoa_to_sheet(normalized), '정산집계')
-    const parsed = await parseSalesDataFile(new File([XLSX.write(clean, { type: 'array', bookType: 'xlsx' })], file.name), salesImport, priceCandidates)
+    const parsed = await parseSalesDataFile(new File([XLSX.write(clean, { type: 'array', bookType: 'xlsx' })], file.name), salesImport, priceCandidates, channel)
     parsed.analysis.sheetName = name
     parsed.analysis.headerRow = index + 1
     parsed.analysis.formatName = '공급사 공구·공급금액 집계'
@@ -209,7 +213,11 @@ export async function parseSalesDataFile(file: File, salesImport: SalesDataImpor
       && header.columns.quantity !== undefined
       && header.columns.unitPrice !== undefined
       && header.columns.grossSales !== undefined
-    const priority = isFinalSettlementSummary ? 100 + header.score : header?.score ?? -1
+    const isOrderHubDailySummary = sheetName === '일별 상품요약'
+      && workbook.SheetNames.includes('정산상세내역') && workbook.SheetNames.includes('정산일반')
+      && header?.columns.eventType !== undefined && header.columns.unitPrice !== undefined
+      && header.columns.grossSales !== undefined
+    const priority = isOrderHubDailySummary ? 300 + header.score : isFinalSettlementSummary ? 100 + header.score : header?.score ?? -1
     if (header && (!selected || priority > selected.priority)) selected = { sheetName, rows, header, priority }
   }
   if (!selected) throw new Error('판매수량과 판매금액 열을 찾지 못했습니다. 열 이름을 확인해주세요.')
@@ -223,9 +231,9 @@ export async function parseSalesDataFile(file: File, salesImport: SalesDataImpor
     && workbook.SheetNames.some((name) => /정산일반|정산상세|상품요약/.test(name))
   if (isSupplierSettlement) {
     const sellerCommissionRate = salesImport.sellerCommissionRate ?? salesImport.commissionRate ?? Number.NaN
-    if (!Number.isFinite(sellerCommissionRate) || sellerCommissionRate < 0 || sellerCommissionRate >= 100) throw new Error('공급사 정산서의 총매출 역산에 사용할 셀러 수수료율을 확인해주세요.')
+    if (channel !== 'seller_checkout' && (!Number.isFinite(sellerCommissionRate) || sellerCommissionRate < 0 || sellerCommissionRate >= 100)) throw new Error('공급사 정산서의 총매출 역산에 사용할 셀러 수수료율을 확인해주세요.')
     const netRate = 1 - sellerCommissionRate / 100
-    const grouped = new Map<number, { optionName: string; quantity: number; canceledQuantity: number }>()
+    const grouped = new Map<string, { optionName: string; unitPrice: number; quantity: number; canceledQuantity: number }>()
     const statusMap = new Map<string, { quantity: number; amount: number; included: boolean }>()
     let sourceRowCount = 0
     let sourceQuantity = 0
@@ -240,12 +248,13 @@ export async function parseSalesDataFile(file: File, salesImport: SalesDataImpor
       const supplierAmount = header.columns.grossSales === undefined ? quantity * supplierUnitPrice : numberValue(row[header.columns.grossSales])
       if (!optionName || quantity === 0 || supplierUnitPrice <= 0 || supplierAmount === 0) continue
       const eventType = String(row[header.columns.eventType!] ?? '정산 반영').trim() || '정산 반영'
-      const customerUnitPrice = Math.round(supplierUnitPrice / netRate)
-      const current = grouped.get(customerUnitPrice) ?? { optionName, quantity: 0, canceledQuantity: 0 }
+      const customerUnitPrice = channel === 'seller_checkout' ? supplierUnitPrice : Math.round(supplierUnitPrice / netRate)
+      const groupKey = `${optionName}|${customerUnitPrice}`
+      const current = grouped.get(groupKey) ?? { optionName, unitPrice: customerUnitPrice, quantity: 0, canceledQuantity: 0 }
       if (quantity > 0 && current.quantity === 0) current.optionName = optionName
       if (quantity > 0) current.quantity += quantity
       else current.canceledQuantity += Math.abs(quantity)
-      grouped.set(customerUnitPrice, current)
+      grouped.set(groupKey, current)
       const status = statusMap.get(eventType) ?? { quantity: 0, amount: 0, included: true }
       status.quantity += quantity
       status.amount += supplierAmount
@@ -257,28 +266,46 @@ export async function parseSalesDataFile(file: File, salesImport: SalesDataImpor
       supplierSettlementAmount += supplierAmount
     }
 
-    const parsedRows = [...grouped].filter(([, item]) => item.quantity > 0).map(([unitPrice, item]) => calculateSalesRow({
+    const parsedRows = [...grouped].filter(([, item]) => item.quantity > 0).map(([, item]) => calculateSalesRow({
       id: crypto.randomUUID(), salesDataImportId: salesImport.id, campaignId: salesImport.campaignId,
-      optionName: item.optionName, quantity: item.quantity, unitPrice, canceledQuantity: item.canceledQuantity, refundedQuantity: 0,
+      optionName: item.optionName, quantity: item.quantity, unitPrice: item.unitPrice, canceledQuantity: item.canceledQuantity, refundedQuantity: 0,
     }))
     if (!parsedRows.length) throw new Error('공급사 정산서에서 정산에 포함할 판매행을 찾지 못했습니다.')
+    // Read the summary once: repeated product summaries and daily/detail rows
+    // are reconciliation sources, never additional shipping charges.
+    const general = workbook.Sheets['정산일반'] ? sheetToRows<Cell>(workbook.Sheets['정산일반']) : []
+    const summary = general.find((row) => row.includes('상품금액') && row.includes('총 정산금액'))
+    const exactAmount = (label: string) => {
+      const index = summary?.findIndex((cell) => cell === label) ?? -1
+      const value = index >= 0 ? summary?.[index + 1] : undefined
+      return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+    }
+    const baseShipping = exactAmount('배송비')
+    const extraShipping = exactAmount('추가배송비')
+    const shipping = exactAmount('배송비합계') ?? (baseShipping !== undefined && extraShipping !== undefined ? baseShipping + extraShipping : undefined)
+    const declaredProduct = exactAmount('상품금액')
+    const declaredTotal = exactAmount('총 정산금액')
+    if (declaredProduct !== undefined && Math.round(declaredProduct) !== Math.round(supplierSettlementAmount)) throw new Error('정산일반 상품금액과 옵션별 상품합계가 다릅니다. 원본을 확인해주세요.')
+    if (declaredTotal !== undefined && shipping !== undefined && declaredProduct !== undefined && declaredProduct + shipping !== declaredTotal) throw new Error('정산일반 상품금액·배송비와 총 정산금액이 일치하지 않습니다.')
     const sellerCommissionAmount = reconstructedNetSales - supplierSettlementAmount
     return {
       rows: parsedRows,
       rowsIncludingPending: parsedRows,
       analysis: {
         sourceDocumentType: 'supplier_settlement',
-        formatName: '공급사 확정 정산서 자동 인식', sheetName, headerRow: header.rowIndex + 1,
+        supplierShippingCost: shipping, supplierPayableTotal: declaredTotal,
+        formatName: sheetName === '일별 상품요약' ? '발주모아 공급사 정산서' : '공급사 확정 정산서 자동 인식', sheetName, headerRow: header.rowIndex + 1,
         sourceRowCount, includedRowCount: sourceRowCount, excludedRowCount: 0,
         sourceQuantity: parsedRows.reduce((sum, row) => sum + row.quantity, 0), includedQuantity: sourceQuantity,
         sourceGrossSales: reconstructedGrossSales, includedGrossSales: reconstructedNetSales, excludedGrossSales: reconstructedGrossSales - reconstructedNetSales,
         pendingPaymentRowCount: 0, pendingPaymentQuantity: 0, pendingPaymentSales: 0,
-        supplierSettlementAmount, sellerCommissionRateUsed: sellerCommissionRate,
+        supplierSettlementAmount, sellerCommissionRateUsed: channel === 'seller_checkout' ? undefined : sellerCommissionRate,
         statusBreakdown: [...statusMap].map(([status, value]) => ({ status, ...value })),
         detectedColumns: Object.keys(header.columns).map((key) => header.labels[key as ParsedColumn] ?? aliases[key as ParsedColumn][0]),
         warnings: [
+          ...(shipping !== undefined ? ['배송비는 정산일반의 정산요약에서 읽었습니다. 상세내역과 중복 합산하지 않습니다.'] : []),
           `반품·취소 음수 행까지 반영한 공급사 정산금액은 ${Math.round(supplierSettlementAmount).toLocaleString('ko-KR')}원입니다.`,
-          `셀러 수수료율 ${sellerCommissionRate}%를 적용해 고객 순매출 ${Math.round(reconstructedNetSales).toLocaleString('ko-KR')}원과 셀러 수수료 ${Math.round(sellerCommissionAmount).toLocaleString('ko-KR')}원으로 역산했습니다.`,
+          channel === 'seller_checkout' ? '셀러 링크: 원본 상품단가를 유지했습니다. 확인한 SKU의 셀러 적용 공급가로 입금액을 계산합니다.' : `셀러 수수료율 ${sellerCommissionRate}%를 적용해 고객 순매출 ${Math.round(reconstructedNetSales).toLocaleString('ko-KR')}원과 셀러 수수료 ${Math.round(sellerCommissionAmount).toLocaleString('ko-KR')}원으로 역산했습니다.`,
         ],
       },
     }
@@ -293,6 +320,7 @@ export async function parseSalesDataFile(file: File, salesImport: SalesDataImpor
     const confirmed = normalizedPriceCandidates.find((candidate) => candidate.confirmed && candidate.optionKey === optionKey)
     if (confirmed) return confirmed
     const ranked = normalizedPriceCandidates.map((candidate) => {
+      if (parseFlavorPack(optionName)) return { ...candidate, score: matchFlavorPack(optionName, candidate.skuOptionName ?? candidate.optionName, productName, candidate.productName) ? 150 : 0 }
       let score = 0
       if (optionKey && optionKey === candidate.optionKey) score += 120
       else if (!candidate.exactMatchOnly && optionKey && candidate.optionKey.length >= 2 && (optionKey.includes(candidate.optionKey) || candidate.optionKey.includes(optionKey))) {
@@ -435,22 +463,28 @@ export async function parseSalesDataFile(file: File, salesImport: SalesDataImpor
   const parsedRows = [...grouped.values()].filter((item) => item.quantity > 0).map((item) => calculateSalesRow({
     id: crypto.randomUUID(), salesDataImportId: salesImport.id, campaignId: salesImport.campaignId,
     skuId: item.condition?.skuId,
+    skuOptionName: item.condition?.skuOptionName ?? item.condition?.optionName,
+    detailOption: item.condition ? matchFlavorPack(item.optionName, item.condition.skuOptionName ?? item.condition.optionName, item.productName, item.condition.productName)?.detailOption : undefined,
     productId: item.condition?.productId,
     productName: item.condition?.productName ?? item.productName,
     totalCommissionRate: item.condition?.totalCommissionRate,
     sellerCommissionRate: item.condition?.sellerCommissionRate,
     agreedUnitPrice: item.condition?.groupBuyPrice,
+    sellerSupplyPrice: item.condition?.sellerSupplyPrice,
     priceSource: item.priceSource,
     optionName: item.optionName, quantity: item.quantity, unitPrice: Math.round(item.sales / item.quantity), canceledQuantity: item.canceledQuantity, refundedQuantity: item.refundedQuantity,
   }))
   const parsedRowsIncludingPending = [...groupedIncludingPending.values()].filter((item) => item.quantity > 0).map((item) => calculateSalesRow({
     id: crypto.randomUUID(), salesDataImportId: salesImport.id, campaignId: salesImport.campaignId,
     skuId: item.condition?.skuId,
+    skuOptionName: item.condition?.skuOptionName ?? item.condition?.optionName,
+    detailOption: item.condition ? matchFlavorPack(item.optionName, item.condition.skuOptionName ?? item.condition.optionName, item.productName, item.condition.productName)?.detailOption : undefined,
     productId: item.condition?.productId,
     productName: item.condition?.productName ?? item.productName,
     totalCommissionRate: item.condition?.totalCommissionRate,
     sellerCommissionRate: item.condition?.sellerCommissionRate,
     agreedUnitPrice: item.condition?.groupBuyPrice,
+    sellerSupplyPrice: item.condition?.sellerSupplyPrice,
     priceSource: item.priceSource,
     optionName: item.optionName, quantity: item.quantity, unitPrice: Math.round(item.sales / item.quantity), canceledQuantity: item.canceledQuantity, refundedQuantity: item.refundedQuantity,
   }))
@@ -492,7 +526,7 @@ export async function parseSalesDataFile(file: File, salesImport: SalesDataImpor
       finalSettlementQuantity: dispatch?.summary?.quantity,
       supplierShippingCost: dispatch?.summary?.shipping,
       supplierPayableTotal: dispatch?.summary ? dispatch.summary.productSupply + dispatch.summary.shipping : undefined,
-      formatName: header.rowIndex === 0 ? '주문내역형 자동 인식' : '다중영역 정산서 자동 인식', sheetName, headerRow: header.rowIndex + 1,
+      formatName: isOrderHubFormat ? '발주모아 주문내역' : header.rowIndex === 0 ? '주문내역형 자동 인식' : '다중영역 정산서 자동 인식', sheetName, headerRow: header.rowIndex + 1,
       sourceRowCount, includedRowCount, excludedRowCount: sourceRowCount - includedRowCount,
       sourceQuantity, includedQuantity, sourceGrossSales, includedGrossSales, excludedGrossSales: sourceGrossSales - includedGrossSales,
       sourceShippingRevenue, includedShippingRevenue, pendingPaymentShippingRevenue,

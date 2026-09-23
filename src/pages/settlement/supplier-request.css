@@ -1,0 +1,14 @@
+.supplier-request-modal { width: min(1100px, 94vw); max-height: 90vh; overflow: auto; border: 1px solid #dce2eb; border-radius: 16px; padding: 24px; color: #172033; background: white; }
+.supplier-request-modal::backdrop { background: rgb(15 23 42 / 55%); }
+.supplier-request-modal dl { display: grid; grid-template-columns: 100px 1fr; gap: 10px; }
+.supplier-request-modal dd { margin: 0; }
+.supplier-request-table { overflow-x: auto; }
+.supplier-request-table table { min-width: 850px; }
+.supplier-request-modal p { line-height: 1.6; }
+.settlement-document-comparison.vendor-document-tabs-layout.is-vendor-comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.is-vendor-comparison > .vendor-document-selector, .is-vendor-comparison > button { grid-column: 1 / -1; }
+@media (max-width: 1100px) { .settlement-document-comparison.vendor-document-tabs-layout.is-vendor-comparison { grid-template-columns: minmax(0, 1fr); } }
+.supplier-request-modal [role=alert] { padding: 12px; background: #fff7df; color: #714b10; border-radius: 8px; }
+
+.supplier-external-document { min-width: 900px; color: #172033; }
+.supplier-external-document .supplier-request-table { overflow: visible; }

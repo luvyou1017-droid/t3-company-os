@@ -1,3 +1,6 @@
+import { campaignService } from '../../../shared/services/campaignService'
+import { campaignReadiness } from '../../../shared/utils/campaignReadiness'
+import { campaignProductCatalogService } from '../../../shared/services/campaignProductCatalogService'
 import {
   getCampaignStatus,
 } from '../../../features/campaignSchedules/scheduleStatus'
@@ -13,6 +16,8 @@ type CampaignMobileCardProps = {
 }
 
 export function CampaignMobileCard({ schedule, onClick }: CampaignMobileCardProps) {
+  const campaign = campaignService.getCampaignById(schedule.id)
+  const readiness = campaign ? campaignReadiness(campaign, campaignProductCatalogService.getManagedProducts()) : undefined
   const status = getCampaignStatus(schedule)
   const remainingWorkCount =
     schedule.pendingTaskCount + schedule.pendingCsCount + schedule.pendingSampleCount
@@ -23,7 +28,7 @@ export function CampaignMobileCard({ schedule, onClick }: CampaignMobileCardProp
         <strong>{schedule.campaignName}</strong>
         <CampaignTimingBadge endDate={schedule.endDate} startDate={schedule.startDate} />
       </div>
-      <CampaignStatusBadge status={status} />
+      <span>일정 등록 완료 · {readiness?.label}</span><span>{schedule.settlementStage}</span><CampaignStatusBadge status={status} />
       <dl>
         <div>
           <dt>담당</dt>
@@ -40,7 +45,7 @@ export function CampaignMobileCard({ schedule, onClick }: CampaignMobileCardProp
       </dl>
       <div className="schedule-mobile-card__meta">
         <span>CS {schedule.pendingCsCount}건</span>
-        <span>남은 업무 {remainingWorkCount}건</span>
+        <span>남은 업무 {remainingWorkCount + (readiness?.tasks.length ?? 0)}건</span>
       </div>
     </button>
   )

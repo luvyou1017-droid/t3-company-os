@@ -60,20 +60,15 @@ export const CAMPAIGN_REQUIRED_FIELD_LABELS = {
 
 export function getDraftMissingFields(form: CampaignCreationFormData) {
   return [
-    !form.sellerId && CAMPAIGN_REQUIRED_FIELD_LABELS.sellerId,
-    !form.businessType && CAMPAIGN_REQUIRED_FIELD_LABELS.businessType,
-    !form.brandId && CAMPAIGN_REQUIRED_FIELD_LABELS.brandId,
-    !form.products?.length && CAMPAIGN_REQUIRED_FIELD_LABELS.campaignProducts,
-    !form.startDate && CAMPAIGN_REQUIRED_FIELD_LABELS.startDate,
-    !form.endDate && CAMPAIGN_REQUIRED_FIELD_LABELS.endDate,
-    !form.managerId && CAMPAIGN_REQUIRED_FIELD_LABELS.managerId,
-    !form.mdId && CAMPAIGN_REQUIRED_FIELD_LABELS.mdId,
-    !form.salesChannelType && CAMPAIGN_REQUIRED_FIELD_LABELS.salesChannelType,
+    !form.sellerId && !form.settlementVendorName?.trim() && '셀러 또는 요청 대상',
+    !form.campaignName?.trim() && !form.products?.length && '일정명',
+    !form.startDate && '시작일', !form.endDate && '종료일',
+    !form.managerId && '담당 매니저', !form.supplyAudience && '거래구분',
   ].filter(Boolean) as string[]
 }
 
 export function calculateDraftCompletionRate(form: CampaignCreationFormData) {
-  const total = Object.keys(CAMPAIGN_REQUIRED_FIELD_LABELS).length
+  const total = 6
   return Math.round(((total - getDraftMissingFields(form).length) / total) * 100)
 }
 

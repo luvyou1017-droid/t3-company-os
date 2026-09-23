@@ -10,6 +10,7 @@ import { STORAGE_KEYS, storageService } from './storageService'
 const now = () => new Date().toISOString()
 
 type UpsertInput = {
+  calculation?: import('../types/withholdingTax').WithholdingCalculation
   settlementId: string
   ownerType: EvidenceOwnerType
   ownerId: string
@@ -41,9 +42,8 @@ export const withholdingTaxService = {
     if (!settlement) throw new Error('정산을 찾을 수 없습니다.')
     const existingVersions = this.getBySettlementOwner(input.settlementId, input.ownerType, input.ownerId)
     const exact = existingVersions.find((item) => item.sourceVersion === input.sourceVersion)
-    const locked = existingVersions.find((item) => ['uploaded', 'reported', 'paid'].includes(item.status) && item.sourceVersion !== input.sourceVersion)
-    if (locked) save({ ...locked, status: 'revision_required', updatedAt: now(), updatedBy: input.updatedBy ?? '허수정', memo: '확정 후 원본 정산 변경: 새 버전 재검토 필요' })
-    const calculation = calculateWithholding(input.grossSettlementAmount, input.deductions)
+    if (exact && ['uploaded', 'reported', 'paid'].includes(exact.status)) return exact
+    const calculation = input.calculation ?? calculateWithholding(input.grossSettlementAmount, input.deductions)
     const timestamp = now()
     return save({
       id: exact?.id ?? `withholding-${crypto.randomUUID()}`,

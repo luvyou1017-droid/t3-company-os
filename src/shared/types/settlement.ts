@@ -20,11 +20,15 @@ export type SettlementApplyLocation =
   | 'net_company_commission_credit'
   | 'seller_payment'
   | 'manager_payment'
+  | 'company_payment'
   | 'manager_reimbursement'
   | 'record_only'
   | 'needs_review'
 
 export type SettlementDeduction = {
+  unitPrice?: number
+  quantity?: number
+  direction?: 'deduction' | 'payment'
   id: string
   settlementId: string
   campaignId: string
@@ -54,6 +58,15 @@ export type SettlementCalculationStep = {
 }
 
 export type SettlementCalculationSnapshot = {
+  sellerReceivableAmount?: number
+  sellerReceivableOffset?: number
+  adjustmentCalculationVersion?: 2
+  distributionPaymentTotal?: number
+  distributionDeductionTotal?: number
+  managerAdditionalPayment?: number
+  companyAdditionalPayment?: number
+  companyDirectDeduction?: number
+  sellerPayoutVersion?: 1 | 2
   grossSales: number
   netSales: number
   totalCommissionRate: number
@@ -64,6 +77,7 @@ export type SettlementCalculationSnapshot = {
   vendorCommission: number
   deductions: SettlementDeduction[]
   deductionTotal: number
+  distributionCostBreakdown?: { eventCost: number; srookPayFee: number; otherCost: number }
   companySampleDeduction: number
   companyEventDeduction: number
   companyOtherDeduction: number
@@ -174,6 +188,7 @@ export type SettlementRevisionRequest = {
 }
 
 export type SettlementVersion = {
+  supplierPayment?: import('../utils/supplierPayment').SupplierPayment
   id: string
   settlementId: string
   campaignId: string
@@ -190,6 +205,9 @@ export type SettlementVersion = {
 }
 
 export type Settlement = {
+  sellerReceivable?: import("../utils/sellerReceivable").SellerReceivable
+  sellerReceivableOffsets?: import("../utils/sellerReceivable").ReceivableOffset[]
+  supplierPayment?: import('../utils/supplierPayment').SupplierPayment
   id: string
   campaignId: string
   salesDataImportId: string

@@ -3,6 +3,7 @@ import type { LinkOwner } from '../../shared/types/campaign'
 export type { LinkOwner }
 
 export type CampaignSchedule = {
+  settlementStage?: string
   id: string
   campaignName: string
   sellerName: string

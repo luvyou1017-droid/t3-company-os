@@ -1,6 +1,8 @@
 import type { CampaignSalesChannelType } from './campaign'
 
 export type SettlementSkuCondition = {
+  detailOption?: string
+  skuOptionName?: string
   skuId: string
   productId: string
   productName: string
@@ -8,11 +10,13 @@ export type SettlementSkuCondition = {
   supplyLabel?: string
   conditionOrigin?: string
   salesOptionName?: string
+  sellerSupplyPrice?: number
   groupBuyPrice: number
   totalCommissionRate?: number
   sellerCommissionRate?: number
 }
 export type SettlementTerms = {
+  sellerCheckoutPricingVersion?: 2
   salesChannelType: CampaignSalesChannelType
   moneyCollector: 'seller' | 'company' | 'supplier'
   confirmedAt: string

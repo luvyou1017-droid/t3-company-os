@@ -16,6 +16,7 @@ export type SalesValidationResult = {
 export type SalesEventCostOwner = 'company_manager_prepaid' | 'company' | 'seller' | 'manager' | 'brand'
 
 export type SalesEventCost = {
+  direction?: 'deduction' | 'payment'
   id: string
   name: string
   amount: number
@@ -37,6 +38,8 @@ export type SalesDataImport = {
   fileSize: number
   originalSalesFileStoragePath?: string
   originalSalesFileStoredAt?: string
+  originalSalesFileStorageError?: string
+  sellerExcelExport?: { settlementId: string; version: number; path: string; url: string; createdAt: string; expiresAt: string; sourcePath?: string }
   sourceType: SalesDataSource
   uploadedBy: string
   uploadedAt: string
@@ -150,6 +153,8 @@ export type SalesFileAnalysis = {
 }
 
 export type SalesDataRow = {
+  skuOptionName?: string
+  detailOption?: string
   id: string
   skuId?: string
   productId?: string
@@ -162,6 +167,7 @@ export type SalesDataRow = {
   quantity: number
   unitPrice: number
   /** This settlement only. Does not update the product/SKU master. */
+  sellerSupplyPrice?: number
   settlementSupplyPrice?: number
   totalCommissionRate?: number
   sellerCommissionRate?: number

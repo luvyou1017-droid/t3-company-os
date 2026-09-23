@@ -1,164 +1,82 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { productService } from '../../../features/productMaster/services/productService'
-import type { ProductMaster, ProductMasterInput, ProductSku } from '../../../features/productMaster/types'
-import { inferProposalProductName, parseWiseProposalFile, proposalSkuName, type WiseProposalMetadata, type WiseProposalRow } from '../../../features/productMaster/utils/wiseProposalParser'
+import type { ProductMaster } from '../../../features/productMaster/types'
+import { inferProposalProductName, parseWiseProposalFile } from '../../../features/productMaster/utils/wiseProposalParser'
+import { applyReviewed, reviewBatch, sourceOption, type Candidate, type ReviewCandidate, type ReviewState } from '../../../features/productMaster/utils/proposalImportReview'
+import { ensureProposalSupplier, reviewProposalSupplier } from '../../../features/productMaster/services/proposalSupplierService'
 
-type Candidate = { settlementVendorName?: string; key: string; fileName: string; productName: string; rows: WiseProposalRow[]; metadata: WiseProposalMetadata; state: 'ready' | 'draft' | 'duplicate' | 'error'; message?: string }
-const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, '').replace(/[^0-9a-z가-힣]/g, '')
-const commission = (sale: number, supply: number) => sale > 0 ? ((sale - supply) / sale) * 100 : 0
-const won = (value: number) => Math.floor(Number(value) || 0)
-const errorMessage = (error: unknown) => {
-  if (error instanceof Error) return error.message
-  if (error && typeof error === 'object') {
-    const value = error as Record<string, unknown>
-    return [value.message, value.details, value.hint, value.code].filter(Boolean).join(' · ') || '알 수 없는 저장 오류'
-  }
-  return String(error || '알 수 없는 저장 오류')
-}
-
-export function findExisting(products: ProductMaster[], candidate: Candidate) {
-  products = products.filter((product) => candidate.settlementVendorName ? product.supplyAudience === 'vendor' && product.settlementVendorName === candidate.settlementVendorName : product.supplyAudience !== 'vendor')
-  return products.find((product) => normalize(product.brandName) === normalize(candidate.metadata.brandName) && normalize(product.productName) === normalize(candidate.productName))
-    ?? products.find((product) => product.sourceFileName === candidate.fileName)
-}
-
-function productsFromSameFile(products: ProductMaster[], candidate: Candidate) {
-  return products.filter((product) => product.sourceFileName === candidate.fileName && (candidate.settlementVendorName ? product.supplyAudience === 'vendor' && product.settlementVendorName === candidate.settlementVendorName : product.supplyAudience !== 'vendor'))
-}
-
-const skuIdentity = (value: Pick<WiseProposalRow, '상품명'> | Pick<ProductSku, 'productName' | 'optionName'>, canonicalProductName?: string) => {
-  const productName = '상품명' in value ? canonicalProductName ?? '' : value.productName ?? ''
-  const optionName = '상품명' in value ? proposalSkuName(value) : value.optionName
-  return `${normalize(productName)}:${normalize(optionName)}`
-}
-
-export function buildInput(candidate: Candidate, existing?: ProductMaster, relatedProducts: ProductMaster[] = []): ProductMasterInput {
-  if (candidate.settlementVendorName) candidate = { ...candidate, rows: candidate.rows.map((row) => {
-    const product = row['상품명'].trim()
-    const option = row['구성명'].trim()
-    return { ...row, '상품명': !option || option === '본품' || product.includes(option) ? product : `${product} · ${option}` }
-  }) }
-  const now = new Date().toISOString()
-  const importKey = crypto.randomUUID().slice(0, 8).toUpperCase()
-  const first = candidate.rows[0]
-  const existingSkus = [...new Map([existing, ...relatedProducts].filter((product): product is ProductMaster => Boolean(product))
-    .flatMap((product) => product.skus)
-    .map((sku) => [sku.id, sku])).values()]
-  const sourceIdentities = candidate.rows.map((row) => skuIdentity(row, candidate.productName))
-  if (new Set(sourceIdentities).size !== sourceIdentities.length) throw new Error('제안서 안에 동일한 상품명·구성명이 중복되어 있습니다. 원본 파일을 확인해주세요.')
-  const skus: ProductSku[] = candidate.rows.map((row, index) => {
-    const rowIdentity = skuIdentity(row, candidate.productName)
-    const matchedSku = existingSkus.find((sku) => skuIdentity(sku) === rowIdentity)
-    return {
-    id: matchedSku?.id ?? crypto.randomUUID(),
-    skuCode: matchedSku?.skuCode ?? `SKU-${importKey}-${index + 1}`,
-    productId: existing?.id ?? 'new-product', productName: candidate.productName, category: row['카테고리'], optionName: proposalSkuName(row),
-    pricingType: row['가격 적용 방식'] === '수량 구간' ? 'quantity_tier' : 'fixed', minimumQuantity: row['최소 수량'] || undefined, maximumQuantity: row['최대 수량'] || undefined,
-    regularPrice: won(row['정상가']), groupBuyPrice: won(row['공구판매가']), supplyPrice: won(row['총 매입가(VAT포함)']),
-    totalCommissionRate: commission(row['공구판매가'], row['총 매입가(VAT포함)']), sellerCommissionRate: row['셀러 수수료율'],
-    stockStatus: 'available', sellerPortalVisible: !candidate.metadata.draft && !candidate.settlementVendorName, representative: index === 0, active: true,
-    createdAt: matchedSku?.createdAt ?? now, updatedAt: now,
-  }})
-  const policyCount = new Set(candidate.rows.map((row) => `${commission(row['공구판매가'], row['총 매입가(VAT포함)']).toFixed(4)}:${row['셀러 수수료율'].toFixed(4)}`)).size
-  return {
-    supplyAudience: candidate.settlementVendorName ? 'vendor' : 'seller', settlementVendorName: candidate.settlementVendorName,
-    productCode: existing?.productCode ?? `DRIVE-${importKey}`,
-    vendorId: existing?.vendorId, vendorName: candidate.metadata.vendorName,
-    brandId: existing?.brandId ?? `drive-${normalize(candidate.metadata.brandName)}`, brandName: candidate.metadata.brandName,
-    productName: candidate.productName, category: first['카테고리'], productUrl: candidate.metadata.productUrl,
-    regularPrice: won(first['정상가']), salePrice: won(first['공구판매가']), supplyPrice: won(first['총 매입가(VAT포함)']),
-    shippingFee: won(candidate.metadata.shippingFee), freeShippingThreshold: candidate.metadata.freeShippingThreshold === undefined ? undefined : won(candidate.metadata.freeShippingThreshold),
-    totalCommissionRate: commission(first['공구판매가'], first['총 매입가(VAT포함)']), sellerCommissionRate: first['셀러 수수료율'],
-    commissionCalculationType: policyCount > 1 ? 'sku' : 'campaign_total', defaultSalesChannelType: existing?.defaultSalesChannelType ?? 'supplier_link',
-    supplierLinkAvailable: true, supplierLinkPgPolicy: existing?.supplierLinkPgPolicy ?? 'manual', wiseShopAvailable: false,
-    sellerCheckoutAvailable: false, brandPgSupportAvailable: false, courierName: candidate.metadata.courierName,
-    sampleSupportType: candidate.metadata.sampleSupportType, sampleAvailable: !/불가|미지원/.test(candidate.metadata.sampleSupportType), skus,
-    sellerPortalVisible: !candidate.metadata.draft && !candidate.settlementVendorName, partnerPortalVisible: false,
-    sellerPortalStatus: candidate.metadata.draft ? 'closed' : 'available', badges: existing?.badges ?? [],
-    managerName: existing?.managerName ?? '김병희', campaignReferences: existing?.campaignReferences ?? [], active: true, testData: false,
-    sourceFileName: candidate.fileName, sourceImportedAt: now,
-  }
-}
-
-export function ProductBulkImportPanel({ existingProducts, onClose, onDone }: { existingProducts: ProductMaster[]; onClose: () => void; onDone: () => Promise<void> }) {
+const errorText = (error: unknown) => error instanceof Error ? error.message : String((error as { message?: string })?.message ?? error)
+const states: ReviewState[] = ['기존', '신규', '조건변경', '확인필요']
+export function ProductBulkImportPanel({ onClose, onDone }: { existingProducts: ProductMaster[]; onClose: () => void; onDone: () => Promise<void> }) {
   const [vendorMode, setVendorMode] = useState(false)
   const [vendorName, setVendorName] = useState('')
-  const [candidates, setCandidates] = useState<Candidate[]>([])
+  const [candidates, setCandidates] = useState<ReviewCandidate[]>([])
   const [reading, setReading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
-  const summary = useMemo(() => ({
-    ready: candidates.filter((item) => item.state === 'ready').length,
-    draft: candidates.filter((item) => item.state === 'draft').length,
-    duplicate: candidates.filter((item) => item.state === 'duplicate').length,
-    error: candidates.filter((item) => item.state === 'error').length,
-  }), [candidates])
-
   const readFiles = async (files?: FileList | null) => {
     if (!files?.length) return
     if (vendorMode && !vendorName.trim()) { setMessage('정산 벤더명을 먼저 입력해주세요.'); return }
-    setReading(true); setMessage('')
-    const nextByIdentity = new Map<string, Candidate>()
-    for (const file of Array.from(files).slice(0, 250)) {
-      try {
-        const parsed = await parseWiseProposalFile(file)
-        const productName = inferProposalProductName(parsed.rows, file.name)
-        const base: Candidate = { settlementVendorName: vendorMode ? vendorName.trim() : undefined, key: file.name, fileName: file.name, productName, rows: parsed.rows, metadata: parsed.metadata, state: parsed.metadata.draft ? 'draft' : 'ready' }
-        const existing = findExisting(existingProducts, base)
-        const sameFileProducts = productsFromSameFile(existingProducts, base)
-        const identity = `${normalize(parsed.metadata.brandName)}:${normalize(productName)}`
-        const replaced = nextByIdentity.has(identity)
-        nextByIdentity.set(identity, {
-          ...base,
-          state: parsed.metadata.draft ? 'draft' : existing ? 'duplicate' : 'ready',
-          message: sameFileProducts.length > 1
-            ? `같은 파일에서 분리된 기존 상품 ${sameFileProducts.length}개를 1개 상품으로 통합`
-            : existing ? '기존 상품을 최신 내용으로 갱신' : replaced ? '같은 브랜드·상품의 최신 제안서로 병합' : undefined,
-        })
-      } catch (error) {
-        nextByIdentity.set(`error:${file.name}`, { key: file.name, fileName: file.name, productName: '-', rows: [], metadata: { brandName: '-', vendorName: '-', productUrl: '', shippingFee: 0, courierName: '', sampleSupportType: '', draft: file.name.startsWith('수정중') }, state: 'error', message: error instanceof Error ? error.message : '파일을 읽지 못했습니다.' })
+    setReading(true); setMessage(''); setCandidates([])
+    try {
+      const products = await productService.listProductsForImport()
+      const inputs: Candidate[] = []
+      const failures: ReviewCandidate[] = []
+      for (const file of Array.from(files).slice(0, 250)) {
+        const key = crypto.randomUUID()
+        try {
+          const parsed = await parseWiseProposalFile(file)
+          const supplierReview = reviewProposalSupplier(parsed.metadata)
+          inputs.push({ key, fileName: file.name, productName: inferProposalProductName(parsed.rows, file.name, parsed.metadata.brandName), rows: parsed.rows, metadata: parsed.metadata, vendorId: supplierReview.status === 'existing' ? supplierReview.supplier.id : undefined, supplierIssue: supplierReview.status === 'review' ? supplierReview.reason : undefined, settlementVendorName: vendorMode ? vendorName.trim() : undefined })
+        } catch (error) {
+          failures.push({ key, fileName: file.name, productName: '-', rows: [], metadata: { brandName: '-', vendorName: '-', productUrl: '', shippingFee: 0, courierName: '', sampleSupportType: '', draft: false }, items: [], error: errorText(error) })
+        }
       }
-    }
-    setCandidates(Array.from(nextByIdentity.values())); setReading(false)
+      setCandidates([...reviewBatch(inputs, products), ...failures])
+    } catch (error) { setMessage(`상품 조회 실패: ${errorText(error)}`) }
+    finally { setReading(false) }
   }
-
   const save = async () => {
     setSaving(true); setMessage('')
     let saved = 0
-    const failures: Array<{ key: string; message: string }> = []
-    for (const candidate of candidates.filter((item) => item.state !== 'error')) {
-      try {
-        const existing = findExisting(existingProducts, candidate)
-        const relatedProducts = productsFromSameFile(existingProducts, candidate)
-        const input = buildInput(candidate, existing, relatedProducts)
-        if (existing) await productService.updateProduct(existing.id, input)
-        else await productService.createProduct(input)
-        for (const duplicate of productsFromSameFile(existingProducts, candidate)) {
-          if (duplicate.id !== existing?.id && duplicate.active) await productService.deactivateProduct(duplicate.id)
+    try {
+      let products = await productService.listProductsForImport()
+      for (const candidate of candidates.filter(item => !item.saved && !item.error && item.items.some(row => row.selected))) {
+        try {
+          const supplier = await ensureProposalSupplier(candidate.metadata)
+          const workingCandidate = { ...candidate, vendorId: supplier.id }
+          const input = applyReviewed(workingCandidate, products)
+          if (!input) continue
+          const product = candidate.existingId ? await productService.updateProduct(candidate.existingId, input, candidate.baseline) : await productService.createProduct(input)
+          products = [...products.filter(item => item.id !== product.id), product]
+          saved += candidate.items.filter(item => item.selected && item.state !== '기존').length
+          // Persist completion immediately: a partial failure must never repeat successful inserts.
+          setCandidates(current => current.map(item => item.key === candidate.key ? { ...item, saved: true, items: item.items.map(row => ({ ...row, selected: false })) } : item))
+        } catch (error) {
+          setCandidates(current => current.map(item => item.key === candidate.key ? { ...item, error: errorText(error), items: item.items.map(row => ({ ...row, state: '확인필요', selected: false })) } : item))
         }
-        saved += 1
-      } catch (error) {
-        failures.push({ key: candidate.key, message: errorMessage(error) })
       }
-    }
-    if (failures.length) {
-      const failureMap = new Map(failures.map((failure) => [failure.key, failure.message]))
-      setCandidates((current) => current.map((item) => failureMap.has(item.key) ? { ...item, state: 'error', message: failureMap.get(item.key) } : item))
-      setMessage(`${saved}개 저장 완료 · ${failures.length}개 확인 필요. 오류 항목만 수정한 뒤 다시 선택해주세요.`)
-    } else {
-      setMessage(`${saved}개 상품을 저장했습니다. 수정중 제안서는 카탈로그에서 숨겼습니다.`)
-    }
-    await onDone()
-    setSaving(false)
+      setMessage(`${saved}개 SKU 반영 완료. 확인필요 항목은 원본을 확인한 뒤 다시 업로드해주세요.`)
+      if (saved) await onDone()
+    } catch (error) { setMessage(errorText(error)) }
+    finally { setSaving(false) }
   }
-
-  const saveable = candidates.filter((item) => item.state !== 'error').length
+  const selectedCount = candidates.filter(item => !item.saved && !item.error).flatMap(item => item.items).filter(item => item.selected && item.state !== '기존' && item.state !== '확인필요').length
   return <div className="bulk-import-backdrop"><section className="bulk-import-panel" role="dialog" aria-modal="true" aria-labelledby="bulk-import-title">
-    <header><div><p className="page-eyebrow">PROPOSAL BULK IMPORT</p><h2 id="bulk-import-title">제안서 일괄 등록</h2><p>드라이브의 제안서 폴더를 내려받은 뒤 여러 파일을 한 번에 선택하세요.</p></div><button className="secondary-button" onClick={onClose}>닫기</button></header>
-    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" style={{ width: 18, height: 18, minHeight: 18 }} disabled={reading || saving} checked={vendorMode} onChange={(event) => { setVendorMode(event.target.checked); setCandidates([]) }} />벤더 전용 제안서</label>
-    {vendorMode && <label>정산 벤더명<input disabled={reading || saving} value={vendorName} placeholder="예: 인벤토리" onChange={(event) => { setVendorName(event.target.value); setCandidates([]) }} /><p>파일의 ‘셀러 수수료율’을 이 벤더에 지급할 수수료로 적용합니다. 일반 셀러용 상품은 변경하지 않으며 셀러 공개 목록에서 제외합니다.</p></label>}
-    <label className="bulk-import-drop"><strong>{reading ? '제안서를 분석하고 있습니다…' : '와이즈 제안서 여러 개 선택'}</strong><span>파일 1개를 상품 1개로 등록하고, 표의 각 상품행은 그 상품의 SKU로 묶습니다. 같은 상품의 최신 파일은 기존 내용을 갱신합니다.</span><input type="file" accept=".xlsx,.xls" multiple disabled={reading || saving} onChange={(event) => void readFiles(event.target.files)} /></label>
-    {!!candidates.length && <><div className="bulk-import-summary"><span>신규 <b>{summary.ready}</b></span><span>초안 <b>{summary.draft}</b></span><span>갱신 <b>{summary.duplicate}</b></span><span>확인 필요 <b>{summary.error}</b></span></div><div className="bulk-import-table"><table><thead><tr><th>상태</th><th>브랜드</th><th>상품</th><th>구성</th><th>파일</th><th>처리</th></tr></thead><tbody>{candidates.map((item) => <tr key={item.key}><td><span className={`import-state is-${item.state}`}>{item.state === 'ready' ? '신규' : item.state === 'draft' ? '초안' : item.state === 'duplicate' ? '갱신' : '오류'}</span></td><td>{item.metadata.brandName}</td><td><strong>{item.productName}</strong></td><td>{item.rows.length}개</td><td>{item.fileName}</td><td>{item.message ?? (item.state === 'draft' ? 'DB 저장 · 카탈로그 숨김' : item.settlementVendorName ? `${item.settlementVendorName} 전용 · 벤더 수수료 적용` : 'DB 저장 · 셀러 공개')}</td></tr>)}</tbody></table></div></>}
-    <footer><p>{message || '저장 전 신규·초안·갱신 항목을 확인해주세요.'}</p><button className="primary-button" disabled={!saveable || saving} onClick={() => void save()}>{saving ? '상품 저장 중…' : `${saveable}개 상품 등록`}</button></footer>
+    <header><div><p className="page-eyebrow">PROPOSAL IMPORT</p><h2 id="bulk-import-title">제안서 비교·선택 반영</h2><p>상품과 SKU를 비교하고 반영할 항목을 선택하세요. 기존 SKU와 정산 이력은 유지됩니다.</p></div><button className="secondary-button" disabled={reading || saving} onClick={onClose}>닫기</button></header>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" style={{ width: 18, height: 18, minHeight: 18 }} disabled={reading || saving} checked={vendorMode} onChange={event => { setVendorMode(event.target.checked); setCandidates([]) }} />벤더 전용 제안서</label>
+    {vendorMode && <label>정산 벤더명<input disabled={reading || saving} value={vendorName} onChange={event => { setVendorName(event.target.value); setCandidates([]) }} /></label>}
+    <label className="bulk-import-drop"><strong>{reading ? '제안서를 비교하고 있습니다…' : '제안서 파일 선택'}</strong><span>엑셀 파일 1개를 상품 1개로 비교합니다. 확인필요 항목은 반영되지 않습니다.</span><input type="file" accept=".xlsx,.xls" multiple disabled={reading || saving} onChange={event => { void readFiles(event.target.files); event.target.value = '' }} /></label>
+    {!!candidates.length && <><div className="bulk-import-summary">{states.map(state => <span key={state}>{state} <b>{candidates.reduce((sum, candidate) => sum + candidate.items.filter(item => item.state === state).length + (state === '확인필요' && !candidate.items.length && candidate.error ? 1 : 0), 0)}</b></span>)}</div>
+      <div className="bulk-import-table"><table><thead><tr><th>상태</th><th>상품 / SKU</th><th>기존값 → 새값</th><th>선택</th></tr></thead><tbody>{candidates.map(candidate => candidate.error && !candidate.items.length ? <tr key={candidate.key}><td>확인필요</td><td>{candidate.fileName}</td><td colSpan={2}>{candidate.error}</td></tr> : candidate.items.map(item => {
+        const row = candidate.rows[item.index]
+        return <tr key={item.key}><td><strong>{candidate.saved ? '반영 완료' : item.state}</strong></td><td>{candidate.metadata.brandName} · {candidate.productName}<br />{sourceOption(row)}<br /><small>{candidate.fileName}</small></td><td>
+          {item.state === '조건변경' && item.comparisons.map(diff => <div key={diff.label} style={diff.before !== diff.after ? { color: '#a13b00', fontWeight: 700 } : undefined}>{diff.label}: {diff.before.toLocaleString('ko-KR')} → {diff.after.toLocaleString('ko-KR')}{diff.label === '셀러 수수료' ? '%' : ''}</div>)}
+          {item.state === '기존' && '변경 없음 · 저장하지 않음'}
+          {item.state === '신규' && <div>판매가 {row['공구판매가'].toLocaleString()}원 · 공급가 {row['총 매입가(VAT포함)'].toLocaleString()}원<br />셀러 수수료 {row['셀러 수수료율']}% · 배송비 {candidate.metadata.shippingFee.toLocaleString()}원</div>}
+          {(candidate.error || item.reason) && <div role="status">{candidate.error || item.reason}{candidate.candidateProductIds?.length ? ` · 상품 후보 ${candidate.candidateProductIds.length}개` : ''}{item.candidateSkuIds?.length ? ` · SKU 후보 ${item.candidateSkuIds.length}개` : ''}</div>}
+        </td><td><select aria-label={`${sourceOption(row)} 반영 여부`} disabled={reading || saving || candidate.saved || !!candidate.error || item.state === '확인필요' || item.state === '기존'} value={item.selected ? 'apply' : 'exclude'} onChange={event => setCandidates(current => current.map(value => value.key === candidate.key ? { ...value, items: value.items.map(valueRow => valueRow.key === item.key ? { ...valueRow, selected: event.target.value === 'apply' } : valueRow) } : value))}><option value="exclude">제외</option><option value="apply">반영</option></select></td></tr>
+      }))}</tbody></table></div></>}
+    <footer><p role="status">{message || '모든 항목은 기본 제외입니다. 변경 내용을 확인한 뒤 반영을 선택하세요.'}</p><button className="primary-button" disabled={!selectedCount || saving || reading} onClick={() => void save()}>{saving ? '반영 중…' : `선택 항목 상품DB 반영 (${selectedCount})`}</button></footer>
   </section></div>
 }

@@ -71,12 +71,27 @@ function isMissingTable(error: unknown) {
   return /workspace_state|relation.*does not exist|schema cache|42P01/i.test(message)
 }
 
-async function syncKey(key: string) {
+let settlementSyncQueue: Promise<void> = Promise.resolve()
+function syncKey(key: string): Promise<void> {
+  if (key !== STORAGE_KEYS.settlements) return performSyncKey(key)
+  const next = settlementSyncQueue.catch(() => undefined).then(() => performSyncKey(key))
+  settlementSyncQueue = next
+  return next
+}
+async function performSyncKey(key: string) {
   if (!supabase || !SYNCHRONIZED_STORAGE_KEYS.includes(key as (typeof SYNCHRONIZED_STORAGE_KEYS)[number])) return
   const raw = localStorage.getItem(key)
   let payload: unknown = null
   if (raw !== null) {
     try { payload = JSON.parse(raw) } catch { payload = raw }
+  }
+  if (key === STORAGE_KEYS.settlements && remoteUpdatedAt.has(key)) {
+    const { data, error } = await supabase.from('workspace_state').update({ payload, deleted: raw === null, source_device_id: getDeviceId() })
+      .eq('workspace_id', WORKSPACE_ID).eq('storage_key', key).eq('updated_at', remoteUpdatedAt.get(key)!).select('updated_at').maybeSingle()
+    if (error) throw error
+    if (!data) throw new Error('다른 사용자가 정산을 변경했습니다. 공용 데이터를 새로 불러온 뒤 다시 시도해주세요.')
+    remoteUpdatedAt.set(key, data.updated_at)
+    return
   }
   const { data, error } = await supabase.from('workspace_state').upsert({
     workspace_id: WORKSPACE_ID,
@@ -188,7 +203,19 @@ export const cloudSyncService = {
   getLocalRecordCount(): number {
     return countWorkspaceRecords(readLocalData())
   },
+  acceptSettlementCommit(payload: unknown, updatedAt: string) {
+    const timer = pendingTimers.get(STORAGE_KEYS.settlements)
+    if (timer !== undefined && typeof window !== 'undefined') window.clearTimeout(timer)
+    pendingTimers.delete(STORAGE_KEYS.settlements)
+    remoteUpdatedAt.set(STORAGE_KEYS.settlements, updatedAt)
+    storageService.setItemFromCloud(STORAGE_KEYS.settlements, payload)
+  },
   async syncKeys(keys: string[]) {
+    for (const key of keys) {
+      const timer = pendingTimers.get(key)
+      if (timer !== undefined && typeof window !== 'undefined') window.clearTimeout(timer)
+      pendingTimers.delete(key)
+    }
     await Promise.all(keys.map(syncKey))
   },
   createBackup(): WorkspaceBackup {

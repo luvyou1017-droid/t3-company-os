@@ -33,6 +33,6 @@ export function getSalesEventCostTotal(salesImport: SalesDataImport) {
 
 export function getCompanySalesEventCostTotal(salesImport: SalesDataImport) {
   return getSalesEventCosts(salesImport)
-    .filter((event) => event.owner === 'company' || event.owner === 'company_manager_prepaid')
+    .filter((event) => !event.direction && (event.owner === 'company' || event.owner === 'company_manager_prepaid'))
     .reduce((sum, event) => sum + event.amount, 0)
 }

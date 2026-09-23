@@ -1,6 +1,8 @@
 import type { Campaign } from './campaign'
 
 export type NotionIntegratedListRecord = {
+  supplyAudience?: 'seller' | 'vendor'
+  settlementVendorName?: string
   sourceId: string
   title: string
   startDate: string
@@ -28,5 +30,6 @@ export type NotionCampaignMigrationPreview = {
   source: NotionIntegratedListRecord
   campaign: Campaign
   warnings: string[]
+  blockingErrors: string[]
 }
 

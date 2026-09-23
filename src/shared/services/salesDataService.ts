@@ -86,17 +86,22 @@ export const salesDataService = {
     this.saveRows(this.getSalesDataRows().filter((row) => !removableIds.has(row.salesDataImportId)))
     return removableIds.size
   },
+  isHiddenDeletedPlaceholder(item: SalesDataImport) {
+    if (!campaignService.getCampaignById(item.campaignId)?.deletedAt) return false
+    const hasSettlement = storageService.getItem<Array<{campaignId:string;salesDataImportId:string}>>(STORAGE_KEYS.settlements, []).some(settlement => settlement.campaignId === item.campaignId || settlement.salesDataImportId === item.id)
+    return !hasSettlement && item.reviewStatus === '업로드 대기' && item.settlementStatus === '정산 전'
+      && item.totalQuantity === 0 && item.totalSalesAmount === 0 && !item.fileName && !item.fileSize
+      && !item.uploadedAt && !item.originalSalesFileStoragePath && !item.fileAnalysis && !item.manualSettlement
+      && !this.getSalesDataRows().some(row => row.salesDataImportId === item.id)
+  },
   syncCampaigns(campaigns: Campaign[]) {
     const mockImportIds = new Set(Array.from({ length: 10 }, (_, index) => `sales-${String(index + 1).padStart(3, '0')}`))
-    const campaignIds = new Set(campaigns.map((campaign) => campaign.id))
-    const rowImportIds = new Set(this.getSalesDataRows().map((row) => row.salesDataImportId))
-    const current = this.getSalesDataImports().filter((item) =>
-      !mockImportIds.has(item.id) &&
-      (campaignIds.has(item.campaignId) || rowImportIds.has(item.id) || item.totalQuantity > 0 || item.totalSalesAmount > 0),
-    )
+    // Missing/deleted campaigns never delete source records. Visibility is derived
+    // from explicit deletedAt, so restoration keeps the original placeholder ID.
+    const current = this.getSalesDataImports().filter(item => !mockImportIds.has(item.id))
     const existingCampaignIds = new Set(current.map((item) => item.campaignId))
     const placeholders = campaigns
-      .filter((campaign) => !existingCampaignIds.has(campaign.id))
+      .filter((campaign) => !campaign.deletedAt && !existingCampaignIds.has(campaign.id))
       .map((campaign): SalesDataImport => ({
         id: `sales-${campaign.id}`,
         campaignId: campaign.id,

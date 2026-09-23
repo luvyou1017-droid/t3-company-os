@@ -89,6 +89,8 @@ export function getCampaignTiming(
   schedule: Pick<CampaignSchedule, 'startDate' | 'endDate'>,
   today = getTodayInSeoul(),
 ): CampaignTiming {
+  if (schedule.endDate && schedule.endDate < today) return { label: '종료', detail: `종료 후 ${getDaysBetweenCalendarDates(schedule.endDate, today)}일`, phase: 'ended', deadlineTone: 'normal' }
+
   if (!schedule.startDate) {
     return { label: '미정', detail: '일정 확인 필요', phase: 'unknown', deadlineTone: 'normal' }
   }

@@ -1,3 +1,4 @@
+import { scheduleRequiredErrors } from '../utils/campaignReadiness'
 import { campaigns } from '../data/campaigns'
 import { workItems as mockWorkItems } from '../../features/myWork/mockData'
 import {
@@ -274,59 +275,9 @@ export const campaignService = {
     const errors: CampaignCreateValidationErrors = {}
 
     if (!input.campaignName.trim()) errors.campaignName = '공동구매명을 입력해주세요.'
-    if (!input.sellerName.trim()) errors.sellerName = '셀러를 입력해주세요.'
-    if (!input.brandName.trim()) errors.brandName = '브랜드를 입력해주세요.'
-    if (!input.productName.trim()) errors.productName = '상품을 입력해주세요.'
-    if (!input.managerId) errors.managerId = '담당 매니저를 선택해주세요.'
-    if (!input.mdId) errors.mdId = 'MD를 선택해주세요.'
-    if (!input.startDate) errors.startDate = '시작일을 선택해주세요.'
-    if (!input.endDate) errors.endDate = '종료일을 선택해주세요.'
-    if (!input.linkOwner) errors.linkOwner = '링크 주체를 선택해주세요.'
-    if (!input.businessType) errors.businessType = '사업자 유형을 선택해주세요.'
-    if (input.campaignProducts?.length) {
-      try { captureProposalSnapshots(input.campaignProducts) } catch (error) {
-        errors.productName = error instanceof Error ? error.message : '상품 수수료 정책을 확인해주세요.'
-      }
-    }
-
-    if (input.startDate && input.endDate && input.endDate < input.startDate) {
-      errors.endDate = '종료일은 시작일보다 빠를 수 없습니다.'
-    }
-
-    if (!input.campaignProducts?.length && input.totalCommissionRate <= 0) {
-      errors.totalCommissionRate = '총수수료율은 0보다 커야 합니다.'
-    }
-
-    if (!input.campaignProducts?.length && input.sellerCommissionRate < 0) {
-      errors.sellerCommissionRate = '셀러 수수료율은 음수일 수 없습니다.'
-    }
-
-    if (!input.campaignProducts?.length && input.totalCommissionRate > 100) {
-      errors.totalCommissionRate = '수수료율은 100을 초과할 수 없습니다.'
-    }
-
-    if (!input.campaignProducts?.length && input.sellerCommissionRate > 100) {
-      errors.sellerCommissionRate = '수수료율은 100을 초과할 수 없습니다.'
-    }
-
-    if (
-      !input.campaignProducts?.length &&
-      input.totalCommissionRate >= 0 &&
-      input.sellerCommissionRate >= 0 &&
-      input.totalCommissionRate < input.sellerCommissionRate
-    ) {
-      errors.sellerCommissionRate = '총수수료율은 셀러 수수료율 이상이어야 합니다.'
-    }
-
-    if (
-      !input.campaignProducts?.length &&
-      input.totalCommissionRate > 0 &&
-      input.sellerCommissionRate >= 0 &&
-      input.totalCommissionRate === input.sellerCommissionRate
-    ) {
-      errors.sellerCommissionRate = '총수수료율과 셀러 수수료율은 서로 다른 값이어야 합니다.'
-    }
-
+    if (!(input.sellerId && input.sellerName.trim()) && !input.settlementVendorName?.trim()) errors.sellerName = '셀러 또는 요청 대상을 입력해주세요.'
+    const required = scheduleRequiredErrors({ ...input, sellerId: input.sellerId ?? '', settlementVendorName: input.settlementVendorName })
+    if (required.length) errors.campaignName = required.join(' · ')
     return errors
   },
   getChecklistItems() {
@@ -408,15 +359,15 @@ export const campaignService = {
       id: createId('SCH'),
       campaignCode,
       campaignName: input.campaignName.trim() || generateCampaignName({ sellerName: input.sellerName, selectedProducts: input.campaignProducts ?? [] }),
-      sellerId: input.sellerId ?? createId('seller'),
-      sellerName: input.sellerName.trim(),
+      sellerId: input.sellerId ?? '',
+      sellerName: input.sellerName.trim() || input.settlementVendorName?.trim() || '',
       sellerBusinessId: input.sellerBusinessId,
       sellerBusinessName: input.sellerBusinessName,
       supplyAudience: input.supplyAudience ?? 'seller',
-      settlementVendorName: input.supplyAudience === 'vendor' ? input.settlementVendorName?.trim() : undefined,
-      brandId: input.campaignProducts?.[0]?.brandId ?? createId('brand'),
+      settlementVendorName: input.settlementVendorName?.trim() || undefined,
+      brandId: input.campaignProducts?.[0]?.brandId ?? '',
       brandName: input.brandName.trim(),
-      productId: input.campaignProducts?.[0]?.productId ?? createId('product'),
+      productId: input.campaignProducts?.[0]?.productId ?? '',
       productName: input.productName.trim(),
       managerId: input.managerId,
       managerName: manager?.name ?? '',
@@ -429,7 +380,7 @@ export const campaignService = {
       totalCommissionRate: input.totalCommissionRate,
       sellerCommissionRate: input.sellerCommissionRate,
       settlementDueDate: input.settlementDueDate ?? '',
-      landingPageType: input.landingPageType,
+      landingPageType: input.salesChannelType ?? input.landingPageType,
       salesChannelType: input.salesChannelType,
       salesChannelSource: input.salesChannelSource,
       salesChannelManuallyOverridden: input.salesChannelManuallyOverridden,
@@ -450,7 +401,9 @@ export const campaignService = {
       managerPaymentCompleted: false,
       todayTask: '자동 체크리스트 확인',
       campaignProducts: input.campaignProducts,
-      proposalSnapshots: input.proposalSnapshots ?? (input.campaignProducts?.length ? captureProposalSnapshots(input.campaignProducts) : undefined),
+      proposalSnapshots: input.proposalSnapshots ?? (input.campaignProducts ?? []).flatMap(selection => {
+        try { return captureProposalSnapshots([selection]) } catch { return [] }
+      }),
       campaignEvents: input.campaignEvents,
       creationBusinessType: input.businessType === 'corporation' || input.businessType === 'sole_proprietor' ? 'general_business' : input.businessType,
       settlementDueDateOverridden: input.settlementDueDateOverridden,

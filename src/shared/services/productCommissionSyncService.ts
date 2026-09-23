@@ -1,3 +1,4 @@
+import { matchFlavorPack, parseFlavorPack } from '../utils/flavorPackMatching'
 import { productService } from '../../features/productMaster/services/productService'
 import type { ProductMaster, ProductMasterInput, ProductSku } from '../../features/productMaster/types'
 import type { SalesDataRow } from '../types/salesData'
@@ -95,9 +96,10 @@ export async function syncProductCommissionRates(salesDataImportId: string) {
     // campaign. It must win even when an imported Notion campaign still carries
     // an older supplier or brand id (for example, after the supplier changes).
     const manual = manualSkuId ? allCandidates.find((candidate) => candidate.sku.id === manualSkuId) : undefined
-    const best = manual ? { ...manual, score: 999 } : candidates.map((candidate) => ({ ...candidate, score: productSkuMatchScore(row, candidate.product, candidate.sku, allowTierPriceMatch) }))
+    const ranked = manual ? { ...manual, score: 999 } : candidates.map((candidate) => ({ ...candidate, score: productSkuMatchScore(row, candidate.product, candidate.sku, allowTierPriceMatch) }))
       .filter((candidate) => candidate.score >= 80)
-      .sort((a, b) => b.score - a.score)[0]
+      .sort((a, b) => b.score - a.score)
+    const best = !Array.isArray(ranked) ? ranked : ranked[0] && (!parseFlavorPack(row.optionName) || !ranked[1] || ranked[0].score > ranked[1].score) ? ranked[0] : undefined
     if (!best) {
       const suggestions = candidates.map(({ product, sku }) => {
         const optionSimilarity = similarity(row.optionName, sku.optionName)
@@ -139,6 +141,11 @@ export async function syncProductCommissionRates(salesDataImportId: string) {
     matched += 1
     return {
       ...row,
+      skuId: best.sku.id, productId: best.product.id, productName: best.product.productName,
+      skuOptionName: best.sku.optionName,
+      agreedUnitPrice: row.agreedUnitPrice ?? best.sku.groupBuyPrice,
+      sellerSupplyPrice: row.sellerSupplyPrice ?? best.sku.currentTradeTerms?.sellerSupplyPrice,
+      detailOption: matchFlavorPack(row.optionName, best.sku.optionName, '', best.sku.productName || best.product.productName)?.detailOption ?? row.detailOption,
       totalCommissionRate: Number(policy.totalCommissionRate.toFixed(4)),
       sellerCommissionRate: policy.sellerCommissionRate,
     }
@@ -195,6 +202,11 @@ export async function createSkuFromSalesRow(salesDataImportId: string, rowId: st
   if (!candidate) throw new Error('조건을 복사할 기준 구성을 찾을 수 없습니다.')
   const targetRow = salesDataService.getRowsByImportId(salesDataImportId).find((row) => row.id === rowId)
   if (!targetRow) throw new Error('등록할 판매행을 찾을 수 없습니다.')
+  if (parseFlavorPack(targetRow.optionName)) {
+    const packSkus = candidate.product.skus.filter(sku => sku.active && matchFlavorPack(targetRow.optionName, sku.optionName, '', sku.productName || candidate.product.productName))
+    if (packSkus.length === 1) return manuallyMatchSalesRow(salesDataImportId, rowId, packSkus[0].id)
+    throw new Error('맛 구성은 세부옵션입니다. 신규 SKU를 만들지 않고 기존 개수별 SKU를 확인해주세요.')
+  }
   const existing = candidate.product.skus.find((sku) => normalize(sku.optionName) === normalize(targetRow.optionName))
   if (existing) return manuallyMatchSalesRow(salesDataImportId, rowId, existing.id)
   const now = new Date().toISOString()

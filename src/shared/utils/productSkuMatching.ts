@@ -1,9 +1,11 @@
+import { matchFlavorPack, parseFlavorPack } from './flavorPackMatching'
 import type { ProductMaster, ProductSku } from '../../features/productMaster/types'
 import type { SalesDataRow } from '../types/salesData'
 
 export const normalizeProductMatchText = (value?: string) => String(value ?? '').toLowerCase().replace(/제품선택\s*:/g, '').replace(/[^0-9a-z가-힣]/g, '')
 
 export function productSkuMatchScore(row: Pick<SalesDataRow, 'optionName' | 'unitPrice'>, product: Pick<ProductMaster, 'productName'>, sku: Pick<ProductSku, 'optionName' | 'productName' | 'pricingType' | 'groupBuyPrice'>, allowTierPriceMatch: boolean) {
+  if (parseFlavorPack(row.optionName)) return matchFlavorPack(row.optionName, sku.optionName, '', sku.productName || product.productName) ? 150 : 0
   const rowName = normalizeProductMatchText(row.optionName)
   const optionName = normalizeProductMatchText(sku.optionName)
   const productName = normalizeProductMatchText(sku.productName || product.productName)
