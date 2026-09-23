@@ -298,7 +298,7 @@ Deno.serve(async (request) => {
           const excluded = new Map((exclusions ?? []).map((item: any) => [String(item.notion_page_id).replace(/-/g, ''), item.source_signature]))
           runs[0].changes = runs[0].changes.map((change: Change) => {
             const signature = excluded.get(change.id.replace(/-/g, ''))
-            if (signature === change.source?.exclusionSignature) return { ...change, state: '등록제외', reason: '사용자가 등록 제외한 일정' }
+            if (signature && signature === change.source?.exclusionSignature) return { ...change, state: '등록제외', reason: '사용자가 등록 제외한 일정' }
             if (signature && signature !== change.source?.exclusionSignature) return { ...change, state: '확인필요', reason: '제외 상태 변경 감지 · 다시 확인 필요' }
             return change
           })

@@ -8,5 +8,6 @@ create table if not exists public.notion_schedule_exclusions (
   reason text
 );
 alter table public.notion_schedule_exclusions enable row level security;
+grant select, insert, update on public.notion_schedule_exclusions to service_role;
 -- Only automatic-sync's service role accesses this table after authenticating
 -- an approved CEO/admin. There are deliberately no client RLS policies.
