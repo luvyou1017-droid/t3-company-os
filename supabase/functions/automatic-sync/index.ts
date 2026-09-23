@@ -91,7 +91,10 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
   const notionTitle = async (id?: string) => {
     if (!id) return ''
     const page = await fetchJson(`https://api.notion.com/v1/pages/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${env('NOTION_API_TOKEN')}`, 'Notion-Version': '2025-09-03' } })
-    return Object.values(page.properties ?? {}).map((value: any) => textProperty(value)).find(Boolean) ?? ''
+    // Related pages contain rich-text notes and private shipping details.
+    // Only the actual Notion title property is a matching key.
+    const title = Object.values(page.properties ?? {}).find((value: any) => value?.type === 'title')
+    return textProperty(title)
   }
   const titleCache = new Map<string, string>()
   const relationTitle = async (property: any) => {
