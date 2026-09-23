@@ -115,8 +115,8 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
       // Operating scope: schedules starting on or after 2026-08-01.
       if (!period?.start || period.start.slice(0, 10) < '2026-08-01') continue
       const sourceId = String(item.id).replace(/-/g, '')
-      const sellerProperty = properties[map.seller ?? '셀러명']
-      const managerProperty = properties[map.manager ?? '담당매니저']
+      const sellerProperty = properties[map.seller ?? '셀러명']?.relation?.length ? properties[map.seller ?? '셀러명'] : properties['셀러명'] ?? properties[map.seller]
+      const managerProperty = properties[map.manager ?? '담당매니저']?.relation?.length ? properties[map.manager ?? '담당매니저'] : properties['담당매니저'] ?? properties[map.manager]
       const sellerName = textProperty(sellerProperty)
       const sellerId = sellerProperty?.relation?.[0]?.id
       const managerName = textProperty(managerProperty)
