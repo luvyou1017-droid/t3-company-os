@@ -166,7 +166,10 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
         id: item.id,
         name: name || '이름 확인 필요',
         entity: '일정',
-        state: reason ? '확인필요' : !match ? '신규' : differences.length ? '조건변경' : '기존',
+        // A distinct new page remains a new candidate even if its manager
+        // relation is unavailable to this integration. The UI requires a
+        // manager before saving; ambiguity and cancellation remain in review.
+        state: reason && !(reason === '담당 매니저 확인 필요' && !match) ? '확인필요' : !match ? '신규' : differences.length ? '조건변경' : '기존',
         reason,
         differences,
         scheduleId: match?.id,
