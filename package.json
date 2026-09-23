@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/checkSupabaseEnv.mjs",
     "build": "tsc -b && vite build",
     "test:campaign-creation": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runCampaignCreationV2.mjs",
     "test:campaign-drafts": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runCampaignDrafts.mjs",

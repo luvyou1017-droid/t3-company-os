@@ -14,7 +14,8 @@ type Change = {
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization,apikey,content-type,x-client-info,x-sync-token',
+  'Access-Control-Allow-Headers': 'authorization,apikey,content-type,x-client-info,x-retry-count,x-region,x-sync-token',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Content-Type': 'application/json',
 }
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers })

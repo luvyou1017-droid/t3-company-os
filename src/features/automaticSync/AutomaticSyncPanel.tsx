@@ -11,30 +11,38 @@ export function AutomaticSyncPanel() {
   const { profile } = useCompanyAuth()
   const allowed = profile.role === 'ceo' || profile.role === 'admin'
   const [job, setJob] = useState<SyncJob | undefined>()
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'status' | 'run' | null>(null)
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
   const [filter, setFilter] = useState<'신규' | '조건변경' | '확인필요' | null>(null)
   const lastRun = job?.runs[0]
   const latest = lastRun?.counts.scopeApplied === 1 ? lastRun : undefined
   async function refresh() {
-    setBusy(true)
+    setBusy('status')
     try { setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign')); setError('') }
     catch (e) { setError(e instanceof Error ? e.message : '현황 조회 실패') }
-    finally { setBusy(false) }
+    finally { setBusy(null) }
   }
   useEffect(() => { if (allowed) void refresh() }, [allowed])
   if (!allowed) return null
   async function run() {
-    setBusy(true); setError(''); setFilter(null)
-    try { await automaticSyncService.run('campaign'); setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign')) }
-    catch (e) { setError(e instanceof Error ? e.message : '동기화 실패'); try { setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign')) } catch { /* keep last result */ } }
-    finally { setBusy(false) }
+    setBusy('run'); setError(''); setMessage(''); setFilter(null)
+    try {
+      await automaticSyncService.run('campaign')
+      setMessage('Notion 일정 조회 및 후보 분류가 완료됐습니다. 일정은 저장되지 않았습니다.')
+      try { setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign')) }
+      catch { setError('동기화 실행은 완료됐지만 현황 갱신에 실패했습니다. 현황 새로고침을 눌러주세요.') }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '동기화 실패')
+      try { setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign')) } catch { /* keep last result */ }
+    } finally { setBusy(null) }
   }
   const count = (state: Change['state']) => latest?.changes.filter(change => change.entity === '일정' && change.state === state).length ?? 0
   const visible = latest?.changes.filter(change => change.entity === '일정' && (!filter || change.state === filter)) ?? []
   return <section className="auto-sync-panel">
-    <div className="auto-sync-heading"><div><h2>Notion 일정 동기화</h2><p>2026년 8월 1일 이후 시작 일정만 조회 → 기존 일정 비교 → 후보 검토. 수동 실행과 월요일 09:00(한국시간) 자동 실행은 같은 서버 로직을 사용합니다.</p></div><button className="primary-button" disabled={busy || !job?.configured} onClick={() => void run()}>{busy ? '동기화 중…' : 'Notion 일정 동기화'}</button></div>
+    <div className="auto-sync-heading"><div><h2>Notion 일정 동기화</h2><p>2026년 8월 1일 이후 시작 일정만 조회 → 기존 일정 비교 → 후보 검토. 수동 실행과 월요일 09:00(한국시간) 자동 실행은 같은 서버 로직을 사용합니다.</p></div><button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void refresh()}>현황 새로고침</button><button className="primary-button" disabled={Boolean(busy) || !job?.configured} onClick={() => void run()}>{busy === 'run' ? '동기화 중…' : 'Notion 일정 동기화'}</button></div>
     {error && <p role="alert" className="auto-sync-error">{error}</p>}
+    {message && <p role="status">{message}</p>}
     {job?.configuration_error && <p role="alert">{job.configuration_error}</p>}
     {lastRun && !latest && <p role="status">이전 실행 기록은 8월 이후 범위가 적용되기 전 자료입니다. 새 범위로 다시 동기화하면 분류 결과가 표시됩니다.</p>}
     <dl><dt>최근 실행일시</dt><dd>{date(latest?.started_at)}</dd><dt>실행 방식</dt><dd>{latest ? latest.trigger === 'manual' ? '수동' : '자동' : '기록 없음'}</dd><dt>마지막 결과</dt><dd>{latest ? { running: '진행 중', succeeded: '성공', failed: '실패' }[latest.status] : '기록 없음'}{latest?.error && ` · ${latest.error}`}</dd><dt>마지막 성공</dt><dd>{date(job?.last_success_at)}</dd><dt>다음 실행 예정</dt><dd>{job?.scheduled && job.configured ? date(job.next_run) : '자동 실행 미확인'}</dd></dl>
