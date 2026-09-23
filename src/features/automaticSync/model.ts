@@ -1,5 +1,5 @@
 export type SyncKind = 'campaign' | 'proposal'
-export type Change = { id: string; name: string; state: '기존' | '신규' | '조건변경' | '확인필요'; entity: '일정' | '상품' | 'SKU'; reason?: string; differences: { label: string; before: unknown; after: unknown }[] }
+export type Change = { id: string; name: string; state: '기존' | '신규' | '조건변경' | '확인필요'; entity: '일정' | '상품' | 'SKU'; reason?: string; differences: { label: string; before: unknown; after: unknown }[]; scheduleId?: string; source?: { title: string; startDate: string; endDate: string; sellerName: string; sellerId?: string; managerName: string; managerId?: string; supplyAudience?: 'seller' | 'vendor' } }
 export type SyncRun = { id: string; kind: SyncKind; trigger: 'manual' | 'scheduled'; status: 'running' | 'succeeded' | 'failed'; started_at: string; finished_at?: string; error?: string; counts: Record<string, number>; changes: Change[] }
 export type SyncJob = { kind: SyncKind; last_success_at?: string; cursor?: string; configured: boolean; configuration_error?: string; scheduled: boolean; next_run?: string; runs: SyncRun[] }
 export function nextMonday(now: Date) {

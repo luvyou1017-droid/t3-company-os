@@ -42,7 +42,11 @@ export class SupabaseCampaignRepository extends SupabaseRepository<Campaign> {
       if (!source) throw new Error('Notion 원본 ID 확인 필요')
       const matches = (existing ?? []).filter(row => (row.metadata as Campaign)?.notionImportMetadata?.sourceId?.replace(/-/g, '') === source)
       if (matches.length > 1) throw new Error(`${item.campaignName}: 중복 Notion 연결 확인 필요`)
-      const saved = matches[0]
+      const byScheduleId = (existing ?? []).filter(row => (row.metadata as Campaign)?.id === item.id || String(row.id) === item.id)
+      if (!matches.length && byScheduleId.length > 1) throw new Error(`${item.campaignName}: 일정 ID 중복 확인 필요`)
+      if (!matches.length && byScheduleId[0] && (byScheduleId[0].metadata as Campaign)?.notionImportMetadata?.sourceId && (byScheduleId[0].metadata as Campaign).notionImportMetadata?.sourceId?.replace(/-/g, '') !== source) throw new Error(`${item.campaignName}: 기존 일정은 다른 Notion 페이지와 연결되어 있습니다`)
+      const saved = matches[0] ?? byScheduleId[0]
+      if (matches[0] && byScheduleId[0] && matches[0].id !== byScheduleId[0].id) throw new Error(`${item.campaignName}: Notion 연결과 일정 ID 충돌`)
       const current = saved ? { ...(saved.metadata as Campaign), id: (saved.metadata as Campaign).id || String(saved.id) } : undefined
       const next = mergeNotionCampaign(current, item)
       const errors = current?.deletedAt || current?.status === 'settled' ? [] : scheduleRequiredErrors(next)
@@ -50,10 +54,16 @@ export class SupabaseCampaignRepository extends SupabaseRepository<Campaign> {
       return { next, saved }
     })
     // Reuse the actual database primary key. Never delete/recreate a linked schedule.
-    const rows = merged.filter(({ next, saved }) => !saved || (!next.deletedAt && next.status !== 'settled')).map(({ next, saved }) => ({ ...this.toRow(next), ...(saved ? { id: saved.id } : {}) }))
-    const { error: writeError } = rows.length ? await this.client.from(this.table).upsert(rows) : { error: null }
-    return writeError ? { succeeded: 0, failed: items.length, errors: [writeError.message], campaigns: [] }
-      : { succeeded: items.length, failed: 0, errors: [], campaigns: merged.map(x => x.next) }
+    for (const { next, saved } of merged) {
+      if (next.deletedAt || next.status === 'settled') continue
+      // Preserve the database primary key and all business columns on an update.
+      const row = this.toRow(next)
+      const result = saved
+        ? await this.client.from(this.table).update({ campaign_name: row.campaign_name, start_date: row.start_date, end_date: row.end_date, metadata: row.metadata, updated_at: row.updated_at }).eq('id', saved.id).select('id')
+        : await this.client.from(this.table).insert(row).select('id')
+      if (result.error || result.data?.length !== 1) return { succeeded: 0, failed: items.length, errors: [result.error?.message ?? '일정 저장 결과를 확인해주세요.'], campaigns: [] }
+    }
+    return { succeeded: items.length, failed: 0, errors: [], campaigns: merged.map(x => x.next) }
 
   }
 }

@@ -1,49 +1,48 @@
-import { ScheduleCandidateReview } from './ScheduleCandidateReview'
 import { useEffect, useState } from 'react'
 import { useCompanyAuth } from '../auth/AuthGate'
 import { automaticSyncService } from './service'
-import type { SyncJob, SyncKind } from './model'
+import { ScheduleCandidateReview } from './ScheduleCandidateReview'
+import type { Change, SyncJob } from './model'
 import './automaticSync.css'
-const labels = { campaign: '공구일정', proposal: '제안서' }
+
 const date = (value?: string) => value ? new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '기록 없음'
+const stateLabel: Record<Change['state'], string> = { 기존: '기존 일치', 조건변경: '기존 변경 있음', 신규: '신규 일정', 확인필요: '확인 필요' }
 export function AutomaticSyncPanel() {
-  const {profile} = useCompanyAuth()
+  const { profile } = useCompanyAuth()
   const allowed = profile.role === 'ceo' || profile.role === 'admin'
-  const [jobs,setJobs] = useState<SyncJob[]>([])
-  const [error,setError] = useState('')
-  const [busy,setBusy] = useState<SyncKind | 'status' | null>(null)
-  const [message,setMessage] = useState('')
+  const [job, setJob] = useState<SyncJob | undefined>()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [filter, setFilter] = useState<'신규' | '조건변경' | '확인필요' | null>(null)
+  const lastRun = job?.runs[0]
+  const latest = lastRun?.counts.scopeApplied === 1 ? lastRun : undefined
   async function refresh() {
-    setBusy('status')
-    try {setJobs(await automaticSyncService.status());setError('')} catch(e){setError(e instanceof Error?e.message:'현황 조회 실패')}
-    finally {setBusy(null)}
+    setBusy(true)
+    try { setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign')); setError('') }
+    catch (e) { setError(e instanceof Error ? e.message : '현황 조회 실패') }
+    finally { setBusy(false) }
   }
-  useEffect(()=>{if(allowed)void refresh()},[allowed])
-  if(!allowed)return null
-  async function run(kind: SyncKind) {
-    setBusy(kind);setMessage('')
-    try {await automaticSyncService.run(kind);setJobs(await automaticSyncService.status());setError('');setMessage('실행 결과를 확인해주세요. 후보 생성과 실제 DB 반영은 구분됩니다.')}
-    catch(e){setError(e instanceof Error?e.message:'실행 실패');try{setJobs(await automaticSyncService.status())}catch{/* preserve visible history */}}
-    finally{setBusy(null)}
+  useEffect(() => { if (allowed) void refresh() }, [allowed])
+  if (!allowed) return null
+  async function run() {
+    setBusy(true); setError(''); setFilter(null)
+    try { await automaticSyncService.run('campaign'); setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign')) }
+    catch (e) { setError(e instanceof Error ? e.message : '동기화 실패'); try { setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign')) } catch { /* keep last result */ } }
+    finally { setBusy(false) }
   }
-  return <section className="auto-sync-panel"><div className="auto-sync-heading"><div><h2>자동 동기화 현황</h2><p>한국시간 기준 · 자동 실행과 수동 실행의 변경분 및 실패 기록을 확인합니다.</p></div><button className="secondary-button" disabled={Boolean(busy)} onClick={()=>void refresh()}>현황 새로고침</button></div>
-    {error&&<p role="alert" className="auto-sync-error">{error}</p>}{message&&<p role="status">{message}</p>}
-    <div className="auto-sync-grid">{(['campaign','proposal'] as SyncKind[]).map(kind=>{
-      const job=jobs.find(x=>x.kind===kind), latest=job?.runs[0]
-      return <article key={kind}><h3>{labels[kind]}</h3>
-        <p><strong>{!job?'실행 여부 미확인':!job.configured?'연결 설정 필요':job.scheduled?'월요일 09:00 자동 실행 설정 확인':'스케줄러 미설정'}</strong></p>
-        {job?.configuration_error&&<p className="auto-sync-error">{job.configuration_error}</p>}
-        {latest?.status==='failed'&&<div role="alert" className="auto-sync-error"><strong>{labels[kind]} {latest.trigger==='scheduled'?'자동':'수동'} 동기화 실패</strong><p>{latest.error}</p><small>마지막 성공: {date(job?.last_success_at)}</small></div>}
-        <dl><dt>최근 실행</dt><dd>{date(latest?.started_at)}</dd><dt>실행 방식</dt><dd>{latest?(latest.trigger==='manual'?'수동':'자동'):'기록 없음'}</dd><dt>마지막 결과</dt><dd>{latest?({running:'실행 중',succeeded:'성공',failed:'실패'}[latest.status]):'기록 없음'}</dd><dt>마지막 성공</dt><dd>{date(job?.last_success_at)}</dd><dt>다음 실행 예정</dt><dd>{job?.scheduled&&job.configured?date(job.next_run):'자동 실행 미확인 / 예정 없음'}</dd></dl>
-        {latest && <p>{kind==='campaign'?<>신규 일정 후보 {latest.counts.newCampaigns??0} · 수정 일정 후보 {latest.counts.changedCampaigns??0}</>:<>확인 제안서 {latest.counts.checked??0} · 신규 상품 후보 {latest.counts.newProducts??0} · 신규 SKU 후보 {latest.counts.newSkus??0} · 조건변경 {latest.counts.terms??0}</>} · 변화 없음 {latest.counts.unchanged??0} · 확인 필요 {latest.counts.review??0}</p>}
-        <p>기준: {kind==='proposal'?'파일 수정일':'노션 수정일'} &gt; 마지막 성공 시점</p>
-        <button className="primary-button" disabled={Boolean(busy)||!job?.configured} onClick={()=>void run(kind)}>{busy===kind?'실행 중…':labels[kind]+' 지금 동기화'}</button>
-        {(job?.runs??[]).map(item=><details key={item.id}><summary>변경내역 보기 · {date(item.started_at)} · {item.status==='succeeded'?'성공':item.status==='failed'?'실패':'실행 중'}</summary>
-          <p>{kind==='campaign'?<>신규 후보 {item.counts.newCampaigns??0} · 수정 후보 {item.counts.changedCampaigns??0}</>:<>확인 제안서 {item.counts.checked??0} · 신규 상품 후보 {item.counts.newProducts??0} · 신규 SKU 후보 {item.counts.newSkus??0} · 조건변경 {item.counts.terms??0}</>} · 변화 없음 {item.counts.unchanged??0} · 확인 필요 {item.counts.review??0}</p>
-          <p>검토 후보입니다. 상품·SKU·일정 및 과거 정산을 자동 덮어쓰지 않습니다.</p>
-          {item.error&&<p role="alert">{item.error}</p>}
-          <div className="auto-sync-table"><table><thead><tr><th>분류</th><th>항목</th><th>변경 / 확인 사유</th></tr></thead><tbody>{item.changes.map(c=><tr key={c.id}><td>{c.state} · {c.entity}</td><td>{c.name}</td><td>{c.reason}{kind === 'campaign' && <ScheduleCandidateReview change={c} />}{c.differences.map((d,i)=><div key={i}>{d.label}: {String(d.before??'없음')} → {String(d.after??'없음')}</div>)}</td></tr>)}</tbody></table></div>
-        </details>)}
-      </article>
-    })}</div></section>
+  const count = (state: Change['state']) => latest?.changes.filter(change => change.entity === '일정' && change.state === state).length ?? 0
+  const visible = latest?.changes.filter(change => change.entity === '일정' && (!filter || change.state === filter)) ?? []
+  return <section className="auto-sync-panel">
+    <div className="auto-sync-heading"><div><h2>Notion 일정 동기화</h2><p>2026년 8월 1일 이후 시작 일정만 조회 → 기존 일정 비교 → 후보 검토. 수동 실행과 월요일 09:00(한국시간) 자동 실행은 같은 서버 로직을 사용합니다.</p></div><button className="primary-button" disabled={busy || !job?.configured} onClick={() => void run()}>{busy ? '동기화 중…' : 'Notion 일정 동기화'}</button></div>
+    {error && <p role="alert" className="auto-sync-error">{error}</p>}
+    {job?.configuration_error && <p role="alert">{job.configuration_error}</p>}
+    {lastRun && !latest && <p role="status">이전 실행 기록은 8월 이후 범위가 적용되기 전 자료입니다. 새 범위로 다시 동기화하면 분류 결과가 표시됩니다.</p>}
+    <dl><dt>최근 실행일시</dt><dd>{date(latest?.started_at)}</dd><dt>실행 방식</dt><dd>{latest ? latest.trigger === 'manual' ? '수동' : '자동' : '기록 없음'}</dd><dt>마지막 결과</dt><dd>{latest ? { running: '진행 중', succeeded: '성공', failed: '실패' }[latest.status] : '기록 없음'}{latest?.error && ` · ${latest.error}`}</dd><dt>마지막 성공</dt><dd>{date(job?.last_success_at)}</dd><dt>다음 실행 예정</dt><dd>{job?.scheduled && job.configured ? date(job.next_run) : '자동 실행 미확인'}</dd></dl>
+    {latest && <><p>Notion 조회: {latest.counts.checked ?? 0}건 · 기존 일치: {count('기존')}건 · 기존 변경 있음: {count('조건변경')}건 · 신규 일정: {count('신규')}건 · 확인 필요: {count('확인필요')}건</p>
+      <p>실제 반영 대상: 변경 {count('조건변경')}건 · 신규 {count('신규')}건. 조회만으로는 일정이 저장되지 않습니다.</p>
+      <div className="notion-import-actions"><button type="button" disabled={!count('신규')} onClick={() => setFilter('신규')}>신규 {count('신규')}건 등록</button><button type="button" disabled={!count('조건변경')} onClick={() => setFilter('조건변경')}>변경 {count('조건변경')}건 업데이트</button><button type="button" disabled={!count('확인필요')} onClick={() => setFilter('확인필요')}>확인 필요 {count('확인필요')}건 검토</button>{filter && <button type="button" onClick={() => setFilter(null)}>전체 보기</button>}</div>
+      <p>각 후보에서 원본과 필수정보를 확인한 뒤 개별 반영합니다. 일치 일정은 저장 대상에서 제외합니다.</p>
+      <div className="auto-sync-table"><table><thead><tr><th>분류</th><th>일정</th><th>변경 전 → 변경 후 / 후속 업무</th><th>검토</th></tr></thead><tbody>{visible.map(change => <tr key={change.id}><td>{stateLabel[change.state]}</td><td>{change.name}</td><td>{change.reason}{change.differences.map((diff, index) => <div key={index}>{({ campaignName: '일정명', startDate: '시작일', endDate: '종료일' } as Record<string, string>)[diff.label] ?? diff.label}: {String(diff.before ?? '없음')} → {String(diff.after ?? '없음')}</div>)}</td><td>{change.state !== '기존' && <ScheduleCandidateReview change={change} />}</td></tr>)}</tbody></table></div>
+    </>}
+  </section>
 }

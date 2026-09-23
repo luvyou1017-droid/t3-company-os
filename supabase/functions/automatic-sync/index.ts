@@ -8,6 +8,8 @@ type Change = {
   entity: '일정' | '상품' | 'SKU'
   reason?: string
   differences: { label: string; before: unknown; after: unknown }[]
+  source?: { title: string; startDate: string; endDate: string; sellerName: string; sellerId?: string; managerName: string; managerId?: string; supplyAudience?: 'seller' | 'vendor' }
+  scheduleId?: string
 }
 
 const headers = {
@@ -34,7 +36,7 @@ function nextMonday(now: Date) {
 
 function summarizeChanges(changes: Change[], checked: number) {
   return {
-    checked,
+    checked, scopeApplied: 1,
     unchanged: changes.filter((x) => x.state === '기존').length,
     newCampaigns: changes.filter((x) => x.entity === '일정' && x.state === '신규').length,
     changedCampaigns: changes.filter((x) => x.entity === '일정' && x.state === '조건변경').length,
@@ -79,6 +81,8 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
   const existing = Array.isArray(data?.payload) ? data.payload : []
   let next: string | undefined
   const changes: Change[] = []
+  const normalized = (value: unknown) => String(value ?? '').normalize('NFKC').toLowerCase().replace(/[\s×xX()·_\-]/g, '')
+  const textProperty = (property: any) => (property?.title ?? property?.rich_text ?? []).map((value: any) => value.plain_text ?? value.text?.content ?? '').join('') || property?.select?.name || property?.formula?.string || ''
 
   do {
     const page = await fetchJson(
@@ -92,7 +96,9 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
         },
         body: JSON.stringify({
           page_size: 100,
-          filter: notionWindow(cursor, until),
+          // Both manual and Monday runs compare the complete source. Incremental cursors
+          // cannot report unchanged schedules or a full four-way dry run.
+          filter: notionWindow(undefined, until),
           ...(next ? { start_cursor: next } : {}),
         }),
       },
@@ -106,10 +112,27 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
       const period =
         properties[map.period]?.date ??
         Object.values(properties).find((property: any) => property?.date?.start)?.date
+      // Operating scope: schedules starting on or after 2026-08-01.
+      if (!period?.start || period.start.slice(0, 10) < '2026-08-01') continue
       const sourceId = String(item.id).replace(/-/g, '')
-      const matches = existing.filter(
+      const sellerProperty = properties[map.seller ?? '셀러명']
+      const managerProperty = properties[map.manager ?? '담당매니저']
+      const sellerName = textProperty(sellerProperty)
+      const sellerId = sellerProperty?.relation?.[0]?.id
+      const managerName = textProperty(managerProperty)
+      const managerId = managerProperty?.relation?.[0]?.id
+      const audienceValue = map.supplyAudience ? textProperty(properties[map.supplyAudience]) : ''
+      const supplyAudience = audienceValue === 'seller' || audienceValue === 'vendor' ? audienceValue : undefined
+      const byId = existing.filter(
         (campaign: any) => campaign.notionImportMetadata?.sourceId?.replace(/-/g, '') === sourceId,
       )
+      const byIdentity = !byId.length && (sellerId || sellerName) && name && period?.start ? existing.filter((campaign: any) =>
+        (sellerId ? campaign.sellerId?.replace(/-/g, '') === sellerId.replace(/-/g, '') : normalized(campaign.sellerName) === normalized(sellerName)) &&
+        normalized(campaign.campaignName) === normalized(name) &&
+        campaign.startDate === period.start.slice(0, 10) &&
+        campaign.endDate === (period.end ?? period.start).slice(0, 10),
+      ) : []
+      const matches = byId.length ? byId : byIdentity
       const match = matches.length === 1 ? matches[0] : undefined
       const values = {
         campaignName: name,
@@ -121,13 +144,20 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
             .filter(([key, value]) => match[key] !== value)
             .map(([label, after]) => ({ label, before: match[label], after }))
         : []
+      const possible = !match && !byId.length && name ? existing.some((campaign: any) =>
+        (sellerId ? campaign.sellerId?.replace(/-/g, '') === sellerId.replace(/-/g, '') : sellerName && normalized(campaign.sellerName) === normalized(sellerName)) && normalized(campaign.campaignName) === normalized(name),
+      ) : false
       const reason =
         matches.length > 1
-          ? '같은 노션 ID에 여러 일정이 연결됨'
-          : !name || !period?.start
-            ? '공구명/기간 확인 필요'
+          ? '기존 일정이 여러 건 일치하여 확인 필요'
+          : !name || !period?.start || !period?.end
+            ? '공구명/시작일/종료일 확인 필요'
+            : name.includes('취소')
+              ? '취소 일정은 자동 확정하지 않습니다'
+            : possible
+              ? '기존 일정과 이름이 유사하나 날짜가 달라 연결 확인 필요'
             : !match
-              ? '신규 일정의 셀러·상품·담당 매니저 연결 확인 필요'
+              ? (!sellerId && !sellerName ? '셀러 또는 요청 대상 확인 필요' : !managerId && !managerName ? '담당 매니저 확인 필요' : undefined)
               : match.deletedAt || match.status === 'settled'
                 ? '삭제/확정 이력 보호: 사용자 확인 필요'
                 : undefined
@@ -136,9 +166,11 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
         id: item.id,
         name: name || '이름 확인 필요',
         entity: '일정',
-        state: reason ? '확인필요' : differences.length ? '조건변경' : '기존',
+        state: reason ? '확인필요' : !match ? '신규' : differences.length ? '조건변경' : '기존',
         reason,
         differences,
+        scheduleId: match?.id,
+        source: { title: name, startDate: values.startDate ?? '', endDate: values.endDate ?? '', sellerName, sellerId, managerName, managerId, supplyAudience },
       })
     }
     next = page.has_more ? page.next_cursor : undefined

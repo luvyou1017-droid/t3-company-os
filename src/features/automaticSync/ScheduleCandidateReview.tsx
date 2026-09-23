@@ -2,7 +2,6 @@ import { productService, normalizeProductIdentity } from '../productMaster/servi
 import { useState } from 'react'
 import type { Change } from './model'
 import { appUsers } from '../../shared/data/users'
-import { notionRecentCampaigns } from '../../shared/data/notionPilot10'
 import { campaignService } from '../../shared/services/campaignService'
 import { sellerMasterService } from '../../shared/services/sellerMasterService'
 import { notionCampaignMigrationService } from '../../shared/services/notionCampaignMigrationService'
@@ -19,19 +18,31 @@ export function ScheduleCandidateReview({ change }: { change: Change }) {
   const [candidate, setCandidate] = useState<Campaign | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [selectedId, setSelectedId] = useState(change.scheduleId ?? '')
   const [sellers, setSellers] = useState(sellerMasterService.listSellers())
-  const matches = campaignService.getCampaigns().filter(c => c.notionImportMetadata?.sourceId?.replace(/-/g, '') === change.id.replace(/-/g, ''))
+  const allCampaigns = campaignService.getCampaigns()
+  const matches = allCampaigns.filter(c => c.notionImportMetadata?.sourceId?.replace(/-/g, '') === change.id.replace(/-/g, ''))
   const protectedSource = matches.length > 1 || matches.some(c => c.deletedAt || c.status === 'settled')
   async function review() {
     if (protectedSource) { setMessage('중복 연결 또는 삭제/확정 일정입니다. 기존 자료를 유지합니다.'); return }
-    const original = notionRecentCampaigns.find(c => c.sourceId.replace(/-/g, '') === change.id.replace(/-/g, ''))
-    const draft = matches[0] ?? notionCampaignMigrationService.preview([original ?? {
-      sourceId: change.id, title: change.name, startDate: '', endDate: '', sellerId: '', sellerName: '', productId: '', productName: '', managerId: '', managerName: '',
-    }])[0].campaign
+    const source = change.source
+    if (!source) { setMessage('원본 일정 상세가 없는 이전 실행기록입니다. 다시 동기화해주세요.'); return }
+    const linked = matches[0] ?? allCampaigns.find(c => c.id === selectedId)
+    if (linked?.deletedAt || linked?.status === 'settled') { setMessage('삭제/확정 일정은 변경할 수 없습니다.'); return }
+    const seller = sellers.find(s => s.id.replace(/-/g, '') === source.sellerId?.replace(/-/g, '') || s.name === source.sellerName)
+    const manager = appUsers.find(u => u.id.replace(/-/g, '') === source.managerId?.replace(/-/g, '') || u.name === source.managerName)
+    const original = { sourceId: change.id, title: source.title, startDate: source.startDate, endDate: source.endDate,
+      sellerId: seller?.id ?? '', sellerName: seller?.name ?? source.sellerName,
+      productId: '', productName: '', managerId: manager?.id ?? '', managerName: manager?.name ?? source.managerName,
+      supplyAudience: source.supplyAudience }
+    const draft = linked ?? notionCampaignMigrationService.preview([original])[0].campaign
     const next = { ...draft, campaignName: change.name, notionImportMetadata: { provider: 'notion' as const, sourceId: change.id, importedAt: new Date().toISOString() } }
+    if (linked) next.id = linked.id
+    next.startDate = source.startDate
+    next.endDate = source.endDate
     // The existing server supplies date diffs for linked schedules. Never guess absent dates.
     for (const d of change.differences) if (['campaignName', 'startDate', 'endDate'].includes(d.label) && typeof d.after === 'string') Object.assign(next, { [d.label]: d.after })
-    if (!matches[0]) {
+    if (!linked) {
       next.productId = ''; next.brandId = ''; next.brandName = ''
       try {
         const products = await productService.listProducts()
@@ -54,7 +65,7 @@ export function ScheduleCandidateReview({ change }: { change: Change }) {
       if (result.failed) throw new Error(result.errors.join(' · '))
       const saved = result.campaigns?.[0] ?? candidate
       const current = campaignService.getCampaigns()
-      const existing = current.find(c => c.notionImportMetadata?.sourceId?.replace(/-/g, '') === change.id.replace(/-/g, ''))
+      const existing = current.find(c => c.id === saved.id || c.notionImportMetadata?.sourceId?.replace(/-/g, '') === change.id.replace(/-/g, ''))
       campaignService.saveCampaigns(existing ? current.map(c => c.id === existing.id ? mergeNotionCampaign(c, saved) : c) : [...current, saved])
       await cloudSyncService.syncKeys([STORAGE_KEYS.campaigns])
       setMessage('일정 반영 완료 · 상품/공급처 미연결은 남은 업무에서 확인해주세요.'); setOpen(false)
@@ -64,6 +75,7 @@ export function ScheduleCandidateReview({ change }: { change: Change }) {
   const patch = (value: Partial<Campaign>) => setCandidate(c => c ? { ...c, ...value } : c)
   return <div><button type="button" className="secondary-button" disabled={busy || protectedSource} onClick={() => void review()}>일정 확인·반영</button>
     {message && <p role="status">{message}</p>}
+    {change.state === '확인필요' && !matches.length && <label>기존 일정 연결 (애매한 후보는 직접 선택) <select value={selectedId} onChange={e => setSelectedId(e.target.value)}><option value="">신규인지 직접 검토</option>{allCampaigns.filter(c => !c.deletedAt && c.status !== 'settled' && (c.campaignName.includes(change.name) || change.name.includes(c.campaignName) || c.sellerName === change.source?.sellerName)).map(c => <option key={c.id} value={c.id}>{c.campaignName} · {c.startDate}~{c.endDate}</option>)}</select></label>}
     {open && candidate && <fieldset disabled={busy}><legend>필수 일정정보 확인</legend>
       <p>원본 실행기록에 없는 필수정보는 직접 확인해주세요. 상품·공급처는 미연결 상태로 등록할 수 있습니다.</p>
       <label>일정명 <input value={candidate.campaignName} onChange={e => patch({ campaignName: e.target.value })} /></label>
