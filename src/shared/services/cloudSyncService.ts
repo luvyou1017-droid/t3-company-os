@@ -2,6 +2,7 @@ import { isSupabaseConfigured, supabase } from '../lib/supabase.ts'
 import { STORAGE_KEYS, storageService } from './storageService.ts'
 import { countWorkspaceRecords, createWorkspaceBackup, readWorkspaceData, SYNCHRONIZED_STORAGE_KEYS, type WorkspaceBackup } from './cloudSyncModel.ts'
 import { removeLegacyFixtures } from '../utils/legacyFixtures.ts'
+import { changedWorkspaceKeys, rememberWorkspaceRow } from './workspacePayloadCache.ts'
 
 export { SYNCHRONIZED_STORAGE_KEYS, type WorkspaceBackup } from './cloudSyncModel.ts'
 
@@ -54,14 +55,18 @@ function applyRow(row: WorkspaceStateRow) {
   remoteUpdatedAt.set(row.storage_key, row.updated_at)
   if (row.deleted) storageService.removeItemFromCloud(row.storage_key)
   else storageService.setItemFromCloud(row.storage_key, row.payload)
+  void rememberWorkspaceRow(row.storage_key, row.updated_at, localStorage.getItem(row.storage_key))
 }
 
-async function fetchRows() {
+async function fetchRows(keys?: string[]) {
   if (!supabase) throw new Error('공용 데이터베이스가 설정되지 않았습니다.')
-  const { data, error } = await supabase
+  if (keys?.length === 0) return []
+  let query = supabase
     .from('workspace_state')
     .select('workspace_id,storage_key,payload,deleted,revision,source_device_id,updated_at')
     .eq('workspace_id', WORKSPACE_ID)
+  if (keys) query = query.in('storage_key', keys)
+  const { data, error } = await query
   if (error) throw error
   return (data ?? []) as WorkspaceStateRow[]
 }
@@ -91,6 +96,7 @@ async function performSyncKey(key: string) {
     if (error) throw error
     if (!data) throw new Error('다른 사용자가 정산을 변경했습니다. 공용 데이터를 새로 불러온 뒤 다시 시도해주세요.')
     remoteUpdatedAt.set(key, data.updated_at)
+    void rememberWorkspaceRow(key, data.updated_at, raw)
     return
   }
   const { data, error } = await supabase.from('workspace_state').upsert({
@@ -103,6 +109,7 @@ async function performSyncKey(key: string) {
   if (error) throw error
   const row = data as Pick<WorkspaceStateRow, 'updated_at'>
   remoteUpdatedAt.set(key, row.updated_at)
+  void rememberWorkspaceRow(key, row.updated_at, raw)
   setStatus({ status: 'synced', message: '모든 업무 데이터가 공용 저장소에 저장되었습니다.', syncedAt: row.updated_at })
 }
 
@@ -209,6 +216,7 @@ export const cloudSyncService = {
     pendingTimers.delete(STORAGE_KEYS.settlements)
     remoteUpdatedAt.set(STORAGE_KEYS.settlements, updatedAt)
     storageService.setItemFromCloud(STORAGE_KEYS.settlements, payload)
+    void rememberWorkspaceRow(STORAGE_KEYS.settlements, updatedAt, localStorage.getItem(STORAGE_KEYS.settlements))
   },
   async syncKeys(keys: string[]) {
     for (const key of keys) {
@@ -239,15 +247,18 @@ export const cloudSyncService = {
     }
     setStatus({ status: 'connecting', message: '공용 데이터를 확인하고 있습니다.' })
     try {
-      const rows = await fetchRows()
-      const localData = readLocalData()
+      const { data: versions, error: versionsError } = await supabase.from('workspace_state')
+        .select('storage_key,updated_at,deleted').eq('workspace_id', WORKSPACE_ID)
+      if (versionsError) throw versionsError
+      const rows = await fetchRows(await changedWorkspaceKeys(versions ?? [], localStorage))
+      rows.forEach(applyRow)
+      for (const row of versions ?? []) remoteUpdatedAt.set(row.storage_key, row.updated_at)
       const migrationCompleted = localStorage.getItem(MIGRATION_COMPLETED_KEY) === 'true'
       // The approved company account and its shared workspace are authoritative.
       // A new browser may contain stale local records, but that must never block
       // loading an already-populated company workspace or show a migration banner.
-      rows.forEach(applyRow)
       await cleanLegacyFixtures()
-      if (!rows.length && Object.keys(localData).length && !migrationCompleted) {
+      if (!versions?.length && !migrationCompleted && Object.keys(readLocalData()).length) {
         setStatus({ status: 'migration_required', message: '이 컴퓨터의 기존 자료를 공용 DB로 이전해 주세요.' })
         return { status: 'migration_required' as const, stop: () => undefined }
       }
