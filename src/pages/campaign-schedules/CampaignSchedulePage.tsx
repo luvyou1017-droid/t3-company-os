@@ -86,9 +86,11 @@ function matchesDateRange(schedule: CampaignSchedule, filters: CampaignFilters) 
   return true
 }
 
-function toSchedule(campaign: Campaign): CampaignSchedule {
-  const settlement = settlementService.getSettlements().find(item => item.campaignId === campaign.id && item.status !== 'canceled')
-  const sales = salesDataService.getSalesDataImports().find(item => item.campaignId === campaign.id)
+function toSchedule(
+  campaign: Campaign,
+  settlement?: ReturnType<typeof settlementService.getSettlements>[number],
+  sales?: ReturnType<typeof salesDataService.getSalesDataImports>[number],
+): CampaignSchedule {
   return {
     settlementStage: campaignSettlementStage(campaign, settlement, sales),
     id: campaign.id,
@@ -159,7 +161,19 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
   }
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => campaignService.getCampaigns())
 
-  const campaignSchedules = useMemo(() => campaigns.filter(item => !item.deletedAt).map(toSchedule), [campaigns])
+  const campaignSchedules = useMemo(() => {
+    const visible = campaigns.filter(item => !item.deletedAt)
+    if (!visible.length) return []
+    const settlements = new Map<string, ReturnType<typeof settlementService.getSettlements>[number]>()
+    for (const item of settlementService.getSettlements()) {
+      if (item.status !== 'canceled' && !settlements.has(item.campaignId)) settlements.set(item.campaignId, item)
+    }
+    const sales = new Map<string, ReturnType<typeof salesDataService.getSalesDataImports>[number]>()
+    for (const item of salesDataService.getSalesDataImports()) {
+      if (!sales.has(item.campaignId)) sales.set(item.campaignId, item)
+    }
+    return visible.map(campaign => toSchedule(campaign, settlements.get(campaign.id), sales.get(campaign.id)))
+  }, [campaigns])
 
   useEffect(() => {
     requestAnimationFrame(() => window.scrollTo({ top: savedState.scrollY }))
