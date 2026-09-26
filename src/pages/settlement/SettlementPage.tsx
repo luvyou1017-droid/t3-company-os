@@ -162,14 +162,14 @@ type SettlementCalendarItem = {
   status: '지급 대기' | '연체' | '지급 완료'
 }
 
-function buildSettlementCalendarItems(settlements: Settlement[]): SettlementCalendarItem[] {
+function buildSettlementCalendarItems(settlements: Settlement[], campaigns: Map<string, Campaign>, sales: Map<string, SalesDataImport>): SettlementCalendarItem[] {
   const settlementById = new Map(settlements.map((settlement) => [settlement.id, settlement]))
   const today = koreaToday()
   return paymentRequestService.getOperationalPaymentRequests().filter((request) => request.status !== 'draft' && request.status !== 'canceled').flatMap((request) => {
     const settlement = settlementById.get(request.settlementId)
     if (!settlement) return []
-    const campaign = getCampaign(settlement)
-    const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
+    const campaign = campaigns.get(settlement.campaignId)
+    const salesImport = sales.get(settlement.salesDataImportId)
     const endDate = salesImport?.salesEndDate || campaign?.endDate || settlement.createdAt.slice(0, 10)
     const dueDate = request.dueDate || settlement.paymentDueDate || addCalendarDays(endDate, 21)
     const amount = Math.max(request.finalPaymentAmount, 0)
@@ -373,9 +373,12 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
   }, [])
 
   const sync = () => setSettlements(settlementService.getSettlements())
-  const eligibleSales = salesDataService.getSalesDataImports().filter((item) => item.reviewStatus === '확정 완료' && item.settlementStatus === '정산 가능')
+  const salesImports = salesDataService.getSalesDataImports()
+  const salesById = new Map(salesImports.map(item => [item.id, item]))
+  const campaignsById = new Map(campaignService.getCampaigns().map(item => [item.id, item]))
+  const eligibleSales = salesImports.filter((item) => item.reviewStatus === '확정 완료' && item.settlementStatus === '정산 가능')
   const filtered = settlements.filter(item => {
-    const campaign = getCampaign(item)
+    const campaign = campaignsById.get(item.campaignId)
     const pendingApproval = item.sellerPaymentRequestStatus === 'approval_pending' || item.managerPaymentRequestStatus === 'approval_pending'
     const statusMatch = quick === 'all' || (quick === 'approval_pending' ? pendingApproval || item.status === quick : item.status === quick)
     const query = listFilters.query.trim().toLocaleLowerCase('ko-KR')
@@ -384,7 +387,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
     const start = campaign?.startDate || ''
     return statusMatch && (!query || text.includes(query)) && (!listFilters.manager || campaign?.managerName === listFilters.manager) && (!listFilters.brand || campaign?.brandName === listFilters.brand) && (!listFilters.from || end >= listFilters.from) && (!listFilters.to || (!!start && start <= listFilters.to))
   })
-  const calendarItems = buildSettlementCalendarItems(settlements.filter((item) => item.status !== 'canceled'))
+  const calendarItems = buildSettlementCalendarItems(settlements.filter((item) => item.status !== 'canceled'), campaignsById, salesById)
   const totalUnrequested = calculateUnrequestedAmount(settlements)
   const assertion = runSettlementAssertions()
 
@@ -471,8 +474,8 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
         <div className="schedule-panel__body">
             <div className="inline-form">
               <label>셀러·공구 검색<DebouncedSearchInput value={listFilters.query} onChange={query => setListFilters(current => ({ ...current, query }))} /></label>
-              <label>매니저<select value={listFilters.manager} onChange={event => setListFilters({ ...listFilters, manager: event.target.value })}><option value="">전체</option>{[...new Set(settlements.map(item => getCampaign(item)?.managerName).filter(Boolean))].map(name => <option key={name}>{name}</option>)}</select></label>
-              <label>브랜드<select value={listFilters.brand} onChange={event => setListFilters({ ...listFilters, brand: event.target.value })}><option value="">전체</option>{[...new Set(settlements.map(item => getCampaign(item)?.brandName).filter(Boolean))].map(name => <option key={name}>{name}</option>)}</select></label>
+              <label>매니저<select value={listFilters.manager} onChange={event => setListFilters({ ...listFilters, manager: event.target.value })}><option value="">전체</option>{[...new Set(settlements.map(item => campaignsById.get(item.campaignId)?.managerName).filter(Boolean))].map(name => <option key={name}>{name}</option>)}</select></label>
+              <label>브랜드<select value={listFilters.brand} onChange={event => setListFilters({ ...listFilters, brand: event.target.value })}><option value="">전체</option>{[...new Set(settlements.map(item => campaignsById.get(item.campaignId)?.brandName).filter(Boolean))].map(name => <option key={name}>{name}</option>)}</select></label>
               <label>기간 시작<input type="date" value={listFilters.from} onChange={event => setListFilters({ ...listFilters, from: event.target.value })} /></label>
               <label>기간 종료<input type="date" value={listFilters.to} onChange={event => setListFilters({ ...listFilters, to: event.target.value })} /></label>
             </div>
@@ -485,8 +488,8 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
               </thead>
               <tbody>
                 {filtered.map((settlement) => {
-                  const campaign = getCampaign(settlement)
-                  const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
+                  const campaign = campaignsById.get(settlement.campaignId)
+                  const salesImport = salesById.get(settlement.salesDataImportId)
                   return (
                     <tr key={settlement.id}>
                       <td><button className="settlement-name-link" onClick={() => { sessionStorage.setItem('settlement-list-scroll', String(window.scrollY)); onOpenDetail(settlement.id) }} type="button"><strong>{campaign?.campaignName ?? settlement.campaignId}</strong><span>{campaign?.campaignCode}</span></button></td>
@@ -514,8 +517,8 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
           </div>
           <div className="schedule-mobile-list settlement-mobile-list">
             {filtered.map((settlement) => {
-              const campaign = getCampaign(settlement)
-              const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
+              const campaign = campaignsById.get(settlement.campaignId)
+              const salesImport = salesById.get(settlement.salesDataImportId)
               return <article className="settlement-mobile-card" key={settlement.id}>
                 <button className="settlement-name-link" onClick={() => { sessionStorage.setItem('settlement-list-scroll', String(window.scrollY)); onOpenDetail(settlement.id) }} type="button"><strong>{campaign?.campaignName ?? settlement.campaignId}</strong><span>{campaign?.sellerName ?? '-'} · {campaign?.brandName ?? '-'}</span></button>
                 <Badge label={settlementWorkflowLabel(settlement, statusLabel(settlement.status))} tone={statusTone[settlement.status]} />
