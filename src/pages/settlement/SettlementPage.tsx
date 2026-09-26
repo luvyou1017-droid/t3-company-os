@@ -374,8 +374,10 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
 
   const sync = () => setSettlements(settlementService.getSettlements())
   const salesImports = salesDataService.getSalesDataImports()
-  const salesById = new Map(salesImports.map(item => [item.id, item]))
-  const campaignsById = new Map(campaignService.getCampaigns().map(item => [item.id, item]))
+  const salesById = new Map<string, SalesDataImport>()
+  for (const item of salesImports) if (!salesById.has(item.id)) salesById.set(item.id, item)
+  const campaignsById = new Map<string, Campaign>()
+  for (const item of campaignService.getCampaigns()) if (!campaignsById.has(item.id)) campaignsById.set(item.id, item)
   const eligibleSales = salesImports.filter((item) => item.reviewStatus === '확정 완료' && item.settlementStatus === '정산 가능')
   const filtered = settlements.filter(item => {
     const campaign = campaignsById.get(item.campaignId)
