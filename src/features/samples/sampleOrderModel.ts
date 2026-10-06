@@ -1,3 +1,4 @@
+import { blankOperations, validateProvision, type ProvisionSnapshot, type SampleOperations, type SampleLine } from './sampleProvision.ts'
 import type { ProductMaster, ProductSku } from '../productMaster/types.ts'
 
 export const SAMPLE_ORDER_STATUSES = ['요청', '승인대기', '발주대기', '발주완료', '배송중', '수령완료', '취소'] as const
@@ -18,6 +19,7 @@ export type SampleCostSnapshot = {
   capturedAt: string
 }
 export type SampleOrderDraft = {
+  provision?: ProvisionSnapshot; operations?: SampleOperations; additionalItems?: SampleLine[]
   supplierId?: string; supplierName?: string
   ordererName?: string; ordererPhone?: string
   targetType?: 'seller' | 'vendor' | 'unspecified'; targetDisplayName?: string; supplyAudience?: 'seller' | 'vendor'
@@ -28,6 +30,7 @@ export type SampleOrderDraft = {
   costs: SampleCostSnapshot
 }
 export type SampleOrder = SampleOrderDraft & {
+  settlementClaim?: { settlementId: string; claimedAt: string; actorId: string; committedAt?: string }
   id: string; requestedAt: string; managerId: string; managerName: string; status: SampleOrderStatus
   settlementReflected: boolean
   history: Array<{ at: string; actorId: string; actor: string; action: string; from?: SampleOrderStatus; to?: SampleOrderStatus }>
@@ -69,6 +72,8 @@ export function sampleTotals(draft: Pick<SampleOrderDraft, 'quantity' | 'costs' 
     difference: draft.payer === 'seller' && sellerDeduction !== null && companyCost !== null ? sellerDeduction - companyCost : null }
 }
 export function validateSampleDraft(draft: SampleOrderDraft, requireCosts = false) {
+  validateProvision(draft, requireCosts)
+  if (draft.provision?.method === '테스트 후 진행' && draft.campaignId && draft.operations?.testStatus !== '진행 확정') throw new Error('진행 확정 후 공구를 연결해주세요.')
   if (!draft.productId || !draft.skuId) throw new Error('상품·SKU를 선택해주세요.')
   if ((!draft.targetType || draft.targetType === 'seller') && !draft.sellerId) throw new Error('셀러를 선택해주세요.')
   if (draft.targetType === 'vendor' && !draft.targetDisplayName?.trim()) throw new Error('거래처/벤더명을 입력해주세요.')
@@ -81,15 +86,16 @@ export function validateSampleDraft(draft: SampleOrderDraft, requireCosts = fals
   const totals = sampleTotals(draft)
   if ([totals.companyCost, totals.sellerDeduction, totals.companyBurden].some((value) => value !== null && !Number.isSafeInteger(value))) throw new Error('계산 가능한 금액 범위를 초과했습니다.')
   if (totals.companyBurden !== null && totals.companyBurden < 0) throw new Error('공급사 지원액은 회사 원가 합계를 초과할 수 없습니다.')
+  if (requireCosts && draft.additionalItems?.some(item => !item.supplierId && !item.supplierName?.trim())) throw new Error('추가 SKU 발주처/공급처 연결을 확인해주세요.')
   if (requireCosts && !draft.supplierId && !draft.supplierName?.trim()) throw new Error('발주처/공급처 연결 확인 필요: 상품·SKU를 다시 선택한 후 승인/발주해주세요.')
-  if (requireCosts && (totals.companyCost === null || (draft.payer === 'seller' && totals.sellerDeduction === null) || totals.companyBurden === null)) {
+  if (requireCosts && !draft.provision && (totals.companyCost === null || (draft.payer === 'seller' && totals.sellerDeduction === null) || totals.companyBurden === null)) {
     throw new Error('비용 확인 필요: 회사 원가·셀러 적용 공급가·지원액을 확인한 후 승인해주세요.')
   }
 }
 export function editableSampleFields(draft: SampleOrderDraft): SampleOrderDraft {
-  const { supplierId, supplierName, ordererName, ordererPhone, targetType, targetDisplayName, supplyAudience, sellerId, sellerName, campaignId, campaignName, productId, skuId, brandName, productName, optionName, detailOption,
+  const { provision, operations, additionalItems, supplierId, supplierName, ordererName, ordererPhone, targetType, targetDisplayName, supplyAudience, sellerId, sellerName, campaignId, campaignName, productId, skuId, brandName, productName, optionName, detailOption,
     quantity, recipient, phone, address, purpose, memo, deliveryMemo, payer, supportType, supportAmount, costs } = draft
-  return structuredClone({ supplierId, supplierName, ordererName, ordererPhone, targetType, targetDisplayName, supplyAudience, sellerId, sellerName, campaignId, campaignName, productId, skuId, brandName, productName, optionName, detailOption,
+  return structuredClone({ provision, operations, additionalItems, supplierId, supplierName, ordererName, ordererPhone, targetType, targetDisplayName, supplyAudience, sellerId, sellerName, campaignId, campaignName, productId, skuId, brandName, productName, optionName, detailOption,
     quantity, recipient, phone, address, purpose, memo, deliveryMemo, payer, supportType, supportAmount, costs })
 }
 export function createSampleOrder(draft: SampleOrderDraft, actor: SampleActor, id: string, at: string): SampleOrder {
@@ -105,7 +111,8 @@ export function transitionSample(order: SampleOrder, status: SampleOrderStatus, 
   if (!NEXT[order.status].includes(status)) throw new Error('현재 상태에서 진행할 수 없습니다. 목록을 새로고침해주세요.')
   if (status === '발주대기') validateSampleDraft(order, true)
   if (status === '발주완료' && (!order.exportBatchId || order.orderedAt || !reference.trim())) throw new Error('파일 생성 후 발주모아 발주번호 또는 처리 확인 내용을 입력해주세요.')
-  return { ...order, status, ...(status === '발주완료' ? { orderedAt: at, externalOrderReference: reference.trim() } : {}),
+  const operations = order.provision?.method === '대여' ? { ...blankOperations(), ...order.operations, ...(status === '배송중' ? {loanStatus: '발송 완료' as const, shippedAt: new Date(at).toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})} : status === '수령완료' ? {loanStatus: '사용 중' as const} : {}) } : order.operations
+  return { ...order, status, operations, ...(status === '발주완료' ? { orderedAt: at, externalOrderReference: reference.trim() } : {}),
     history: [...order.history, { at, actorId: actor.id, actor: actor.name, from: order.status, to: status,
       action: status === '발주대기' ? '샘플 승인' : status === '요청' ? '보완 요청' : `상태 변경: ${status}` }] }
 }
@@ -122,8 +129,7 @@ export function reserveSampleExport(book: SampleOrderBook, ids: string[], batchI
     history: [...order.history, { at, actorId: actor.id, actor: actor.name, action: `내부 발주파일 생성: ${batchId}` }] } : order) }
 }
 export function sampleExportRows(orders: SampleOrder[]): Array<Array<string | number>> {
-  return [['주문/샘플 식별번호', '상품', '옵션', '수량', '수령인', '연락처', '주소', '배송메모'], ...orders.map((order) => [order.id, order.productName,
-    [order.optionName, order.detailOption].filter(Boolean).join(' / '), order.quantity, order.recipient, order.phone, order.address, order.deliveryMemo])]
+  return [['주문/샘플 식별번호', '상품', '옵션', '수량', '수령인', '연락처', '주소', '배송메모'], ...orders.flatMap((order) => [order, ...(order.additionalItems ?? []).map(item => ({ ...order, ...item }))].map(item => [order.id, item.productName, [item.optionName, item.detailOption].filter(Boolean).join(' / '), item.quantity, order.recipient, order.phone, order.address, order.deliveryMemo]))]
 }
 export function sampleRecipientDefaults(seller?: { recipientName?: string; realName?: string; shippingPhone?: string; contact?: string; shippingAddress?: string }) {
   return { recipient: seller?.recipientName || seller?.realName || '', phone: seller?.shippingPhone || seller?.contact || '', address: seller?.shippingAddress || '' }

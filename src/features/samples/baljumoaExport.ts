@@ -30,7 +30,8 @@ export function buildBaljumoaWorkbook(template: Uint8Array, orders: SampleOrder[
   const templateRow = xml.match(/<row\b[^>]*r="2"[^>]*>[\s\S]*?<\/row>/)?.[0]
   if (!header || !templateRow) throw new Error('원본 양식 행을 확인해주세요.')
   const styles = new Map([...templateRow.matchAll(/<c\b[^>]*r="([A-Z]+)2"[^>]*s="(\d+)"/g)].map(match => [match[1], match[2]]))
-  const rows = orders.map((order, index) => {
+  const expandedOrders = orders.flatMap(order => [order,...(order.additionalItems ?? []).map(item => ({...order,...item}))])
+  const rows = expandedOrders.map((order, index) => {
     const row = index + 2
     const values = baljumoaValues(order)
     const cells = BALJUMOA_COLUMNS.map((_, col) => {
@@ -44,7 +45,7 @@ export function buildBaljumoaWorkbook(template: Uint8Array, orders: SampleOrder[
     return `<row r="${row}" spans="1:28">${cells}</row>`
   }).join('')
   const next = xml.replace(/<sheetData>[\s\S]*?<\/sheetData>/, `<sheetData>${header}${rows}</sheetData>`)
-    .replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:AB${orders.length + 1}"/>`)
+    .replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:AB${expandedOrders.length + 1}"/>`)
   CFB.utils.cfb_add(zip, sheetPath!, new TextEncoder().encode(next))
   return new Uint8Array(CFB.write(zip, { type: 'array', fileType: 'zip' }))
 }

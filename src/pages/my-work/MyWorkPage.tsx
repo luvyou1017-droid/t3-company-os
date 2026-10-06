@@ -1,3 +1,4 @@
+import { SampleCollectionAlerts } from '../sample-management/components/SampleCollectionAlerts'
 import { useEffect, useMemo, useState } from 'react'
 import { workUsers } from '../../features/myWork/mockData'
 import { useCompanyAuth } from '../../features/auth/AuthGate'
@@ -138,6 +139,7 @@ export function MyWorkPage() {
 
   return (
     <section className="my-work-page">
+      <SampleCollectionAlerts />
       <MyWorkHeader
         onRefresh={refresh}
         onUserChange={(userId) => {

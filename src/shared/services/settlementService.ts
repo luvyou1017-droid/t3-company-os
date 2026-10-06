@@ -9,7 +9,7 @@ import type { WorkType } from '../../features/myWork/types'
 import { canEditSettlement, type AppUserRole } from '../data/users'
 import type { SampleCostOwner, SampleRequest } from '../../features/samples/types'
 import type { SampleOrder } from '../../features/samples/sampleOrderModel'
-import { isLinkedSampleDeduction, sampleSettlementCandidate } from '../../features/samples/sampleSettlementCandidate'
+import { isLinkedSampleDeduction, sampleSettlementCandidates } from '../../features/samples/sampleSettlementCandidate'
 import type { SalesDataImport, SalesDataRow } from '../types/salesData'
 import { getSalesEventCosts } from '../utils/salesEventCosts'
 import { calculateSrookPayFee, DEFAULT_SROOKPAY_FEE_RATE } from '../utils/srookPay.ts'
@@ -837,22 +837,24 @@ export const settlementService = {
     this.addActivity(next, 'deduction_added', settlement.status, next.status, reason)
     return this.recalculateSettlement(settlementId, reason)
   },
-  addSampleOrderDeduction(settlementId: string, order: SampleOrder) {
+  addSampleOrderDeduction(settlementId: string, order: SampleOrder, validateOnly = false) {
     const settlement = this.getSettlementById(settlementId)
     if (!settlement || this.isSettlementConfirmed(settlement) || settlement.sellerReceivableOffsets?.length || (settlement.sellerReceivable && settlement.sellerReceivable.status !== '미처리')) throw new Error('확정 또는 미수금 처리 중인 정산에는 샘플비를 추가할 수 없습니다.')
+    if (order.settlementClaim && order.settlementClaim.settlementId !== settlementId) throw new Error('다른 정산에 반영 요청된 샘플입니다. 중복 차감하지 않았습니다.')
     const activeIds = new Set(this.getSettlements().filter(item => item.status !== 'canceled').map(item => item.id))
     if (this.getDeductions().some(item => activeIds.has(item.settlementId) && isLinkedSampleDeduction(item, order.id))) throw new Error('이미 정산에 연결된 샘플입니다. 중복 차감하지 않았습니다.')
-    const candidate = sampleSettlementCandidate(order, settlement.campaignId)
-    if (!candidate.deduction) throw new Error(candidate.reason ?? '샘플 비용을 확인해주세요.')
+    const candidate = sampleSettlementCandidates(order, settlement.campaignId, settlement.currentCalculation.grossSales)
+    if (!candidate.deductions.length) throw new Error(candidate.reason ?? '샘플 비용을 확인해주세요.')
     const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
     if (!salesImport) throw new Error('판매 데이터를 찾을 수 없습니다.')
     const at = now()
-    const deduction: SettlementDeduction = { ...candidate.deduction, id: `deduction-${settlementId}-${order.id}`, settlementId, createdAt: at, updatedAt: at }
+    const deductions: SettlementDeduction[] = candidate.deductions.map((item,index) => ({ ...item, id: `deduction-${settlementId}-${order.id}-${index}`, settlementId, createdAt: at, updatedAt: at }))
     // Validate the entire draft before writing either the deduction or the settlement.
-    const preview = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), [...this.getDeductionsBySettlementId(settlementId), deduction], settlement.taxType)
+    const preview = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), [...this.getDeductionsBySettlementId(settlementId), ...deductions], settlement.taxType)
     const validation = validateSettlementCalculation(preview)
     if (!validation.valid) throw new Error(`샘플비 반영 전 계산 확인 필요: ${validation.errors.join(' · ')}`)
-    this.saveDeductions([deduction, ...this.getDeductions()])
+    if (validateOnly) return settlement
+    this.saveDeductions([...deductions, ...this.getDeductions()])
     const next = this.bumpVersion(settlement, `샘플관리 ${order.id} 비용 확인·반영`)
     this.addActivity(next, 'deduction_added', settlement.status, next.status, `샘플관리 ${order.id} 연결`)
     const recalculated = this.recalculateSettlement(settlementId, `샘플관리 ${order.id} 비용 반영`)

@@ -63,4 +63,21 @@ try {
     assert.equal(JSON.stringify([...localStorage.data]), beforeInvalid)
   }
   console.log('PASS canceled, unrelated and unknown-cost samples blocked before writes')
+  const { blankProvision, blankOperations } = await vite.ssrLoadModule('/src/features/samples/sampleProvision.ts')
+  const conditional = { ...order,id:'conditional-sample',provision:{...blankProvision(),method:'조건부 제공',unitPrice:10000,shippingFee:0,threshold:2000000,missed:{mode:'percent',shares:{supplier:50,company:20,seller:30,manager:0}}},operations:blankOperations() }
+  const beforeConditional = structuredClone(service.getSettlementById(settlement.id).currentCalculation)
+  const afterConditional = service.addSampleOrderDeduction(settlement.id,conditional)
+  const added = service.getDeductions().filter(d => d.linkedData.startsWith('sample:conditional-sample:'))
+  assert.deepEqual(added.map(d=>[d.costOwner,d.amount]),[['seller',3000],['company',2000]])
+  assert.equal(afterConditional.currentCalculation.finalSellerPaymentAmount,beforeConditional.finalSellerPaymentAmount-3000)
+  assert.equal(JSON.stringify(service.getSettlementById(confirmed.id)),confirmedBefore)
+  assert.throws(()=>service.addSampleOrderDeduction(settlement.id,conditional),/중복/)
+  const reimbursed={...conditional,id:'reimbursed',provision:{...blankProvision(),unitPrice:1000,paymentMethod:'매니저 선입금',burden:{mode:'percent',shares:{supplier:0,company:100,seller:0,manager:0}}}}
+  const beforeManager=service.getSettlementById(settlement.id).currentCalculation
+  const afterManager=service.addSampleOrderDeduction(settlement.id,reimbursed).currentCalculation
+  assert.equal(afterManager.managerReimbursementTotal,beforeManager.managerReimbursementTotal+1000)
+  assert.equal(service.getDeductions().find(d=>d.linkedData.startsWith('sample:reimbursed:')).applyLocation,'manager_reimbursement')
+  assert.equal(afterManager.sellerDeductionTotal,beforeManager.sellerDeductionTotal)
+  console.log('PASS real settlement service split deductions, manager advance reimbursement, repeated application and confirmed snapshot protection')
+
 } finally { await vite.close() }
