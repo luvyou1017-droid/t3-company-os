@@ -1,5 +1,7 @@
 import { getDataProviderMode } from '../../../shared/lib/dataProvider'
 import { supabase } from '../../../shared/lib/supabase'
+import { createCampaignRepository } from '../../../shared/repositories/campaignRepository'
+import { toDatabaseUuid } from '../../../shared/utils/databaseId'
 import { LocalProductRepository } from '../repositories/LocalProductRepository'
 import { SupabaseProductRepository } from '../repositories/SupabaseProductRepository'
 import type { ProductRepository } from '../repositories/productRepository'
@@ -224,6 +226,22 @@ export const productService = {
     const current = await repository.getProductById(id)
     if (!current) throw new Error('상품을 찾을 수 없습니다.')
     return repository.updateProduct({ ...current, lifecycleStatus: status, active: status === 'active', updatedAt: new Date().toISOString(), version: current.version + 1 }, current.version)
+  },
+  async getLinkedCampaignCounts(ids: string[]) {
+    const counts = new Map<string, number>()
+    if (getDataProviderMode() !== 'supabase') {
+      const campaigns = await createCampaignRepository().list()
+      ids.forEach(id => counts.set(id, campaigns.filter(campaign => campaign.productId === id).length))
+      return counts
+    }
+    if (!supabase) throw new Error('일정 연결을 확인할 수 없습니다. 보관을 중단했습니다.')
+    // Check every selected product before archiving; a failed read must never mean zero links.
+    for (const id of ids) {
+      const { count, error } = await supabase.from('campaigns').select('id', { count: 'exact', head: true }).eq('product_id', toDatabaseUuid(id))
+      if (error || count === null) throw new Error('일정 연결을 확인할 수 없습니다. 보관을 중단했습니다.')
+      counts.set(id, count)
+    }
+    return counts
   },
   findProductIdentityCandidates,
   async registerQuickSku(input: {

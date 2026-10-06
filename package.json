@@ -12,6 +12,7 @@
     "test:campaign-defaults": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runCampaignDefaults.mjs",
     "test:settlement-document": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSettlementDocument.mjs",
     "test:settlement-payout": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSettlementPayoutFlow.mjs",
+    "test:settlement-loading": "node scripts/runSettlementLoading.mjs",
     "test:sales-data-file": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSalesDataFileParser.mjs",
     "test:srookpay-fee": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runSrookPayFee.mjs",
     "test:mayerhome-settlement": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/runMayerhomeSettlement.mjs",

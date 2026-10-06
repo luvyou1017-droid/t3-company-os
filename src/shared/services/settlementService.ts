@@ -1,13 +1,14 @@
 import { settlementReadinessErrors } from '../utils/campaignReadiness'
 import { campaignProductCatalogService } from './campaignProductCatalogService'
 import { productService } from '../../features/productMaster/services/productService'
+import type { ProductMaster } from '../../features/productMaster/types'
 import { reconcileReceivable, offsetDeductions, allocatedAmount } from '../utils/sellerReceivable'
 import { sellerAdditionalPayments } from '../utils/settlementAdjustments'
 import { calculateSupplierPayment } from '../utils/supplierPayment'
 import type { WorkType } from '../../features/myWork/types'
 import { canEditSettlement, type AppUserRole } from '../data/users'
 import type { SampleCostOwner, SampleRequest } from '../../features/samples/types'
-import type { SalesDataImport } from '../types/salesData'
+import type { SalesDataImport, SalesDataRow } from '../types/salesData'
 import { getSalesEventCosts } from '../utils/salesEventCosts'
 import { calculateSrookPayFee, DEFAULT_SROOKPAY_FEE_RATE } from '../utils/srookPay.ts'
 import type {
@@ -27,6 +28,7 @@ import type {
 } from '../types/settlement'
 import {
   calculateSettlement,
+  companyDirectCalculation,
   managerShareCalculated,
   canMoveToApproval,
   canMoveToPaymentReady,
@@ -47,6 +49,7 @@ import { sampleService } from './sampleService'
 import { STORAGE_KEYS, storageService } from './storageService'
 import { workService } from './workService'
 import { getDataProviderMode } from '../lib/dataProvider'
+import { isCompanyDirectManager } from '../utils/managerPayment'
 
 const now = () => new Date().toISOString()
 const paymentDueDate = '2026-07-22'
@@ -112,15 +115,17 @@ function isSettlementSampleCandidate(sample: SampleRequest) {
 }
 
 function markSamplesReflected(settlementId: string, deductions: SettlementDeduction[]) {
-  const reflectedSampleIds = deductions
+  const reflectedSampleIds = new Set(deductions
     .filter((item) => item.type === 'sample' && item.linkedData.startsWith('sample:') && item.costOwner !== 'undecided')
-    .map((item) => item.linkedData.replace('sample:', ''))
-  if (!reflectedSampleIds.length) return
-  sampleService.saveSamples(sampleService.getSamples().map((sample) => (
-    reflectedSampleIds.includes(sample.id)
-      ? { ...sample, settlementReflected: true, settlementId, settlementReflectedAt: now(), settlementReflectedBy: '허수정' }
-      : sample
-  )))
+    .map((item) => item.linkedData.replace('sample:', '')))
+  if (!reflectedSampleIds.size) return
+  let changed = false
+  const samples = sampleService.getSamples().map((sample) => {
+    if (!reflectedSampleIds.has(sample.id) || (sample.settlementReflected && sample.settlementId === settlementId)) return sample
+    changed = true
+    return { ...sample, settlementReflected: true, settlementId, settlementReflectedAt: now(), settlementReflectedBy: '허수정' }
+  })
+  if (changed) sampleService.saveSamples(samples)
 }
 
 function rollbackSampleReflection(deduction: SettlementDeduction) {
@@ -330,11 +335,18 @@ export const settlementService = {
     const stored = storageService.getItem<Settlement[]>(STORAGE_KEYS.settlements, [])
     const cleaned = getDataProviderMode() === 'supabase' ? stored.filter((item) => !isLegacyMockSettlement(item)) : stored
     if (cleaned.length !== stored.length) this.saveSettlements(cleaned)
-    if (cleaned.length) return this.refreshRevisionFlags(cleaned).map((item) => {
-      const source = salesDataService.getSalesDataImportById(item.salesDataImportId)
-      if ((source?.supplyAudience ?? campaignService.getCampaignById(item.campaignId)?.supplyAudience) !== 'vendor') return item
-      return { ...item, currentCalculation: { ...item.currentCalculation, managerShareRate: 0, companyShareRate: 100, managerBaseShareAmount: 0, managerAmount: item.currentCalculation.managerAdditionalPayment ?? 0, companyAmount: item.currentCalculation.distributableVendorCommission - (item.currentCalculation.companyDirectDeduction ?? 0) + (item.currentCalculation.companyAdditionalPayment ?? 0) } }
-    })
+    if (cleaned.length) {
+      const importsById = new Map(salesDataService.getSalesDataImports().map((item) => [item.id, item]))
+      const campaignsById = new Map(campaignService.getCampaigns().map((item) => [item.id, item]))
+      return this.refreshRevisionFlags(cleaned, importsById).map((item) => {
+        const source = importsById.get(item.salesDataImportId)
+        const campaign = campaignsById.get(item.campaignId)
+        const companyDirect = (source?.supplyAudience ?? campaign?.supplyAudience) === 'vendor' || isCompanyDirectManager(campaign?.managerId, campaign?.managerName)
+        if (!companyDirect) return item
+        const currentCalculation = companyDirectCalculation(item.currentCalculation)
+        return { ...item, currentCalculation, calculationSteps: createCalculationSteps(currentCalculation) }
+      })
+    }
     if (getDataProviderMode() === 'supabase') return []
     return this.seedInitialSettlements()
   },
@@ -408,11 +420,11 @@ export const settlementService = {
   getSettlementById(id: string) {
     return this.getSettlements().find((item) => item.id === id)
   },
-  async syncProductRates(settlementId: string) {
-    const settlement = this.getSettlementById(settlementId)
-    if (!settlement) return undefined
-    const result = await syncProductCommissionRates(settlement.salesDataImportId)
-    if (!result.matched) return settlement
+  async syncProductRates(settlementId: string, products?: ProductMaster[], preparedSettlement?: Settlement) {
+    const settlement = preparedSettlement?.id === settlementId ? preparedSettlement : this.getSettlementById(settlementId)
+    if (!settlement || this.isSettlementConfirmed(settlement)) return settlement
+    const result = await syncProductCommissionRates(settlement.salesDataImportId, products)
+    if (!result.matched || !result.changed) return settlement
     return withRecalculation(settlement, `상품 DB SKU 수수료율 동기화 · ${result.matched}개 일치`)
   },
   syncSalesEventDeduction(salesDataImportId: string) {
@@ -544,14 +556,28 @@ export const settlementService = {
     storageService.setItem(STORAGE_KEYS.settlementActivityLogs, logs)
     return settlements
   },
-  refreshRevisionFlags(settlements: Settlement[]) {
+  refreshRevisionFlags(settlements: Settlement[], importsById: Map<string, SalesDataImport>) {
+    if (settlements.every((item) => this.isSettlementConfirmed(item))) return settlements
+    const rowsByImportId = new Map<string, SalesDataRow[]>()
+    for (const row of salesDataService.getSalesDataRows()) {
+      const rows = rowsByImportId.get(row.salesDataImportId) ?? []
+      rows.push(row)
+      rowsByImportId.set(row.salesDataImportId, rows)
+    }
+    const deductionsBySettlementId = new Map<string, SettlementDeduction[]>()
+    for (const deduction of this.getDeductions()) {
+      if (deduction.linkedData.startsWith('receivable:')) continue
+      const deductions = deductionsBySettlementId.get(deduction.settlementId) ?? []
+      deductions.push(deduction)
+      deductionsBySettlementId.set(deduction.settlementId, deductions)
+    }
     const next = settlements.map((settlement) => {
       if (this.isSettlementConfirmed(settlement)) return settlement
-      const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
+      const salesImport = importsById.get(settlement.salesDataImportId)
       if (!salesImport) return settlement
-      const deductions = this.getDeductionsBySettlementId(settlement.id)
+      const deductions = [...(deductionsBySettlementId.get(settlement.id) ?? []), ...offsetDeductions(settlement)]
       markSamplesReflected(settlement.id, deductions)
-      const current = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), deductions, settlement.taxType)
+      const current = calculateSettlement(salesImport, rowsByImportId.get(salesImport.id) ?? [], deductions, settlement.taxType)
       if (!settlement.calculationSnapshot) return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current) }
       const changed = current.grossSales !== settlement.calculationSnapshot.grossSales || current.grossCommission !== settlement.calculationSnapshot.grossCommission || current.sellerCommissionAmount !== settlement.calculationSnapshot.sellerCommissionAmount || current.deductionTotal !== settlement.calculationSnapshot.deductionTotal
       if (settlement.settlementConfirmed === false) {

@@ -11,6 +11,14 @@ const structured = parseProposalOptionIdentity(row('2단 베이지'))
 assert.equal(structured.optionName, '2단', '옵션과 세부옵션 분리')
 assert.equal(structured.optionValues.컬러, '베이지', '컬러 세부옵션 저장')
 
+const variantRows = ['미니', '베이직'].map((variant, index) => ({ ...row('색상 : 버터 · 화이트 / 핑크', index ? 28900 : 19900), '상품명': `팔레트 모듈 수납장 - ${variant}` }))
+const variantCandidate = { key: 'variants', fileName: 'palette.xlsx', productName: '팔레트 모듈 수납장', rows: variantRows, metadata: { ...metadata, brandName: '샤토에르' } }
+const variantInput = buildInput(variantCandidate)
+assert.notEqual(variantInput.skus[0].optionName, variantInput.skus[1].optionName, '색상만 적힌 구성에서도 미니/베이직 SKU 구별')
+assert.equal(variantInput.skus[0].optionValues.컬러, '버터 / 화이트 / 핑크', '세 색상 유지')
+const variantProduct = { ...variantInput, id: 'palette', skus: variantInput.skus.map(sku => ({ ...sku, productId: 'palette' })), version: 1 }
+assert.deepEqual(reviewCandidate(variantCandidate, [variantProduct]).items.map(item => item.state), ['기존', '기존'], '재업로드 중복 생성 없음')
+
 const newCandidate = reviewCandidate({ key: 'new', fileName: 'new.xlsx', productName: '윈드맥스', rows: [row('화이트')], metadata }, [product])
 assert.equal(newCandidate.items[0].state, '신규')
 newCandidate.items[0].selected = true

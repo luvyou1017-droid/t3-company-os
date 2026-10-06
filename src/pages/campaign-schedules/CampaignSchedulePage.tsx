@@ -40,11 +40,25 @@ const initialFilters: CampaignFilters = {
   endDate: '',
 }
 
+function restoreFilters(saved?: Partial<CampaignFilters>): CampaignFilters {
+  const value = (field: keyof CampaignFilters) => {
+    const stored = saved?.[field]
+    return typeof stored === 'string' && stored !== '전체' ? stored : ''
+  }
+  const date = (field: 'startDate' | 'endDate') => {
+    const stored = value(field)
+    return /^\d{4}-\d{2}-\d{2}$/.test(stored) && !Number.isNaN(Date.parse(stored)) ? stored : ''
+  }
+  return { search: value('search'), managerName: value('managerName'), status: value('status'), linkOwner: value('linkOwner'), startDate: date('startDate'), endDate: date('endDate') }
+}
+
 type CampaignListState = {
   activeTab: CampaignViewTab
   filters: CampaignFilters
   scrollY: number
 }
+
+const viewTabs: CampaignViewTab[] = ['전체', '내 일정', '발주·링크', 'CS', '샘플', '정산', '완료']
 
 function matchesViewTab(schedule: CampaignSchedule, activeTab: CampaignViewTab) {
   if (activeTab === '전체') {
@@ -93,6 +107,7 @@ function toSchedule(
 ): CampaignSchedule {
   return {
     settlementStage: campaignSettlementStage(campaign, settlement, sales),
+    salesReviewStatus: sales?.reviewStatus,
     id: campaign.id,
     campaignName: campaign.campaignName,
     sellerName: campaign.sellerName,
@@ -126,8 +141,8 @@ type CampaignSchedulePageProps = {
 export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps) {
   const { profile } = useCompanyAuth()
   const savedState = storageService.getItem<CampaignListState>(STORAGE_KEYS.campaignListState, { activeTab: '전체', filters: initialFilters, scrollY: 0 })
-  const [activeTab, setActiveTab] = useState<CampaignViewTab>(savedState.activeTab)
-  const [filters, setFilters] = useState<CampaignFilters>(savedState.filters)
+  const [activeTab, setActiveTab] = useState<CampaignViewTab>(viewTabs.includes(savedState.activeTab) ? savedState.activeTab : '전체')
+  const [filters, setFilters] = useState<CampaignFilters>(() => restoreFilters(savedState.filters))
   const [selectedSchedule, setSelectedSchedule] = useState<CampaignSchedule | null>(null)
   const [creating, setCreating] = useState(() => window.location.pathname === '/campaigns/new')
   const [notice, setNotice] = useState('')
@@ -206,21 +221,22 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
   }, [activeTab, filters])
 
   const filteredSchedules = useMemo(() => {
-    const normalizedSearch = filters.search.trim().toLowerCase()
+    const searchTerms = filters.search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    const managerName = campaignSchedules.some(item => item.managerName === filters.managerName) ? filters.managerName : ''
+    const statusFilter = campaignSchedules.some(item => getCampaignStatus(item) === filters.status) ? filters.status : ''
+    const linkOwner = campaignSchedules.some(item => item.linkOwner === filters.linkOwner) ? filters.linkOwner : ''
 
     return campaignSchedules.filter((schedule) => {
       const status = getCampaignStatus(schedule)
-      const matchesSearch =
-        normalizedSearch.length === 0 ||
-        schedule.campaignName.toLowerCase().includes(normalizedSearch) ||
-        schedule.sellerName.toLowerCase().includes(normalizedSearch)
+      const searchable = [schedule.campaignName, schedule.sellerName, schedule.brandName, schedule.productName].join(' ').toLowerCase()
+      const matchesSearch = searchTerms.every(term => searchable.includes(term))
 
       return (
         matchesViewTab(schedule, activeTab) &&
         matchesSearch &&
-        (!filters.managerName || schedule.managerName === filters.managerName) &&
-        (!filters.status || status === filters.status) &&
-        (!filters.linkOwner || schedule.linkOwner === filters.linkOwner) &&
+        (!managerName || schedule.managerName === managerName) &&
+        (!statusFilter || status === statusFilter) &&
+        (!linkOwner || schedule.linkOwner === linkOwner) &&
         matchesDateRange(schedule, filters)
       )
     }).sort(compareCampaignSchedules)
@@ -266,6 +282,7 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
           {showTrash ? <div className="comparison-table-wrap"><p>복구 시 기존 ID와 이력을 유지합니다. 완전삭제는 운영 DB의 정산·상품·샘플·공용 이력 연결 검사 후에만 진행하며, 연결되었거나 확인할 수 없는 일정은 삭제하지 않습니다.</p><table className="comparison-table"><thead><tr><th>공구명</th><th>담당자</th><th>삭제일</th><th>복구</th></tr></thead><tbody>{campaigns.filter(item => item.deletedAt).map(item => <tr key={item.id}><td>{item.campaignName}</td><td>{item.managerName}</td><td>{item.deletedAt?.slice(0, 10)}</td><td><button type="button" className="secondary-button" disabled={Boolean(restoring) || !['ceo', 'admin'].includes(profile.role)} onClick={() => void restore(item)}>복구</button><button type="button" className="danger-button" disabled={Boolean(restoring) || !['ceo', 'admin'].includes(profile.role)} onClick={() => void permanentlyDelete(item)}>{restoring === item.id ? '확인 중…' : '완전삭제'}</button></td></tr>)}</tbody></table></div> : <>
           <CampaignViewTabs activeTab={activeTab} onChange={setActiveTab} />
           <CampaignFiltersPanel filters={filters} onChange={setFilters} schedules={campaignSchedules} />
+          {filteredSchedules.length === 0 && campaignSchedules.length > 0 && <button className="secondary-button" type="button" onClick={() => { setActiveTab('전체'); setFilters(initialFilters) }}>검색·필터 초기화</button>}
           <CampaignTable onSelect={(schedule) => onOpenDetail(schedule.id)} schedules={filteredSchedules} /></>}
         </div>
       </section>

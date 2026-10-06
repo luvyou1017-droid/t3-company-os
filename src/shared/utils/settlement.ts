@@ -129,6 +129,22 @@ export function calculateCompanyAmount(distributableVendorCommission: number, ma
   return safeAmount(distributableVendorCommission, '최종 배분 대상 금액') - safeAmount(managerAmount, '매니저 지급액')
 }
 
+/** 대표 직속·벤더 공급 건은 매니저 배분 없이 회사에 귀속한다. 확정 Snapshot 자체는 변경하지 않는다. */
+export function companyDirectCalculation(snapshot: SettlementCalculationSnapshot): SettlementCalculationSnapshot {
+  const managerAmount = snapshot.managerAdditionalPayment ?? 0
+  return {
+    ...snapshot,
+    managerShareRate: 0,
+    companyShareRate: 100,
+    managerRate: 0,
+    companyRate: 100,
+    managerBaseShareAmount: 0,
+    managerAmount,
+    finalPaymentAmount: managerAmount,
+    companyAmount: snapshot.distributableVendorCommission - (snapshot.companyDirectDeduction ?? 0) + (snapshot.companyAdditionalPayment ?? 0),
+  }
+}
+
 export function calculateFinalSellerPaymentAmount(sellerCommissionAmount: number, sellerDeduction = 0, applicableTax = 0) {
   return Math.max(safeAmount(sellerCommissionAmount, '셀러 수수료') - safeAmount(sellerDeduction, '셀러 부담 차감') - safeAmount(applicableTax, '적용 세금'), 0)
 }

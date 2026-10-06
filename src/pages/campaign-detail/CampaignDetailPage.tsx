@@ -99,9 +99,9 @@ export function CampaignDetailPage({ scheduleId, initialTab = 'overview', onBack
     const works = workService.getWorkItems().filter((item) => item.campaignId === campaign.id)
     const samples = sampleService.getSamplesByCampaignId(campaign.id)
     const cs = csService.getCsCasesByCampaignId(campaign.id)
-    const sales = salesDataService.getSalesDataByCampaignId(campaign.id)
+    const salesImports = salesDataService.getSalesDataImports().filter((item) => item.campaignId === campaign.id)
     const settlement = settlementService.getSettlementByCampaignId(campaign.id)[0]
-    return { works, samples, cs, sales, settlement }
+    return { works, samples, cs, salesImports, settlement }
   })()
 
   if (!campaign || !data) {
@@ -113,8 +113,8 @@ export function CampaignDetailPage({ scheduleId, initialTab = 'overview', onBack
   const overdue = data.works.filter((item) => item.status !== 'completed' && item.dueDate < today()).length
   const unresolvedCs = data.cs.filter((item) => item.status !== '처리 완료').length
   const salesImport = data.settlement
-    ? data.sales.imports.find((item) => item.id === data.settlement?.salesDataImportId) ?? data.sales.imports[0]
-    : data.sales.imports[0]
+    ? data.salesImports.find((item) => item.id === data.settlement?.salesDataImportId) ?? data.salesImports[0]
+    : data.salesImports[0]
   // Once settlement has been created, its calculation snapshot is the reviewed source of truth.
   // The upload header can include a stale or supplier-side amount that should not replace it.
   const grossSales = data.settlement?.currentCalculation.grossSales ?? salesImport?.totalSalesAmount ?? 0

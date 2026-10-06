@@ -230,6 +230,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
             <h2>판매 데이터</h2>
           </div>
         </div>
+        <p className="schedule-summary__scope">판매 종료 및 정산 중 공구의 판매 데이터 상태 · 전체 {endedImports.length}건</p>
         <div className="schedule-summary__grid">
           {quickFilters.map((filter) => (
             <button className={quick === filter ? 'summary-count-card is-active' : 'summary-count-card'} key={filter} onClick={() => setQuick(quick === filter ? '전체' : filter)} type="button">
@@ -238,6 +239,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
             </button>
           ))}
         </div>
+        <p className="schedule-summary__note">업로드 대기는 판매 종료 후 아직 판매 데이터가 없는 공구입니다. 확정 완료에는 판매 종료 단계뿐 아니라 정산 중인 공구도 포함됩니다.</p>
       </section>
 
       <section className="panel">
@@ -1039,15 +1041,15 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
         </div>
         <section className="comparison-table-wrap">
           <table className="comparison-table sales-row-table">
-            <thead><tr><th>옵션명</th><th>{salesImport.pendingPaymentPolicy === 'exclude' && (salesImport.fileAnalysis?.pendingPaymentQuantity ?? 0) > 0 ? '결제대기 제외 후 판매수량' : '판매수량'}</th><th>판매가</th><th>총매출</th><th>{salesImport.fileAnalysis?.sourceDocumentType === 'supplier_settlement' ? '취소/반품 수량' : '취소수량'}</th><th>환불수량</th><th>순판매수량</th><th>순매출</th><th>검증 상태</th><th>검증 메시지</th></tr></thead>
+            <thead><tr><th>옵션명</th><th>{salesImport.pendingPaymentPolicy === 'exclude' && (salesImport.fileAnalysis?.pendingPaymentQuantity ?? 0) > 0 ? '결제대기 제외 후 판매수량' : '판매수량'}</th><th>판매가</th><th>총매출</th><th>{salesImport.fileAnalysis?.sourceDocumentType === 'supplier_settlement' ? '취소/반품 수량' : '취소수량'}</th><th>환불수량</th><th>순판매수량</th><th>순매출</th><th>셀러 수수료율</th><th>총 수수료율</th></tr></thead>
             <tbody>
               {rows.filter((row) => !showErrorsOnly || row.validationStatus === 'error').map((row) => (
-                <tr key={row.id}><td>{row.optionName}</td><td>{row.quantity}</td><td>{formatCurrency(row.unitPrice)}</td><td>{formatCurrency(row.grossSales)}</td><td>{row.canceledQuantity}</td><td>{row.refundedQuantity}</td><td>{row.netQuantity}</td><td>{formatCurrency(row.netSales)}</td><td>{row.validationStatus === 'valid' ? '✅ 정상' : row.validationStatus === 'warning' ? '⚠️ 확인' : '오류'}</td><td>{row.validationMessage}</td></tr>
+                <tr key={row.id}><td title={row.validationStatus === 'valid' ? undefined : row.validationMessage}>{row.optionName}{row.validationStatus !== 'valid' && <span aria-label={row.validationMessage || '판매행 확인 필요'}> ⚠️</span>}</td><td>{row.quantity}</td><td>{formatCurrency(row.unitPrice)}</td><td>{formatCurrency(row.grossSales)}</td><td>{row.canceledQuantity}</td><td>{row.refundedQuantity}</td><td>{row.netQuantity}</td><td>{formatCurrency(row.netSales)}</td><td>{row.sellerCommissionRate === undefined ? '확인 필요' : `${Number(row.sellerCommissionRate.toFixed(2))}%`}</td><td>{row.totalCommissionRate === undefined ? '확인 필요' : `${Number(row.totalCommissionRate.toFixed(2))}%`}</td></tr>
               ))}
               {showErrorsOnly && !rows.some((row) => row.validationStatus === 'error') && <tr><td colSpan={10}>오류가 있는 판매행이 없습니다.</td></tr>}
             </tbody>
             <tfoot>
-              <tr className="sales-row-total"><th>전체 합계</th><td>{totals.totalQuantity.toLocaleString('ko-KR')}개</td><td>-</td><td>{formatCurrency(totals.totalSalesAmount)}</td><td>{totals.canceledQuantity.toLocaleString('ko-KR')}개</td><td>{totals.refundedQuantity.toLocaleString('ko-KR')}개</td><td>{totals.netQuantity.toLocaleString('ko-KR')}개</td><td>{formatCurrency(totals.netSales)}</td><td colSpan={2}>총매출 · 순매출 합계</td></tr>
+              <tr className="sales-row-total"><th>전체 합계</th><td>{totals.totalQuantity.toLocaleString('ko-KR')}개</td><td>-</td><td>{formatCurrency(totals.totalSalesAmount)}</td><td>{totals.canceledQuantity.toLocaleString('ko-KR')}개</td><td>{totals.refundedQuantity.toLocaleString('ko-KR')}개</td><td>{totals.netQuantity.toLocaleString('ko-KR')}개</td><td>{formatCurrency(totals.netSales)}</td><td>{sellerRateLabel}</td><td>{totalRateLabel}</td></tr>
             </tfoot>
           </table>
         </section>

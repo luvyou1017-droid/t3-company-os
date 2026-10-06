@@ -37,7 +37,7 @@ export const shouldAskPendingPaymentPolicy = (analysis: Pick<SalesFileAnalysis, 
 const aliases: Record<ParsedColumn, string[]> = {
   orderId: ['주문번호', '상품주문번호', 'orderid', 'orderno'],
   product: ['상품명', '판매사상품명', '진행상품명', '제품명', '품명', 'productname'],
-  option: ['판매사옵션명', '고객선택옵션', '옵션정보', '판매옵션정보', '옵션명', '구성명', '상품옵션', 'option'],
+  option: ['판매사옵션명', '고객선택옵션', '옵션정보', '판매옵션정보', '옵션명', '옵션', '구성명', '상품옵션', 'option'],
   quantity: ['수량', '판매수량', '주문수량', 'quantity', 'qty'],
   unitPrice: ['옵션판매가', '개당판매가', '공동구매가', '판매단가', '단가', '결제단가', 'unitprice'],
   // 할인 전 금액과 할인 후 금액이 모두 있는 파일은 실제 정산 기준 금액을 우선합니다.
@@ -53,6 +53,7 @@ const normalize = (value: Cell) => String(value ?? '')
   .toLowerCase()
   .replace(/소세지/g, '소시지')
   .replace(/[\s_()\-/.]/g, '')
+const isSummaryLabel = (value: string) => /^(?:합계|총계|소계|total|subtotal)/i.test(normalize(value))
 const numberValue = (value: Cell) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   const parsed = Number(String(value ?? '').replace(/[^0-9.-]/g, ''))
@@ -132,7 +133,7 @@ function extractEmbeddedPriceCandidates(rows: Cell[][]) {
     for (const dataRow of rows.slice(rowIndex + 1)) {
       const optionName = String(dataRow[nameIndex] ?? '').trim()
       if (!optionName) break
-      if (/^(합계|총계|소계)/.test(optionName.replace(/\s/g, ''))) break
+      if (isSummaryLabel(optionName)) break
       const quantity = numberValue(dataRow[columns.quantity])
       const groupBuyPrice = numberValue(dataRow[columns.unitPrice])
       const grossSales = numberValue(dataRow[columns.grossSales])
@@ -363,6 +364,7 @@ export async function parseSalesDataFile(file: File, salesImport: SalesDataImpor
     // no options. In that case the product name is the only stable SKU label.
     const rawOptionName = optionCell || productName
     const optionName = isOrderHubFormat && header.columns.option === undefined ? extractOrderHubOptionName(rawOptionName) : rawOptionName
+    if (isSummaryLabel(optionName) || isSummaryLabel(productName)) continue
     const candidate = lookupCandidate(productName, optionName)
     const catalogUnitPrice = candidate?.groupBuyPrice ?? 0
     const reportedGrossSales = header.columns.grossSales === undefined ? 0 : numberValue(row[header.columns.grossSales])

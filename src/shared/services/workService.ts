@@ -1,4 +1,3 @@
-import { workItems } from '../../features/myWork/mockData'
 import type { WorkItem, WorkType } from '../../features/myWork/types'
 import type { CsCase } from '../../features/cs/types'
 import type { SampleRequest } from '../../features/samples/types'
@@ -21,7 +20,7 @@ export type CampaignWorkInput = {
 
 export const workService = {
   getWorkItems() {
-    return storageService.getItem<WorkItem[]>(STORAGE_KEYS.workItems, workItems)
+    return storageService.getItem<WorkItem[]>(STORAGE_KEYS.workItems, [])
   },
   saveWorkItems(items: WorkItem[]) {
     storageService.setItem(STORAGE_KEYS.workItems, items)
@@ -62,7 +61,7 @@ export const workService = {
     }
     return this.createWorkItem(item)
   },
-  completeWorkItem(id: string, completedAt = '2026-07-15 14:30') {
+  completeWorkItem(id: string, completedAt = new Date().toISOString()) {
     const next = this.getWorkItems().map((item) => (item.id === id ? { ...item, status: 'completed' as const, completedAt } : item))
     this.saveWorkItems(next)
   },

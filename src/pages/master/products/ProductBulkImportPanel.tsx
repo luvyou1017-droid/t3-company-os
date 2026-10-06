@@ -17,12 +17,13 @@ export function ProductBulkImportPanel({ onClose, onDone }: { existingProducts: 
   const readFiles = async (files?: FileList | null) => {
     if (!files?.length) return
     if (vendorMode && !vendorName.trim()) { setMessage('정산 벤더명을 먼저 입력해주세요.'); return }
+    const selectedFiles = Array.from(files).slice(0, 250)
     setReading(true); setMessage(''); setCandidates([])
     try {
       const products = await productService.listProductsForImport()
       const inputs: Candidate[] = []
       const failures: ReviewCandidate[] = []
-      for (const file of Array.from(files).slice(0, 250)) {
+      for (const file of selectedFiles) {
         const key = crypto.randomUUID()
         try {
           const parsed = await parseWiseProposalFile(file)

@@ -1,9 +1,11 @@
 import type { LinkOwner } from '../../shared/types/campaign'
+import type { SalesReviewStatus } from '../../shared/types/salesData'
 
 export type { LinkOwner }
 
 export type CampaignSchedule = {
   settlementStage?: string
+  salesReviewStatus?: SalesReviewStatus
   id: string
   campaignName: string
   sellerName: string
@@ -35,8 +37,8 @@ export type CampaignStatus =
   | '6️⃣ 셀러 정산 완료'
   | '5️⃣ 정산서 완성'
   | '4️⃣ 업체 정산 완료'
-  | '3️⃣ 어제 공구 마감'
-  | '3️⃣ 공구 종료'
+  | '3️⃣ 어제 판매 종료'
+  | '3️⃣ 판매 종료'
   | '2️⃣ 진행 중'
   | '1️⃣ 일정 픽스'
   | '미정'
