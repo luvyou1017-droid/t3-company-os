@@ -90,6 +90,13 @@ export type SalesDataImport = {
     quantityBasis: 'net' | 'gross'
     sourceMessage: string
   }
+  supplierCollectionOffset?: {
+    amount: number
+    receivedAmount: number
+    memo: string
+    recordedAt: string
+    recordedBy: string
+  }
 }
 
 export type CommissionSyncSuggestion = {
