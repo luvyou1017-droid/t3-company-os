@@ -17,12 +17,12 @@ export function sampleSettlementStatus(
   deductions: SettlementDeduction[],
   activeSettlementIds: ReadonlySet<string>,
 ): SampleSettlementStatus {
-  if (order.status === '취소') return '정산 대상 제외'
   const prefix = `sample:${order.id}`
   const linked = deductions.filter((item) => item.type === 'sample' && item.campaignId === order.campaignId
     && activeSettlementIds.has(item.settlementId)
     && (item.linkedData === prefix || item.linkedData.startsWith(`${prefix}:`) || item.linkedData === `sample_request_id:${order.id}`))
   if (linked.some((item) => item.reflected)) return '반영 완료'
+  if (order.status === '취소') return '정산 대상 제외'
   if (linked.length) return '반영 대기'
   if (!['발주완료', '배송중', '수령완료'].includes(order.status)) return '미반영'
   const totals = sampleTotals(order)

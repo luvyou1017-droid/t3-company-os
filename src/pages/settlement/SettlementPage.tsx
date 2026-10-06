@@ -1,6 +1,7 @@
 import { adjustmentLabel, namedAdjustmentRows } from '../../shared/utils/settlementAdjustmentLabels'
 import { SellerStatementAmountRows, sellerStatementAmount } from './components/SellerStatementAmountRows'
 import { SettlementCostRows } from './components/SettlementAdjustmentRows'
+import { SampleSettlementCandidates } from './components/SampleSettlementCandidates'
 import { SellerReceivablePanel } from './components/SellerReceivablePanel'
 import { ManagerAccountEditor } from './components/ManagerAccountEditor'
 import { managerAccountService } from '../../shared/services/managerAccountService'
@@ -1402,6 +1403,8 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
           <Summary label="담당 매니저" value={campaign?.managerName ?? '-'} />
           <Summary label="총매출" value={money(settlement.currentCalculation.grossSales)} amount />
         </div></section>
+
+        <SampleSettlementCandidates settlementId={settlement.id} campaignId={settlement.campaignId} canEdit={canEditCurrentSettlement && !settlementConfirmed && !hasUnresolvedRevision} onApplied={() => { setSettlement({ ...(settlementService.getSettlementById(settlement.id) ?? settlement) }); setStorageRevision(value => value + 1) }} />
 
         {salesImport?.supplyAudience === 'vendor' && <div className="action-row"><button type="button" className="secondary-button" onClick={() => setReadinessModal('vendor-info')}>벤더 정보 등록·수정 · {salesImport.settlementVendorName}</button></div>}
 

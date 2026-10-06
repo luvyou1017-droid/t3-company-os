@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'vite'
 import { createSampleOrder, inputMoney, reserveSampleExport, sampleCsv, sampleExportRows, sampleRecipientDefaults, sampleTotals, selectSampleSku, skuCostSnapshot, transitionSample, validateSampleDraft } from '../src/features/samples/sampleOrderModel.ts'
+import { isLinkedSampleDeduction, sampleSettlementCandidate } from '../src/features/samples/sampleSettlementCandidate.ts'
 import XLSX from 'xlsx'
 
 // Isolated fixtures only. No operational database reads/writes, no real orders.
@@ -8,9 +9,10 @@ const actor = { id: 'test-manager', name: '테스트 매니저' }
 const at = '2026-09-20T01:00:00.000Z'
 const sku = { id: 'existing-sku', productId: 'existing-product', active: true, optionName: '2단', optionValues: { 컬러: '베이지' }, supplyPrice: 22000,
   currentTradeTerms: { sellerSupplyPrice: 30000, companySupplyPrice: 22000 } }
-const product = { id: 'existing-product', brandName: '미스더데코', productName: '빨래바구니', active: true, skus: [sku] }
+const product = { id: 'existing-product', brandName: '미스더데코', productName: '빨래바구니', vendorId: 'test-supplier', vendorName: '테스트 공급처', active: true, skus: [sku] }
 const untouched = JSON.stringify(product)
 const draft = { sellerId: 'test-seller', sellerName: '테스트 셀러', campaignId: 'other-campaign', campaignName: '다른 브랜드 공구',
+  supplierId: 'test-supplier', supplierName: '테스트 공급처',
   productId: '', skuId: '', brandName: '', productName: '', optionName: '', detailOption: '', quantity: 1,
   recipient: '테스트 수령인', phone: '010-0000-0000', address: '테스트 주소', purpose: '이벤트', deliveryMemo: '문 앞, "안전하게"', memo: '',
   payer: 'seller', supportType: 'full', supportAmount: null, costs: { sellerUnitPrice: null, companyUnitCost: null, source: 'sku', capturedAt: at } }
@@ -69,6 +71,19 @@ test('발주완료·배송·수령 상태 및 비용 Snapshot 불변', () => {
   assert.equal(order.settlementReflected, false)
   assert.equal(JSON.stringify(order.costs), immutable)
 })
+test('새 샘플 → 공구 정산 후보는 셀러 공급가 차감·회사 원가·차액을 보존', () => {
+  const candidate = sampleSettlementCandidate(order, 'other-campaign').deduction
+  assert.equal(candidate.amount, 30000)
+  assert.equal(candidate.applyLocation, 'seller_payment')
+  assert.equal(candidate.sampleCompanyCost, 22000)
+  assert.match(candidate.memo, /8,000원/)
+  assert.equal(candidate.linkedData, `sample:${order.id}`)
+  assert.equal(isLinkedSampleDeduction({ ...candidate, id: 'one', settlementId: 'settlement-one', createdAt: at, updatedAt: at }, order.id), true)
+  assert.equal(sampleSettlementCandidate({ ...order, quantity: 3 }, 'other-campaign').deduction.amount, 90000)
+  assert.equal(sampleSettlementCandidate({ ...order, status: '취소' }, 'other-campaign').deduction, undefined)
+  assert.equal(sampleSettlementCandidate({ ...order, status: '요청' }, 'other-campaign').deduction, undefined)
+  assert.equal(sampleSettlementCandidate(order, 'another-campaign').deduction, undefined)
+})
 test('CSV 헤더·인용부호·한글 BOM 및 수식 주입 방지', () => {
   const csv = sampleCsv([{ ...order, productName: '=HYPERLINK("evil")' }])
   assert.ok(csv.startsWith('\uFEFF'))
@@ -89,8 +104,19 @@ test('Excel 실제 생성·재읽기 / 전화번호 0과 텍스트 유지', () =
   assert.equal(sheet.D2.v, 1)
 })
 
-const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' })
+const server = await createServer({ configFile: false, cacheDir: '/tmp/t3-sample-test-vite', server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 try {
+  const { calculateSettlement, validateSettlementCalculation } = await server.ssrLoadModule('/src/shared/utils/settlement.ts')
+  const importRow = { totalCommissionRate: 25, sellerCommissionRate: 17, supplyAudience: 'seller' }
+  const salesRows = [{ netSales: 1000000, optionName: '샘플 공구' }]
+  const base = calculateSettlement(importRow, salesRows, [], 'tax_invoice')
+  const applied = calculateSettlement(importRow, salesRows, [{ ...sampleSettlementCandidate(order, 'other-campaign').deduction,
+    id: 'sample-adjustment', settlementId: 'settlement-test', createdAt: at, updatedAt: at }], 'tax_invoice')
+  assert.equal(applied.finalSellerPaymentAmount, base.finalSellerPaymentAmount - 30000)
+  assert.equal(applied.companyAmount, base.companyAmount + 8000)
+  assert.equal(applied.managerAmount, base.managerAmount)
+  assert.equal(validateSettlementCalculation(applied).valid, true)
+  checks++; console.log('PASS 샘플 차감 30,000원 / 회사 실제원가 22,000원 → 회사 귀속 차액 8,000원')
   const { makeSampleOrderStore } = await server.ssrLoadModule('/src/features/samples/sampleOrderStore.ts')
   let stored = { book: { schemaVersion: 1, orders: [] }, revision: null }
   const repo = {
