@@ -41,3 +41,6 @@
 .sample-canceled { display:inline-block; background:#ffe0e0; color:#9b1616; padding:.25rem .6rem; border-radius:.3rem; }
 .sample-no-campaign-selected { background:#e8f2ff; border-color:#1677ed; color:#125bb0; }
 .sample-sku-row { margin:1rem 0; padding:1rem; border:1px solid #e3e7ed; border-radius:.75rem; }
+
+.sample-loan-table { min-width: 1050px; table-layout:auto; }
+.sample-loan-table th:nth-child(2), .sample-loan-table td:nth-child(2) { min-width:260px; }
