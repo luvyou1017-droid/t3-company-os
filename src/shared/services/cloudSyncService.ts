@@ -247,18 +247,28 @@ export const cloudSyncService = {
     }
     setStatus({ status: 'connecting', message: '공용 데이터를 확인하고 있습니다.' })
     try {
-      const { data: versions, error: versionsError } = await supabase.from('workspace_state')
-        .select('storage_key,updated_at,deleted').eq('workspace_id', WORKSPACE_ID)
-      if (versionsError) throw versionsError
-      const rows = await fetchRows(await changedWorkspaceKeys(versions ?? [], localStorage))
-      rows.forEach(applyRow)
-      for (const row of versions ?? []) remoteUpdatedAt.set(row.storage_key, row.updated_at)
       const migrationCompleted = localStorage.getItem(MIGRATION_COMPLETED_KEY) === 'true'
+      // A new browser has no cached workspace to compare. Fetch it once instead
+      // of waiting for a versions request followed by a payload request.
+      let versions: { storage_key: string; updated_at: string; deleted: boolean }[]
+      let rows: WorkspaceStateRow[]
+      if (migrationCompleted) {
+        const { data, error } = await supabase.from('workspace_state')
+          .select('storage_key,updated_at,deleted').eq('workspace_id', WORKSPACE_ID)
+        if (error) throw error
+        versions = data ?? []
+        rows = await fetchRows(await changedWorkspaceKeys(versions, localStorage))
+      } else {
+        rows = await fetchRows()
+        versions = rows.map(({ storage_key, updated_at, deleted }) => ({ storage_key, updated_at, deleted }))
+      }
+      rows.forEach(applyRow)
+      for (const row of versions) remoteUpdatedAt.set(row.storage_key, row.updated_at)
       // The approved company account and its shared workspace are authoritative.
       // A new browser may contain stale local records, but that must never block
       // loading an already-populated company workspace or show a migration banner.
       await cleanLegacyFixtures()
-      if (!versions?.length && !migrationCompleted && Object.keys(readLocalData()).length) {
+      if (!versions.length && !migrationCompleted && Object.keys(readLocalData()).length) {
         setStatus({ status: 'migration_required', message: '이 컴퓨터의 기존 자료를 공용 DB로 이전해 주세요.' })
         return { status: 'migration_required' as const, stop: () => undefined }
       }

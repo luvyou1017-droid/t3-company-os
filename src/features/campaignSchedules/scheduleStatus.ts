@@ -52,11 +52,11 @@ export function getCampaignStatus(
     const daysAfterEnd = getDaysBetweenCalendarDates(schedule.endDate, today)
 
     if (daysAfterEnd === 1) {
-      return '3️⃣ 어제 공구 마감'
+      return '3️⃣ 어제 판매 종료'
     }
 
     if (daysAfterEnd > 1) {
-      return '3️⃣ 공구 종료'
+      return '3️⃣ 판매 종료'
     }
   }
 

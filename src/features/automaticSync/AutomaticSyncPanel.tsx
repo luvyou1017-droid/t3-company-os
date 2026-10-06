@@ -2,12 +2,18 @@ import { useEffect, useState } from 'react'
 import { useCompanyAuth } from '../auth/AuthGate'
 import { automaticSyncService } from './service'
 import { ScheduleCandidateReview } from './ScheduleCandidateReview'
-import { candidateContext, prepareCandidate, saveCandidate } from './candidateOperations'
+import { candidateContext, notionScheduleStates, prepareCandidate, saveCandidate, type NotionScheduleState } from './candidateOperations'
 import type { Change, SyncJob } from './model'
 import './automaticSync.css'
 
 const date = (value?: string) => value ? new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '기록 없음'
 const stateLabel: Record<Change['state'], string> = { 기존: '기존 일치', 조건변경: '기존 변경 있음', 신규: '신규 일정', 확인필요: '확인 필요', 등록제외: '등록 제외' }
+const sourceId = (id: string) => id.replace(/-/g, '').toLowerCase()
+const matchesLive = (change: Change, schedules: Map<string, NotionScheduleState>) => {
+  if (change.state !== '조건변경' || !change.source) return false
+  const live = schedules.get(sourceId(change.id))
+  return Boolean(live && live.id === change.scheduleId && live.name === change.source.title && live.startDate === change.source.startDate && live.endDate === change.source.endDate && (!change.source.managerName || live.managerName === change.source.managerName))
+}
 export function AutomaticSyncPanel() {
   const { profile } = useCompanyAuth()
   const allowed = profile.role === 'ceo' || profile.role === 'admin'
@@ -17,54 +23,74 @@ export function AutomaticSyncPanel() {
   const [message, setMessage] = useState('')
   const [filter, setFilter] = useState<Change['state'] | null>(null)
   const [selected, setSelected] = useState<string[]>([])
+  const [schedules, setSchedules] = useState<Map<string, NotionScheduleState>>(new Map())
+  const [applyResult, setApplyResult] = useState<{ kind: '신규' | '조건변경'; done: number; pending: string[] } | null>(null)
   const [excludeConfirm, setExcludeConfirm] = useState(false)
   const [exclusionReason, setExclusionReason] = useState('')
   const lastRun = job?.runs[0]
   const latest = lastRun?.counts.scopeApplied === 1 ? lastRun : undefined
   async function refresh() {
     setBusy('status')
-    try { setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign')); setError('') }
+    try {
+      const [jobs, linked] = await Promise.all([automaticSyncService.status(), notionScheduleStates()])
+      setJob(jobs.find(x => x.kind === 'campaign')); setSchedules(linked); setError('')
+    }
     catch (e) { setError(e instanceof Error ? e.message : '현황 조회 실패') }
     finally { setBusy(null) }
   }
   useEffect(() => { if (allowed) void Promise.resolve().then(refresh) }, [allowed])
   if (!allowed) return null
   async function run() {
-    setBusy('run'); setError(''); setMessage(''); setFilter(null); setSelected([])
+    setBusy('run'); setError(''); setMessage(''); setApplyResult(null); setFilter(null); setSelected([])
     try {
       await automaticSyncService.run('campaign')
       setMessage('Notion 일정 조회 및 후보 분류가 완료됐습니다. 일정은 저장되지 않았습니다.')
-      try { setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign')) }
+      try {
+        const [jobs, linked] = await Promise.all([automaticSyncService.status(), notionScheduleStates()])
+        setJob(jobs.find(x => x.kind === 'campaign')); setSchedules(linked)
+      }
       catch { setError('동기화 실행은 완료됐지만 현황 갱신에 실패했습니다. 현황 새로고침을 눌러주세요.') }
     } catch (e) {
       setError(e instanceof Error ? e.message : '동기화 실패')
-      try { setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign')) } catch { /* keep last result */ }
+      try {
+        const [jobs, linked] = await Promise.all([automaticSyncService.status(), notionScheduleStates()])
+        setJob(jobs.find(x => x.kind === 'campaign')); setSchedules(linked)
+      } catch { /* keep last result */ }
     } finally { setBusy(null) }
   }
-  const count = (state: Change['state']) => latest?.changes.filter(change => change.entity === '일정' && change.state === state).length ?? 0
-  const visible = latest?.changes.filter(change => change.entity === '일정' && (!filter || change.state === filter)) ?? []
-  const actionable = visible.filter(change => ['신규', '조건변경', '확인필요'].includes(change.state))
+  const isRegistered = (change: Change) => change.state === '신규' && schedules.has(sourceId(change.id))
+  const isApplied = (change: Change) => matchesLive(change, schedules)
+  const count = (state: Change['state']) => latest?.changes.filter(change => change.entity === '일정' && change.state === state && !isRegistered(change) && !isApplied(change)).length ?? 0
+  const registeredCount = latest?.changes.filter(change => change.entity === '일정' && isRegistered(change)).length ?? 0
+  const appliedCount = latest?.changes.filter(change => change.entity === '일정' && isApplied(change)).length ?? 0
+  const visible = latest?.changes.filter(change => change.entity === '일정' && (!filter || (change.state === filter && !isRegistered(change) && !isApplied(change)))) ?? []
+  const actionable = visible.filter(change => !isRegistered(change) && !isApplied(change) && ['신규', '조건변경', '확인필요'].includes(change.state))
   const selectedChanges = actionable.filter(change => selected.includes(change.id))
   const toggle = (id: string) => setSelected(current => current.includes(id) ? current.filter(x => x !== id) : [...current, id])
   async function applySelected(state: '신규' | '조건변경') {
     const targets = selectedChanges.filter(change => change.state === state)
     if (!targets.length) return
-    setBusy('apply'); setError(''); setMessage('')
-    let done = 0; const skipped: string[] = []
+    setBusy('apply'); setError(''); setMessage(''); setApplyResult(null)
+    const skipped = new Map<string, string>()
     try {
       const context = await candidateContext()
       for (const change of targets) {
         try {
           const prepared = prepareCandidate(change, context)
-          if (!prepared.safe) { skipped.push(`${change.name}: 필수 연결/충돌 확인 필요`); continue }
+          if (!prepared.safe) {
+            const missing = [!prepared.resolved.seller && '셀러 연결', !prepared.resolved.manager && (prepared.linked?.managerName !== change.source?.managerName ? `담당 매니저 변경 확인: ${prepared.linked?.managerName ?? '미등록'} → ${change.source?.managerName ?? '미등록'}` : '담당 매니저'), !prepared.resolved.dates && '판매기간', !prepared.resolved.audience && '거래구분', ...prepared.errors].filter(Boolean).join(' · ')
+            skipped.set(change.id, `${change.name}: ${missing || '연결/충돌 확인 필요'}`); continue
+          }
           await saveCandidate(change, prepared.candidate)
-          done++
           context.campaigns.push(prepared.candidate)
-        } catch (error) { skipped.push(`${change.name}: ${error instanceof Error ? error.message : '반영 실패'}`) }
+        } catch (error) { skipped.set(change.id, `${change.name}: ${error instanceof Error ? error.message : '반영 실패'}`) }
       }
-      setMessage(`${state === '조건변경' ? '변경 반영' : '신규 등록'} ${done}건 · 확인 필요 ${skipped.length}건${skipped.length ? ` · ${skipped.join(' / ')}` : ''}`)
+      const linked = await notionScheduleStates()
+      setSchedules(linked)
+      const done = targets.filter(change => state === '신규' ? linked.has(sourceId(change.id)) : !skipped.has(change.id) && matchesLive(change, linked))
+      const pending = targets.filter(change => !done.includes(change)).map(change => skipped.get(change.id) ?? `${change.name}: 저장 결과 확인 필요`)
+      setApplyResult({ kind: state, done: done.length, pending })
       setSelected([])
-      if (done) setJob((await automaticSyncService.status()).find(x => x.kind === 'campaign'))
     } catch (error) { setError(error instanceof Error ? error.message : '일괄 반영 실패') }
     finally { setBusy(null) }
   }
@@ -86,13 +112,14 @@ export function AutomaticSyncPanel() {
     {job?.configuration_error && <p role="alert">{job.configuration_error}</p>}
     {lastRun && !latest && <p role="status">이전 실행 기록은 8월 이후 범위가 적용되기 전 자료입니다. 새 범위로 다시 동기화하면 분류 결과가 표시됩니다.</p>}
     <dl><dt>최근 실행일시</dt><dd>{date(latest?.started_at)}</dd><dt>실행 방식</dt><dd>{latest ? latest.trigger === 'manual' ? '수동' : '자동' : '기록 없음'}</dd><dt>마지막 결과</dt><dd>{latest ? { running: '진행 중', succeeded: '성공', failed: '실패' }[latest.status] : '기록 없음'}{latest?.error && ` · ${latest.error}`}</dd><dt>마지막 성공</dt><dd>{date(job?.last_success_at)}</dd><dt>다음 실행 예정</dt><dd>{job?.scheduled && job.configured ? date(job.next_run) : '자동 실행 미확인'}</dd></dl>
-    {latest && <><p>Notion 조회: {latest.counts.checked ?? 0}건 · 기존 일치: {count('기존')}건 · 기존 변경 있음: {count('조건변경')}건 · 신규 일정: {count('신규')}건 · 확인 필요: {count('확인필요')}건 · 등록 제외: {count('등록제외')}건</p>
+    {latest && <><p>Notion 조회: {latest.counts.checked ?? 0}건 · 기존 일치: {count('기존')}건 · 기존 변경 있음: {count('조건변경')}건 · 변경 반영 완료: {appliedCount}건 · 신규 일정: {count('신규')}건 · 확인 필요: {count('확인필요')}건 · 등록 제외: {count('등록제외')}건 · 등록 완료: {registeredCount}건</p>
       <p>실제 반영 대상: 변경 {count('조건변경')}건 · 신규 {count('신규')}건. 조회만으로는 일정이 저장되지 않습니다.</p>
       <div className="notion-import-actions"><button type="button" disabled={!count('신규')} onClick={() => { setFilter('신규'); setSelected([]) }}>신규 {count('신규')}건</button><button type="button" disabled={!count('조건변경')} onClick={() => { setFilter('조건변경'); setSelected([]) }}>변경 {count('조건변경')}건</button><button type="button" disabled={!count('확인필요')} onClick={() => { setFilter('확인필요'); setSelected([]) }}>확인 필요 {count('확인필요')}건</button><button type="button" disabled={!count('등록제외')} onClick={() => { setFilter('등록제외'); setSelected([]) }}>등록 제외 {count('등록제외')}건</button>{filter && <button type="button" onClick={() => { setFilter(null); setSelected([]) }}>전체 보기</button>}</div>
       <div className="notion-import-actions"><button type="button" disabled={Boolean(busy) || !selectedChanges.some(change => change.state === '신규')} onClick={() => void applySelected('신규')}>선택 신규 일정 등록</button><button type="button" disabled={Boolean(busy) || !selectedChanges.some(change => change.state === '조건변경')} onClick={() => void applySelected('조건변경')}>선택 변경 일정 반영</button><button type="button" disabled={Boolean(busy) || !selectedChanges.some(change => change.state === '확인필요')} onClick={() => setExcludeConfirm(true)}>선택 일정 등록 안 함</button>{busy === 'apply' && <span role="status">안전 조건 확인 및 반영 중…</span>}{busy === 'exclude' && <span role="status">제외 이력 저장 중…</span>}</div>
+      {applyResult && <div className="auto-sync-apply-result" role="status"><strong>{applyResult.done}건 {applyResult.kind === '조건변경' ? '변경 반영' : '등록 완료'} · {applyResult.pending.length}건 미반영</strong>{applyResult.pending.length > 0 && <details><summary>미반영 사유 보기</summary><ul>{applyResult.pending.map(reason => <li key={reason}>{reason}</li>)}</ul></details>}</div>}
       {excludeConfirm && <div className="auto-sync-error"><p>선택한 확인 필요 {selectedChanges.filter(change => change.state === '확인필요').length}건을 등록 제외합니다. 기존 T3 일정은 삭제되지 않습니다.</p><label>제외 사유 (선택) <input value={exclusionReason} onChange={event => setExclusionReason(event.target.value)} /></label> <button type="button" disabled={Boolean(busy)} onClick={() => setExcludeConfirm(false)}>취소</button> <button type="button" disabled={Boolean(busy) || !selectedChanges.some(change => change.state === '확인필요')} onClick={() => void excludeSelected()}>등록 제외 확정</button></div>}
       <p>애매한 후보는 개별 검토 후 등록합니다. 일치 일정과 등록 제외 일정은 반영 대상이 아닙니다.</p>
-      <div className="auto-sync-table"><table><thead><tr><th><input aria-label="현재 표시된 처리 대상 전체 선택" type="checkbox" checked={actionable.length > 0 && actionable.every(change => selected.includes(change.id))} onChange={e => setSelected(e.target.checked ? actionable.map(change => change.id) : [])} /></th><th>분류</th><th>일정</th><th>변경 전 → 변경 후 / 후속 업무</th><th>검토</th></tr></thead><tbody>{visible.map(change => <tr key={change.id}><td>{['신규', '조건변경', '확인필요'].includes(change.state) && <input aria-label={`${change.name} 선택`} type="checkbox" checked={selected.includes(change.id)} onChange={() => toggle(change.id)} />}</td><td>{stateLabel[change.state]}</td><td>{change.name}{change.source?.cancelled && <p>등록 제외 후보 · 취소 표시</p>}</td><td>{change.reason}{change.differences.map((diff, index) => <div key={index}>{({ campaignName: '일정명', startDate: '시작일', endDate: '종료일' } as Record<string, string>)[diff.label] ?? diff.label}: {String(diff.before ?? '없음')} → {String(diff.after ?? '없음')}</div>)}</td><td>{!['기존', '등록제외'].includes(change.state) && <ScheduleCandidateReview change={change} />}</td></tr>)}</tbody></table></div>
+      <div className="auto-sync-table"><table><thead><tr><th><input aria-label="현재 표시된 처리 대상 전체 선택" type="checkbox" checked={actionable.length > 0 && actionable.every(change => selected.includes(change.id))} onChange={e => setSelected(e.target.checked ? actionable.map(change => change.id) : [])} /></th><th>분류</th><th>일정</th><th>변경 전 → 변경 후 / 후속 업무</th><th>검토</th></tr></thead><tbody>{visible.map(change => <tr key={change.id}><td>{!isRegistered(change) && !isApplied(change) && ['신규', '조건변경', '확인필요'].includes(change.state) && <input aria-label={`${change.name} 선택`} type="checkbox" checked={selected.includes(change.id)} onChange={() => toggle(change.id)} />}</td><td>{isRegistered(change) ? '등록 완료' : isApplied(change) ? '변경 반영 완료' : stateLabel[change.state]}</td><td>{change.name}{change.source?.cancelled && <p>등록 제외 후보 · 취소 표시</p>}</td><td>{isRegistered(change) ? '운영 DB에 등록된 일정' : isApplied(change) ? '운영 DB에 변경된 값이 반영됐습니다' : change.reason}{!isRegistered(change) && !isApplied(change) && change.differences.map((diff, index) => <div key={index}>{({ campaignName: '일정명', startDate: '시작일', endDate: '종료일' } as Record<string, string>)[diff.label] ?? diff.label}: {String(diff.before ?? '없음')} → {String(diff.after ?? '없음')}</div>)}</td><td>{!isRegistered(change) && !isApplied(change) && !['기존', '등록제외'].includes(change.state) && <ScheduleCandidateReview change={change} onApplied={() => { void notionScheduleStates().then(linked => { setSchedules(linked); if (change.state === '조건변경' && !matchesLive(change, linked)) setError('운영 DB 값이 Notion 후보와 다릅니다. 변경 내용을 다시 확인해주세요.'); else setMessage('운영 DB에 일정이 반영됐습니다.') }).catch(error => setError(error instanceof Error ? error.message : '운영 DB 확인 실패')) }} />}</td></tr>)}</tbody></table></div>
     </>}
   </section>
 }

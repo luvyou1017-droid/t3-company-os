@@ -71,7 +71,7 @@ export type Difference = { label: string; before: string | number; after: string
 export type ReviewRow = { key: string; index: number; state: ReviewState; selected: boolean; skuId?: string; candidateSkuIds?: string[]; differences: Difference[]; comparisons: Difference[]; reason?: string }
 export type ReviewCandidate = Candidate & { existingId?: string; candidateProductIds?: string[]; baseline?: string; items: ReviewRow[]; error?: string; saved?: boolean }
 
-const knownColors = ['베이지', '화이트', '아이보리', '민트', '스카이', '오렌지', '핑크', '블랙', '그레이', '브라운', '네이비', '레드', '블루', '그린', '옐로우', '퍼플', '실버', '골드']
+const knownColors = ['버터', '베이지', '화이트', '아이보리', '민트', '스카이', '오렌지', '핑크', '블랙', '그레이', '브라운', '네이비', '레드', '블루', '그린', '옐로우', '퍼플', '실버', '골드']
 export function parseProposalOptionIdentity(row: WiseProposalRow) {
   const raw = (row['구성명'] || row['상품명']).trim().replace(/\s+/g, ' ')
   const optionValues: Record<string, string> = {}
@@ -85,6 +85,9 @@ export function parseProposalOptionIdentity(row: WiseProposalRow) {
   optionName = optionName.replace(/[|,/·]+/g, ' ').replace(/\s+/g, ' ').trim()
   if (!optionName) optionName = '기본 구성'
   else if (normalize(optionName) === normalize(row['상품명'])) optionName = row['구성명'] && normalize(row['구성명']) !== normalize(row['상품명']) ? row['구성명'].trim() : '기본 구성'
+  // A color-only composition still needs the row's product variant (e.g. mini/basic)
+  // in its SKU identity; otherwise distinct variants collapse into the same option.
+  if (/^(?:색상|컬러)\s*[:：]/.test(raw) && row['상품명'].trim()) optionName = row['상품명'].trim()
   return { optionName, optionValues: Object.keys(optionValues).length ? optionValues : undefined }
 }
 

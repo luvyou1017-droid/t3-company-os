@@ -8,16 +8,21 @@ const baseOption = (value: string) => normalize(value.replace(/ \[(?:본사 네�
 // Positive existing rates are deliberately left for review, never overwritten.
 export function reviewProposalRates(product: ProductMaster, evidence: ProposalRateEvidence[]) {
   let filled = 0
-  let labeled = 0
+  const labeled = 0
   const unresolved: string[] = []
   const conflicts: string[] = []
   const skus = product.skus.map((sku) => {
-    if (!sku.active) return sku
+    if (!sku.active || sku.sampleOnly) return sku
     const matches = evidence.filter((row) => normalize(row.source) === normalize(product.sourceFileName ?? '')
       && normalize(row.product) === normalize(sku.productName || product.productName)
       && baseOption(row.option) === baseOption(sku.optionName)
       && row.sale === sku.groupBuyPrice && row.supply === sku.supplyPrice)
-    const rates = [...new Set(matches.map((row) => row.rate))]
+    const rates = [...new Set(matches.map((row) => row.rate).filter((value) => Number.isFinite(value) && value > 0 && value <= 100))]
+    // A zero or missing rate in the source does not prove the seller commission.
+    if (matches.some((row) => !Number.isFinite(row.rate) || row.rate <= 0 || row.rate > 100)) {
+      if (!sku.sellerCommissionRate) unresolved.push(sku.optionName)
+      return sku
+    }
     if (rates.length !== 1) {
       if (!sku.sellerCommissionRate) unresolved.push(sku.optionName)
       return sku
@@ -27,12 +32,9 @@ export function reviewProposalRates(product: ProductMaster, evidence: ProposalRa
       conflicts.push(sku.optionName)
       return sku
     }
-    const names = [...new Set(matches.map((row) => row.option))]
-    const optionName = names.length === 1 ? names[0] : sku.optionName
     const missing = (sku.sellerCommissionRate === undefined || sku.sellerCommissionRate === 0) && rate > 0
     if (missing) filled++
-    if (optionName !== sku.optionName) labeled++
-    return missing || optionName !== sku.optionName ? { ...sku, optionName, sellerCommissionRate: rate, updatedAt: new Date().toISOString() } : sku
+    return missing ? { ...sku, sellerCommissionRate: rate, updatedAt: new Date().toISOString() } : sku
   })
   const representative = skus.find((sku) => sku.active && sku.representative) ?? skus.find((sku) => sku.active)
   const sellerCommissionRate = !product.sellerCommissionRate && representative?.sellerCommissionRate ? representative.sellerCommissionRate : product.sellerCommissionRate

@@ -1057,6 +1057,28 @@
   margin-top: 12px;
 }
 
+.schedule-summary__note {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 12px 0 0;
+}
+
+.schedule-summary__scope {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 800;
+  margin: 16px 0 8px;
+}
+
+.summary-count-card small {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 8px;
+}
+
 .inline-notice {
   align-items: center;
   background: var(--primary-soft);
@@ -5901,6 +5923,12 @@
 .proposal-filters > input:not([type="checkbox"]), .proposal-filters select { min-width: 0; padding: 11px 12px; border: 1px solid #cfd7e3; border-radius: 9px; background: #fff; }
 .proposal-filters .checkbox-label { padding: 0 6px; white-space: nowrap; }
 .proposal-filters .checkbox-label input { min-width: auto; padding: 0; border: 0; }
+.proposal-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: -5px 0 16px; padding: 12px 16px; border: 1px solid #dbe3ef; border-radius: 12px; background: #fff; }
+.proposal-bulk-actions .checkbox-label { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; }
+.proposal-bulk-actions span { color: #475569; }
+.proposal-bulk-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.proposal-archive-message { margin: -6px 0 16px; color: #334155; font-weight: 700; }
+.proposal-product-select { flex: none; width: 18px; height: 18px; accent-color: #1d4ed8; }
 .proposal-catalog { display: grid; gap: 18px; }
 .proposal-brand { overflow: hidden; border: 1px solid #dbe3ef; border-radius: 17px; background: #fff; box-shadow: 0 6px 20px rgba(15,23,42,.04); }
 .proposal-brand > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 20px; border-bottom: 1px solid #dbe3ef; background: #f8fafc; }

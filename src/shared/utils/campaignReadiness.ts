@@ -3,6 +3,7 @@ import type { Campaign } from '../types/campaign'
 import type { ProductMaster } from '../../features/productMaster/types'
 import type { SalesDataRow } from '../types/salesData'
 import type { SalesDataImport } from '../types/salesData'
+import { getCampaignSalesChannel } from './campaignSalesChannel'
 
 export function scheduleRequiredErrors(c: Pick<Campaign, 'campaignName' | 'sellerId' | 'sellerName' | 'settlementVendorName' | 'managerId' | 'startDate' | 'endDate' | 'supplyAudience'>) {
   const errors: string[] = []
@@ -35,10 +36,10 @@ export function campaignReadiness(c: Campaign, products: ProductMaster[] = []) {
 export function settlementReadinessErrors(c: Campaign | undefined, products: ProductMaster[], rows?: SalesDataRow[], source?: Pick<SalesDataImport, 'settlementTerms' | 'supplyAudience' | 'commissionSyncUnmatchedRows'>) {
   if (!c) return ['공구일정 연결 필요']
   const errors: string[] = []
-  const campaignChannel = c.salesChannelType
+  const campaignChannel = getCampaignSalesChannel(c)
   const termsChannel = source?.settlementTerms?.salesChannelType
   const channel = termsChannel ?? campaignChannel
-  if (!channel || !['seller', 'vendor'].includes(source?.supplyAudience ?? c.supplyAudience ?? '')) errors.push('거래구분 미등록')
+  if (!channel) errors.push('거래구분 미등록')
   else if ((campaignChannel && termsChannel && campaignChannel !== termsChannel) || (c.supplyAudience && source?.supplyAudience && c.supplyAudience !== source.supplyAudience)) errors.push('거래구분 불일치')
   if ((source?.commissionSyncUnmatchedRows ?? 0) > 0) errors.push('SKU 매칭 필요')
   const targets = rows?.length ? rows.filter(r => r.netQuantity > 0).map(r => ({ productId: r.productId || c.productId, skuId: r.skuId, sellerSupplyPrice: r.sellerSupplyPrice, sellerCommissionRate: r.sellerCommissionRate }))

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { dailyBriefings, workUsers } from '../../features/myWork/mockData'
+import { workUsers } from '../../features/myWork/mockData'
+import { useCompanyAuth } from '../../features/auth/AuthGate'
 import { workService } from '../../features/cs/services/workService'
 import {
   calculateWorkPriority,
@@ -38,12 +39,17 @@ function matchesQuickFilter(item: WorkItem, quick: WorkFilter['quick']) {
 }
 
 export function MyWorkPage() {
-  const [selectedUserId, setSelectedUserId] = useState('u-001')
+  const { profile } = useCompanyAuth()
+  const ownUser = workUsers.find((user) => user.name === profile.display_name)
+  const canViewTeam = ['ceo', 'admin', 'team_lead'].includes(profile.role)
+  const [selectedUserId, setSelectedUserId] = useState(ownUser?.id ?? profile.id)
   const [items, setItems] = useState<WorkItem[]>(() => workService.listWorkItems())
   const [filter, setFilter] = useState<WorkFilter>(initialFilter)
   const [selectedItem, setSelectedItem] = useState<WorkItem | null>(null)
   const [completeTarget, setCompleteTarget] = useState<WorkItem | null>(null)
   const [briefingNonce, setBriefingNonce] = useState(0)
+  const [copyStatus, setCopyStatus] = useState('')
+  const refresh = () => { setItems(workService.listWorkItems()); setBriefingNonce((value) => value + 1); setCopyStatus('') }
 
   useEffect(() => {
     const sync = () => setItems(workService.listWorkItems())
@@ -51,14 +57,14 @@ export function MyWorkPage() {
     return () => window.removeEventListener('t3-storage-updated', sync)
   }, [])
 
-  const selectedUser = workUsers.find((user) => user.id === selectedUserId) ?? workUsers[0]
-  const userItems = items.filter((item) => item.assigneeId === selectedUser.id)
+  const selectedUser = workUsers.find((user) => user.id === selectedUserId) ?? { id: profile.id, name: profile.display_name, role: '매니저' as const }
+  const userItems = items.filter((item) => item.assigneeId === selectedUser.id || (!ownUser && item.assigneeName === selectedUser.name))
 
   const summary = useMemo(() => ({
     '오늘 업무': userItems.filter((item) => isDueToday(item) && item.status !== 'completed').length,
     '긴급 업무': userItems.filter((item) => calculateWorkPriority(item) === 'urgent').length,
     '지연 업무': userItems.filter(isWorkOverdue).length,
-    '오늘 마감': userItems.filter((item) => item.dueDate === workToday).length,
+    '오늘 마감': userItems.filter((item) => item.dueDate === workToday() && item.status !== 'completed').length,
     '승인 대기': userItems.filter((item) => item.workType.includes('승인')).length,
     '이번 주 예정': userItems.filter(isDueThisWeek).length,
   }), [userItems])
@@ -84,10 +90,11 @@ export function MyWorkPage() {
   }, [filter, userItems])
 
   const grouped = {
-    긴급: filteredItems.filter((item) => calculateWorkPriority(item) === 'urgent' && item.status !== 'completed'),
-    오늘: filteredItems.filter((item) => isDueToday(item) && calculateWorkPriority(item) !== 'urgent' && item.status !== 'completed'),
     지연: filteredItems.filter((item) => isWorkOverdue(item)),
-    '이번 주': filteredItems.filter((item) => isDueThisWeek(item) && !isDueToday(item) && item.status !== 'completed'),
+    긴급: filteredItems.filter((item) => !isWorkOverdue(item) && calculateWorkPriority(item) === 'urgent' && item.status !== 'completed'),
+    오늘: filteredItems.filter((item) => !isWorkOverdue(item) && isDueToday(item) && calculateWorkPriority(item) !== 'urgent' && item.status !== 'completed'),
+    '이번 주': filteredItems.filter((item) => !isWorkOverdue(item) && isDueThisWeek(item) && !isDueToday(item) && calculateWorkPriority(item) !== 'urgent' && item.status !== 'completed'),
+    '이후 예정': filteredItems.filter((item) => !isWorkOverdue(item) && !isDueThisWeek(item) && item.status !== 'completed'),
     완료: filteredItems.filter((item) => item.status === 'completed'),
   }
 
@@ -98,7 +105,8 @@ export function MyWorkPage() {
       return weight[calculateWorkPriority(a)] - weight[calculateWorkPriority(b)]
     })[0]
 
-  const briefing = dailyBriefings.find((item) => item.userId === selectedUser.id)?.message ?? ''
+  const briefingItems = [...userItems.filter((item) => item.status !== 'completed' && (isWorkOverdue(item) || isDueToday(item)))].sort((a, b) => a.dueAt.localeCompare(b.dueAt))
+  const briefing = `${selectedUser.name}님, ${workToday()} 업무 안내\n지연 ${summary['지연 업무']}건 · 오늘 ${summary['오늘 업무']}건\n${briefingItems.length ? briefingItems.slice(0, 12).map((item, index) => `${index + 1}. ${item.campaignName} · ${item.title} (${isWorkOverdue(item) ? '지연' : item.dueTime || '오늘'})`).join('\n') : '오늘 또는 지연된 등록 업무가 없습니다.'}${briefingItems.length > 12 ? `\n외 ${briefingItems.length - 12}건은 내 업무에서 확인해주세요.` : ''}`
 
   const updateItem = (nextItem: WorkItem) => {
     setItems((current) => {
@@ -131,7 +139,7 @@ export function MyWorkPage() {
   return (
     <section className="my-work-page">
       <MyWorkHeader
-        onRefresh={() => setBriefingNonce((value) => value + 1)}
+        onRefresh={refresh}
         onUserChange={(userId) => {
           setSelectedUserId(userId)
           setFilter(initialFilter)
@@ -139,14 +147,16 @@ export function MyWorkPage() {
         selectedUser={selectedUser}
         selectedUserId={selectedUserId}
         todayCount={summary['오늘 업무']}
-        users={workUsers}
+        users={canViewTeam ? workUsers : [selectedUser]}
       />
       <WorkSummaryCards activeQuick={filter.quick} onSelect={(quick) => setFilter({ ...filter, quick })} summary={summary} />
       <DailyBriefingCard
         key={briefingNonce}
         message={briefing}
+        copyStatus={copyStatus}
+        onCopy={() => void navigator.clipboard.writeText(briefing).then(() => setCopyStatus('업무 안내를 복사했습니다. 카카오톡에 붙여넣어 전달할 수 있습니다.')).catch(() => setCopyStatus('복사에 실패했습니다. 브라우저의 클립보드 권한을 확인해주세요.'))}
         onImportantOnly={() => setFilter({ ...filter, quick: '긴급' })}
-        onRefresh={() => setBriefingNonce((value) => value + 1)}
+        onRefresh={refresh}
       />
       <PriorityWorkCard item={topPriorityWork} onComplete={setCompleteTarget} onOpen={setSelectedItem} />
       <section className="panel">

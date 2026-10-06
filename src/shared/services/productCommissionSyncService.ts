@@ -1,7 +1,7 @@
 import { matchFlavorPack, parseFlavorPack } from '../utils/flavorPackMatching'
 import { productService } from '../../features/productMaster/services/productService'
 import type { ProductMaster, ProductMasterInput, ProductSku } from '../../features/productMaster/types'
-import type { SalesDataRow } from '../types/salesData'
+import type { SalesDataImport, SalesDataRow } from '../types/salesData'
 import { campaignService } from './campaignService'
 import { salesDataService } from './salesDataService'
 import { normalizeProductMatchText as normalize, productSkuMatchScore } from '../utils/productSkuMatching'
@@ -35,12 +35,22 @@ const commissionPolicy = (product: ProductMaster, sku: ProductSku) => {
 }
 const manualMatchKey = (row: Pick<SalesDataRow, 'optionName' | 'unitPrice'>) => `${normalize(row.optionName)}::${Math.round(row.unitPrice)}`
 
-export async function syncProductCommissionRates(salesDataImportId: string) {
+function saveCommissionSync(salesImport: SalesDataImport, previousRows: SalesDataRow[], rows: SalesDataRow[], updates: Partial<SalesDataImport>) {
+  const rowsChanged = JSON.stringify(previousRows) !== JSON.stringify(rows)
+  const importChanged = Object.entries(updates).some(([key, value]) =>
+    JSON.stringify(salesImport[key as keyof SalesDataImport]) !== JSON.stringify(value))
+  if (!rowsChanged && !importChanged) return false
+  if (rowsChanged) salesDataService.saveRows([...rows, ...salesDataService.getSalesDataRows().filter((row) => row.salesDataImportId !== salesImport.id)])
+  salesDataService.updateSalesDataImport({ ...salesImport, ...updates, commissionSyncedAt: new Date().toISOString() })
+  return true
+}
+
+export async function syncProductCommissionRates(salesDataImportId: string, products?: ProductMaster[]) {
   const salesImport = salesDataService.getSalesDataImportById(salesDataImportId)
   if (!salesImport) return { matched: 0, unmatched: 0, rows: [] as SalesDataRow[] }
   if (salesImport.supplyAudience === 'vendor' || salesImport.settlementTerms || salesImport.manualSettlement) return { matched: 0, unmatched: 0, rows: salesDataService.getRowsByImportId(salesDataImportId), issues: [] }
   const campaign = campaignService.getCampaignById(salesImport.campaignId)
-  const allProducts = await productService.listProducts()
+  const allProducts = products ?? await productService.listProducts()
   const campaignProducts = campaign ? allProducts.filter((product) => product.id === campaign.productId) : []
   const brandProducts = allProducts.filter((product) => {
     if (!campaign) return true
@@ -68,27 +78,26 @@ export async function syncProductCommissionRates(salesDataImportId: string) {
       : campaign?.sellerCommissionRate && campaign.sellerCommissionRate > 0
         ? campaign.sellerCommissionRate
         : undefined
-    const rows = salesDataService.getRowsByImportId(salesDataImportId).map((row) => ({ ...row, totalCommissionRate, sellerCommissionRate }))
-    salesDataService.saveRows([...rows, ...salesDataService.getSalesDataRows().filter((row) => row.salesDataImportId !== salesDataImportId)])
-    salesDataService.updateSalesDataImport({
-      ...salesImport,
+    const previousRows = salesDataService.getRowsByImportId(salesDataImportId)
+    const rows = previousRows.map((row) => ({ ...row, totalCommissionRate, sellerCommissionRate }))
+    const changed = saveCommissionSync(salesImport, previousRows, rows, {
       totalCommissionRate,
       sellerCommissionRate,
       commissionRate: sellerCommissionRate,
       commissionCalculationType: 'campaign_total',
       commissionSyncMatchedRows: rows.length,
       commissionSyncUnmatchedRows: 0,
-      commissionSyncedAt: new Date().toISOString(),
       commissionSyncVersion: PRODUCT_COMMISSION_SYNC_VERSION,
       commissionSyncIssues: [],
     })
-    return { matched: rows.length, unmatched: 0, rows, issues: [] }
+    return { matched: rows.length, unmatched: 0, rows, issues: [], changed }
   }
   const candidates = (confirmedProduct ? [confirmedProduct] : campaignProducts.length ? campaignProducts : brandProducts.length ? brandProducts : [])
     .flatMap((product) => product.skus.filter((sku) => sku.active).map((sku) => ({ product, sku })))
   let matched = 0
   const issues: NonNullable<typeof salesImport.commissionSyncIssues> = []
-  const rows = salesDataService.getRowsByImportId(salesDataImportId).map((row) => {
+  const previousRows = salesDataService.getRowsByImportId(salesDataImportId)
+  const rows = previousRows.map((row) => {
     const tierPriceProductIds = new Set(candidates.filter(({ sku }) => sku.pricingType === 'quantity_tier' && Math.round(row.unitPrice) === Math.round(sku.groupBuyPrice)).map(({ product }) => product.id))
     const allowTierPriceMatch = campaignProducts.length > 0 || tierPriceProductIds.size === 1
     const manualSkuId = salesImport.commissionManualMatches?.[manualMatchKey(row)] ?? salesImport.commissionManualMatches?.[normalize(row.optionName)]
@@ -150,9 +159,7 @@ export async function syncProductCommissionRates(salesDataImportId: string) {
       sellerCommissionRate: policy.sellerCommissionRate,
     }
   })
-  salesDataService.saveRows([...rows, ...salesDataService.getSalesDataRows().filter((row) => row.salesDataImportId !== salesDataImportId)])
-  salesDataService.updateSalesDataImport({
-    ...salesImport,
+  const changed = saveCommissionSync(salesImport, previousRows, rows, {
     ...(matched === rows.length && rows.length > 0 && new Set(rows.map((row) => row.sellerCommissionRate)).size === 1 ? {
       sellerCommissionRate: rows[0].sellerCommissionRate,
       commissionRate: rows[0].sellerCommissionRate,
@@ -162,12 +169,11 @@ export async function syncProductCommissionRates(salesDataImportId: string) {
     } : {}),
     commissionSyncMatchedRows: matched,
     commissionSyncUnmatchedRows: rows.length - matched,
-    commissionSyncedAt: new Date().toISOString(),
     commissionSyncVersion: PRODUCT_COMMISSION_SYNC_VERSION,
     commissionSyncIssues: issues,
     commissionCalculationType: 'sku',
   })
-  return { matched, unmatched: rows.length - matched, rows, issues }
+  return { matched, unmatched: rows.length - matched, rows, issues, changed }
 }
 
 export async function manuallyMatchSalesRow(salesDataImportId: string, rowId: string, skuId: string) {

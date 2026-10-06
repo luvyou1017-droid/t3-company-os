@@ -31,9 +31,9 @@ export function MyWorkHeader({
       </div>
       <div className="my-work-header__meta">
         <span>{selectedUser.name} / {selectedUser.role}</span>
-        <span>오늘 날짜 {workToday}</span>
-        <span>현재 시간 {workNowTime}</span>
-        <span>마지막 업데이트 {workToday} {workNowTime}</span>
+        <span>오늘 날짜 {workToday()}</span>
+        <span>현재 시간 {workNowTime()}</span>
+        <span>마지막 업데이트 {workToday()} {workNowTime()}</span>
         <button className="secondary-button" onClick={onRefresh} type="button">새로고침</button>
         <UserRoleSwitcher onChange={onUserChange} selectedUserId={selectedUserId} users={users} />
       </div>

@@ -28,6 +28,8 @@ export type SettlementApplyLocation =
 export type SettlementDeduction = {
   unitPrice?: number
   quantity?: number
+  /** Company cost captured from a seller-paid sample order; historical deductions omit it. */
+  sampleCompanyCost?: number
   direction?: 'deduction' | 'payment'
   id: string
   settlementId: string
@@ -58,6 +60,7 @@ export type SettlementCalculationStep = {
 }
 
 export type SettlementCalculationSnapshot = {
+  sampleCompanyMargin?: number
   sellerReceivableAmount?: number
   sellerReceivableOffset?: number
   adjustmentCalculationVersion?: 2

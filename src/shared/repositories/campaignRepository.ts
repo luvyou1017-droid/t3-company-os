@@ -59,7 +59,7 @@ export class SupabaseCampaignRepository extends SupabaseRepository<Campaign> {
       // Preserve the database primary key and all business columns on an update.
       const row = this.toRow(next)
       const result = saved
-        ? await this.client.from(this.table).update({ campaign_name: row.campaign_name, start_date: row.start_date, end_date: row.end_date, metadata: row.metadata, updated_at: row.updated_at }).eq('id', saved.id).select('id')
+        ? await this.client.from(this.table).update({ campaign_name: row.campaign_name, start_date: row.start_date, end_date: row.end_date, manager_id: row.manager_id, manager_name: row.manager_name, metadata: row.metadata, updated_at: row.updated_at }).eq('id', saved.id).select('id')
         : await this.client.from(this.table).insert(row).select('id')
       if (result.error || result.data?.length !== 1) return { succeeded: 0, failed: items.length, errors: [result.error?.message ?? '일정 저장 결과를 확인해주세요.'], campaigns: [] }
     }

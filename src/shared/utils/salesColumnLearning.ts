@@ -12,7 +12,7 @@ export type SheetSample = { name: string; rows: unknown[][] }
 export type ColumnRule = { scope: string; signature: string; mapping: ColumnMap; updatedAt: string }
 export const normalizeTerm = (value: unknown) => String(value ?? '').normalize('NFC').toLowerCase().replace(/[\s_()\-/.]/g, '')
 const terms: Record<ColumnField, string[]> = {
-  option: ['옵션정보', '옵션명', '상품옵션', '구성명', '품목명', '상품명', '제품명'],
+  option: ['옵션정보', '옵션명', '옵션', '상품옵션', '구성명', '품목명', '상품명', '제품명'],
   quantity: ['판매수량', '주문수량', '수량', '판매개수', '주문개수', 'qty', 'quantity'],
   unitPrice: ['판매단가', '개당판매가', '옵션판매가', '공구가', '공구판매가', '판매가', 'unitprice'],
   gross: ['상품총매출', '총판매금액', '상품금액옵션포함', '총매출'],
@@ -29,6 +29,16 @@ export function suggestColumns(header: unknown[]): ColumnMap {
     const candidates = header.flatMap((cell, index) => terms[field].some((term) => normalizeTerm(term) === normalizeTerm(cell)) ? [index] : [])
     if (candidates.length === 1) mapping[field] = candidates[0]
   }
+  // An order table may sit beside a summary table. Prefer the order's explicit
+  // option, quantity and amount columns over the summary's prices and product name.
+  const optionIndex = header.findIndex(cell => normalizeTerm(cell) === '옵션')
+  if (optionIndex > 0 && normalizeTerm(header[optionIndex - 1]) === '상품명'
+    && normalizeTerm(header[optionIndex + 1]) === '수량' && normalizeTerm(header[optionIndex + 2]) === '판매금액') {
+    mapping.option = optionIndex
+    mapping.quantity = optionIndex + 1
+    mapping.gross = optionIndex + 2
+    delete mapping.unitPrice
+  }
   return mapping
 }
 export const headerSignature = (header: unknown[]) => JSON.stringify(header.map(normalizeTerm))
@@ -36,7 +46,15 @@ export function findLearnedRule(sheets: SheetSample[], scope: string, rules: Col
   for (let sheet = 0; sheet < sheets.length; sheet++) {
     for (let row = 0; row < Math.min(sheets[sheet].rows.length, 80); row++) {
       const rule = rules.find((item) => item.scope === scope && item.signature === headerSignature(sheets[sheet].rows[row]))
-      if (rule) return { sheet, row, mapping: rule.mapping }
+      if (rule) {
+        const header = sheets[sheet].rows[row]
+        const suggested = suggestColumns(header)
+        // An older saved rule may have mistaken 상품명 for the adjacent 옵션.
+        if (suggested.option !== undefined && rule.mapping.option !== suggested.option
+          && normalizeTerm(header[rule.mapping.option ?? -1]) === '상품명'
+          && normalizeTerm(header[suggested.option]) === '옵션') continue
+        return { sheet, row, mapping: rule.mapping }
+      }
     }
   }
   return undefined
@@ -64,7 +82,9 @@ export function mapSalesSheet(sheet: SheetSample, headerRow: number, mapping: Co
   for (const [index, row] of sheet.rows.entries()) {
     if (index <= headerRow) continue
     const option = String(row[mapping.option] ?? '').trim()
-    if (!option || /^(합계|총계|소계|판매소계)$/.test(normalizeTerm(option))) continue
+    if (!option || /^(합계|총계|소계|판매소계|total|subtotal)/.test(normalizeTerm(option))) continue
+    // A sample purchase adjustment is a cost, not a customer sale.
+    if (row.slice(0, mapping.option).some(cell => /샘플\s*사입건/.test(String(cell ?? '')))) continue
     const get = (field: ColumnField) => mapping[field] === undefined ? undefined : row[mapping[field]!]
     const quantity = numeric(get('quantity'), `${index + 1}행 수량`)
     if (!quantity) continue

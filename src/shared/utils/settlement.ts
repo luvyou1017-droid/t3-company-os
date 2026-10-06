@@ -129,6 +129,22 @@ export function calculateCompanyAmount(distributableVendorCommission: number, ma
   return safeAmount(distributableVendorCommission, '최종 배분 대상 금액') - safeAmount(managerAmount, '매니저 지급액')
 }
 
+/** 대표 직속·벤더 공급 건은 매니저 배분 없이 회사에 귀속한다. 확정 Snapshot 자체는 변경하지 않는다. */
+export function companyDirectCalculation(snapshot: SettlementCalculationSnapshot): SettlementCalculationSnapshot {
+  const managerAmount = snapshot.managerAdditionalPayment ?? 0
+  return {
+    ...snapshot,
+    managerShareRate: 0,
+    companyShareRate: 100,
+    managerRate: 0,
+    companyRate: 100,
+    managerBaseShareAmount: 0,
+    managerAmount,
+    finalPaymentAmount: managerAmount,
+    companyAmount: snapshot.distributableVendorCommission - (snapshot.companyDirectDeduction ?? 0) + (snapshot.companyAdditionalPayment ?? 0) + (snapshot.sampleCompanyMargin ?? 0),
+  }
+}
+
 export function calculateFinalSellerPaymentAmount(sellerCommissionAmount: number, sellerDeduction = 0, applicableTax = 0) {
   return Math.max(safeAmount(sellerCommissionAmount, '셀러 수수료') - safeAmount(sellerDeduction, '셀러 부담 차감') - safeAmount(applicableTax, '적용 세금'), 0)
 }
@@ -167,11 +183,13 @@ export function calculateSettlement(
   const effectiveSellerCommissionRate = grossSales > 0 ? sellerCommissionAmount / grossSales * 100 : sellerCommissionRate
   const vendorCommission = calculateVendorCommission(grossCommission, sellerCommissionAmount)
   const deductionTotals = calculateDeductions(deductions)
+  const sampleCompanyMargin = deductions.filter(item => item.reflected && item.type === 'sample' && item.applyLocation === 'seller_payment' && item.sampleCompanyCost !== undefined)
+    .reduce((sum, item) => sum + item.amount - item.sampleCompanyCost!, 0)
   const distributableVendorCommission = calculateDistributableVendorCommission(vendorCommission, 0, deductionTotals.costBreakdown.eventCost, deductionTotals.costBreakdown.srookPayFee + deductionTotals.costBreakdown.otherCost, 0, deductionTotals.companyCreditTotal + deductionTotals.distributionPaymentTotal)
   const rates = salesImport.supplyAudience === 'vendor' ? { managerRate: 0, companyRate: 100 } : getShareRates(grossSales)
   const managerBaseShareAmount = salesImport.supplyAudience === 'vendor' ? 0 : calculateManagerBaseShare(distributableVendorCommission, rates.managerRate)
   const managerAmount = (salesImport.supplyAudience === 'vendor' ? 0 : calculateManagerAmount(distributableVendorCommission, rates.managerRate, deductionTotals.managerTotal, deductionTotals.managerReimbursementTotal)) + deductionTotals.managerAdditionalPayment
-  const companyAmount = calculateCompanyAmount(distributableVendorCommission, managerBaseShareAmount) - deductionTotals.companyDirectDeduction + deductionTotals.companyAdditionalPayment
+  const companyAmount = calculateCompanyAmount(distributableVendorCommission, managerBaseShareAmount) - deductionTotals.companyDirectDeduction + deductionTotals.companyAdditionalPayment + sampleCompanyMargin
   const additionalSellerPayments = sellerAdditionalPayments(deductions, 2)
   const sellerPayout = calculateFinalSellerPayment(sellerCommissionAmount, taxType === 'withholding_3_3' ? 'freelancer' : taxType === 'cash_receipt' ? 'simplified_business' : 'general_business', deductionTotals.sellerTotal, 2, additionalSellerPayments, deductions.filter(item => item.reflected && item.linkedData?.startsWith("receivable:")).reduce((sum, item) => sum + item.amount, 0))
   if ((sellerPayout.unappliedReceivableOffset ?? 0) > 0) throw new Error('상계액이 현재 지급액을 초과합니다. 미수금 상계를 먼저 취소해주세요.')
@@ -179,6 +197,7 @@ export function calculateSettlement(
   const finalSellerPaymentAmount = sellerPayout.finalSellerPaymentAmount
 
   return {
+    sampleCompanyMargin,
     sellerReceivableAmount: sellerPayout.sellerReceivableAmount ?? 0,
     sellerReceivableOffset: deductions.filter(item => item.reflected && item.linkedData?.startsWith("receivable:")).reduce((sum, item) => sum + item.amount, 0),
     adjustmentCalculationVersion: 2,
@@ -233,7 +252,7 @@ export function validateSettlementCalculation(snapshot: SettlementCalculationSna
 
   Object.entries(snapshot).forEach(([key, value]) => {
     if (typeof value === 'number' && (!Number.isFinite(value) || Number.isNaN(value))) errors.push(`${key} 계산값이 올바르지 않습니다.`)
-    if (typeof value === 'number' && value < 0) errors.push(`${key} 계산값이 음수입니다.`)
+    if (typeof value === 'number' && value < 0 && key !== 'sampleCompanyMargin') errors.push(`${key} 계산값이 음수입니다.`)
   })
 
   if (snapshot.totalCommissionRate <= 0) errors.push('총수수료율은 0보다 커야 합니다.')
@@ -247,7 +266,7 @@ export function validateSettlementCalculation(snapshot: SettlementCalculationSna
   if (snapshot.vendorCommission + (snapshot.companyAdjustmentCredit ?? 0) + (snapshot.distributionPaymentTotal ?? 0) !== snapshot.distributableVendorCommission + snapshot.companySampleDeduction + snapshot.companyEventDeduction + snapshot.companyOtherDeduction + snapshot.managerReimbursementTotal + (snapshot.distributionDeductionTotal ?? 0)) {
     errors.push('벤더 수수료와 가산 조정액의 합은 최종 배분 대상 금액, 회사 부담 비용, 선결제 환급액의 합과 일치해야 합니다.')
   }
-  if (snapshot.managerBaseShareAmount + snapshot.companyAmount + (snapshot.companyDirectDeduction ?? 0) - (snapshot.companyAdditionalPayment ?? 0) !== snapshot.distributableVendorCommission) {
+  if (snapshot.managerBaseShareAmount + snapshot.companyAmount + (snapshot.companyDirectDeduction ?? 0) - (snapshot.companyAdditionalPayment ?? 0) - (snapshot.sampleCompanyMargin ?? 0) !== snapshot.distributableVendorCommission) {
     errors.push('매니저 기본 배분액과 회사 귀속액 합계가 최종 배분 대상 금액과 일치하지 않습니다.')
   }
 
@@ -300,7 +319,7 @@ export function createCalculationSteps(snapshot: SettlementCalculationSnapshot):
     step(12, '매니저 배분율', [`${snapshot.managerShareRate}%`], '매출 구간별 매니저 배분율', `${snapshot.managerShareRate}%`, '시스템 자동 계산'),
     step(13, '회사 배분율', [`${snapshot.companyShareRate}%`], '매출 구간별 회사 배분율', `${snapshot.companyShareRate}%`, '시스템 자동 계산'),
     step(14, '매니저 지급액', [won(snapshot.distributableVendorCommission), `${snapshot.managerShareRate}%`, ...managerDeductions.map((item) => won(item.amount)), ...managerReimbursements.map((item) => won(item.amount))], `Math.ceil(${won(snapshot.distributableVendorCommission)} × ${snapshot.managerShareRate}%) - 매니저 부담 비용 + 선결제 환급액 + 지급내역`, snapshot.managerAmount, '시스템 자동 계산'),
-    step(15, '회사 귀속액', [won(snapshot.distributableVendorCommission), won(snapshot.managerBaseShareAmount)], `${won(snapshot.distributableVendorCommission)} - ${won(snapshot.managerBaseShareAmount)} - 회사 차감 ${won(snapshot.companyDirectDeduction ?? 0)} + 회사 지급 ${won(snapshot.companyAdditionalPayment ?? 0)}`, snapshot.companyAmount, '시스템 차액 보정'),
+    step(15, '회사 귀속액', [won(snapshot.distributableVendorCommission), won(snapshot.managerBaseShareAmount)], `${won(snapshot.distributableVendorCommission)} - ${won(snapshot.managerBaseShareAmount)} - 회사 차감 ${won(snapshot.companyDirectDeduction ?? 0)} + 회사 지급 ${won(snapshot.companyAdditionalPayment ?? 0)} + 셀러 부담 샘플 차액 ${won(snapshot.sampleCompanyMargin ?? 0)}`, snapshot.companyAmount, '시스템 차액 보정'),
   ]
 }
 

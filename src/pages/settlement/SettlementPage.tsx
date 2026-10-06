@@ -1,6 +1,7 @@
 import { adjustmentLabel, namedAdjustmentRows } from '../../shared/utils/settlementAdjustmentLabels'
 import { SellerStatementAmountRows, sellerStatementAmount } from './components/SellerStatementAmountRows'
 import { SettlementCostRows } from './components/SettlementAdjustmentRows'
+import { SampleSettlementCandidates } from './components/SampleSettlementCandidates'
 import { SellerReceivablePanel } from './components/SellerReceivablePanel'
 import { ManagerAccountEditor } from './components/ManagerAccountEditor'
 import { managerAccountService } from '../../shared/services/managerAccountService'
@@ -17,18 +18,17 @@ import { sellerAccountText } from '../../shared/utils/sellerAccountText'
 import { SellerDetailShare } from './components/SellerDetailShare'
 import { SupplierRequestModal } from './components/SupplierRequestModal'
 import { settlementWorkflowLabel } from '../../shared/utils/settlementWorkflowStatus'
+import { isArchivedSettlement } from '../../shared/utils/settlementArchive'
 import './supplier-request.css'
 import { SupplierSettlementDocument } from './components/SupplierSettlementDocument'
 import { calculateVendorDocument } from '../../shared/utils/vendorSettlementDocument'
 import { SalesReferences } from './components/SalesReferences'
 import { useEffect, useRef, useState, type ClipboardEvent, type RefObject } from 'react'
-import { flushSync } from 'react-dom'
-import { toBlob, getFontEmbedCSS } from 'html-to-image'
 
 const documentPngJobs = new WeakMap<HTMLDivElement, Promise<Blob>>()
 const documentPngCache = new WeakMap<HTMLDivElement, { key: string; at: number; blob: Blob }>()
-let documentFontCss: Promise<string> | undefined
 import { campaignService } from '../../shared/services/campaignService'
+import { productService } from '../../features/productMaster/services/productService'
 import { salesDataService } from '../../shared/services/salesDataService'
 import { settlementService } from '../../shared/services/settlementService'
 import { cloudSyncService } from '../../shared/services/cloudSyncService'
@@ -330,11 +330,11 @@ function ManagerPerformance({ settlements, onOpenDetail }: { settlements: Settle
 
 export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: string) => void }) {
   const [settlements, setSettlements] = useState(() => settlementService.getSettlements())
-  const [view, setView] = useState<'list' | 'managers' | 'calendar' | 'references'>(() => {
+  const [view, setView] = useState<'list' | 'archive' | 'managers' | 'calendar' | 'references'>(() => {
     const saved = sessionStorage.getItem('settlement-view')
-    return saved === 'managers' || saved === 'calendar' || saved === 'references' ? saved : 'list'
+    return saved === 'archive' || saved === 'managers' || saved === 'calendar' || saved === 'references' ? saved : 'list'
   })
-  const changeView = (next: 'list' | 'managers' | 'calendar' | 'references') => {
+  const changeView = (next: 'list' | 'archive' | 'managers' | 'calendar' | 'references') => {
     setView(next)
     sessionStorage.setItem('settlement-view', next)
     sessionStorage.removeItem('settlement-list-scroll')
@@ -363,9 +363,14 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
         try { await settlementService.prepareSettlementFromSalesData(item.id) }
         catch (error) { automaticErrors.push(error instanceof Error ? error.message : '정산 자동 생성 중 알 수 없는 오류가 발생했습니다.') }
       }
-      const current = settlementService.getSettlements().filter((item) => item.status !== 'completed' && item.status !== 'canceled')
-      const syncResults = await Promise.allSettled(current.map((item) => settlementService.syncProductRates(item.id)))
-      syncResults.forEach((result) => { if (result.status === 'rejected') automaticErrors.push(result.reason instanceof Error ? result.reason.message : '상품 수수료 동기화에 실패했습니다.') })
+      const current = settlementService.getSettlements().filter((item) => item.status !== 'completed' && item.status !== 'canceled' && !settlementService.isSettlementConfirmed(item))
+      try {
+        const products = current.length ? await productService.listProducts() : []
+        const syncResults = await Promise.allSettled(current.map((item) => settlementService.syncProductRates(item.id, products, item)))
+        syncResults.forEach((result) => { if (result.status === 'rejected') automaticErrors.push(result.reason instanceof Error ? result.reason.message : '상품 수수료 동기화에 실패했습니다.') })
+      } catch (error) {
+        automaticErrors.push(error instanceof Error ? error.message : '상품 수수료 동기화에 실패했습니다.')
+      }
       if (active && automaticErrors.length) setCreationError([...new Set(automaticErrors)].join('\n'))
       if (active) setSettlements(settlementService.getSettlements())
     })()
@@ -379,10 +384,13 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
   const campaignsById = new Map<string, Campaign>()
   for (const item of campaignService.getCampaigns()) if (!campaignsById.has(item.id)) campaignsById.set(item.id, item)
   const eligibleSales = salesImports.filter((item) => item.reviewStatus === '확정 완료' && item.settlementStatus === '정산 가능')
+  const today = koreaToday()
+  const archivedCount = settlements.filter(item => isArchivedSettlement(item, today)).length
   const filtered = settlements.filter(item => {
+    if (isArchivedSettlement(item, today) !== (view === 'archive')) return false
     const campaign = campaignsById.get(item.campaignId)
     const pendingApproval = item.sellerPaymentRequestStatus === 'approval_pending' || item.managerPaymentRequestStatus === 'approval_pending'
-    const statusMatch = quick === 'all' || (quick === 'approval_pending' ? pendingApproval || item.status === quick : item.status === quick)
+    const statusMatch = view === 'archive' || quick === 'all' || (quick === 'approval_pending' ? pendingApproval || item.status === quick : item.status === quick)
     const query = listFilters.query.trim().toLocaleLowerCase('ko-KR')
     const text = [campaign?.campaignName, campaign?.sellerName, campaign?.brandName, campaign?.managerName].join(' ').toLocaleLowerCase('ko-KR')
     const end = campaign?.endDate || ''
@@ -400,7 +408,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
     ['수정 필요', settlements.filter((item) => item.status === 'revision_required').length],
     ['대표 승인 대기', settlements.filter((item) => item.status === 'approval_pending' || item.sellerPaymentRequestStatus === 'approval_pending' || item.managerPaymentRequestStatus === 'approval_pending').length],
     ['지급 준비', settlements.filter((item) => item.status === 'payment_ready').length],
-    ['최종 완료', settlements.filter((item) => item.status === 'completed').length],
+    ['최종 완료', settlements.filter((item) => item.status === 'completed' && !isArchivedSettlement(item, today)).length],
   ] as const
 
   const weekEnd = addCalendarDays(koreaToday(), 6)
@@ -433,7 +441,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
           {view === 'list' && <button className="primary-button" disabled={!eligibleSales.length} onClick={createFirstReadySettlement} type="button">정산 생성</button>}
         </div>
         <nav className="settlement-view-tabs" aria-label="정산 관리 화면 선택">
-          {([['list', '정산 목록'], ['managers', '매니저별 KPI'], ['calendar', '정산 달력'], ['references', '매출 레퍼런스']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={view === id} className={view === id ? 'is-active' : ''} onClick={() => changeView(id)}>{label}</button>)}
+          {([['list', '정산 목록'], ['archive', `완료 보관함 (${archivedCount})`], ['managers', '매니저별 KPI'], ['calendar', '정산 달력'], ['references', '매출 레퍼런스']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={view === id} className={view === id ? 'is-active' : ''} onClick={() => changeView(id)}>{label}</button>)}
         </nav>
         {view === 'list' && <>
         <div className="settlement-kpi-grid">
@@ -461,15 +469,15 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
       {creationError && <div className="inline-notice settlement-warning settlement-creation-error"><strong>정산 생성 실패</strong><span>{creationError}</span><small>표시된 상품·구성의 총수수료율과 셀러수수료율을 상품 DB에서 확인해주세요.</small></div>}
 
       {view === 'references' && <SalesReferences settlements={settlements} onOpenDetail={onOpenDetail} />}
-      <div className="settlement-view" hidden={view !== 'calendar'}><SettlementCalendar items={calendarItems} totalUnrequested={totalUnrequested} unpricedCount={eligibleSales.length} onOpenDetail={onOpenDetail} /></div>
+      {view === 'calendar' && <div className="settlement-view"><SettlementCalendar items={calendarItems} totalUnrequested={totalUnrequested} unpricedCount={eligibleSales.length} onOpenDetail={onOpenDetail} /></div>}
 
-      <div className="settlement-view" hidden={view !== 'managers'}><ManagerPerformance settlements={settlements} onOpenDetail={onOpenDetail} /></div>
+      {view === 'managers' && <div className="settlement-view"><ManagerPerformance settlements={settlements} onOpenDetail={onOpenDetail} /></div>}
 
-      <section className="panel settlement-view" hidden={view !== 'list'}>
+      {(view === 'list' || view === 'archive') && <section className="panel settlement-view">
         <div className="panel__header">
           <div>
-            <h2>정산 목록</h2>
-            <p>확정된 판매 데이터에서 생성된 정산 초안과 승인 흐름을 확인합니다.</p>
+            <h2>{view === 'archive' ? '완료 보관함' : '정산 목록'}</h2>
+            <p>{view === 'archive' ? '셀러·매니저 입금이 모두 완료되고 한 달이 지난 정산입니다. 기록과 정산서는 그대로 보존됩니다.' : '진행 중인 정산과 입금 완료 후 한 달 이내의 정산입니다.'}</p>
           </div>
           <strong className="result-count">{filtered.length}건</strong>
         </div>
@@ -481,6 +489,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
               <label>기간 시작<input type="date" value={listFilters.from} onChange={event => setListFilters({ ...listFilters, from: event.target.value })} /></label>
               <label>기간 종료<input type="date" value={listFilters.to} onChange={event => setListFilters({ ...listFilters, to: event.target.value })} /></label>
             </div>
+          {filtered.length === 0 && <p className="empty-state">{view === 'archive' ? '입금 완료 후 한 달이 지난 정산이 없습니다.' : '검색 조건에 맞는 정산이 없습니다.'}</p>}
           <div className="schedule-table-wrap settlement-table-wrap">
             <table className="schedule-table settlement-table">
               <thead>
@@ -529,7 +538,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
             })}
           </div>
         </div>
-      </section>
+      </section>}
     </section>
   )
 }
@@ -605,8 +614,6 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const [vendorCompare, setVendorCompare] = useState(false)
   const [documentNotice, setDocumentNotice] = useState('')
   const [compareOpen, setCompareOpen] = useState(false)
-  const [sellerExportGeneratedAt, setSellerExportGeneratedAt] = useState('')
-  const [managerExportGeneratedAt, setManagerExportGeneratedAt] = useState('')
   const [sellerExcelShare, setSellerExcelShare] = useState<{ url: string; expiresAt: string } | null>(null)
   const [sellerExcelBusy, setSellerExcelBusy] = useState(false)
   const [sellerExcelError, setSellerExcelError] = useState('')
@@ -1135,7 +1142,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     } catch (error) { showClipboardToast(error instanceof Error ? error.message : '문구 복사를 허용한 뒤 다시 시도해주세요.', true) }
   }
 
-  const createDocumentPng = (target: RefObject<HTMLDivElement | null>, exportClass?: string, setGeneratedAt?: (value: string) => void): Promise<Blob> => {
+  const createDocumentPng = (target: RefObject<HTMLDivElement | null>, exportClass?: string, showGeneratedAt = false): Promise<Blob> => {
     const node = target.current
     if (!node) return Promise.reject(new Error('정산서 영역을 찾을 수 없습니다.'))
     const cacheKey = `${node.innerHTML}|${node.offsetWidth}|${node.offsetHeight}|${exportClass ?? ''}`
@@ -1144,18 +1151,25 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     const existing = documentPngJobs.get(node)
     if (existing) return existing
     const job = (async () => {
-      if (setGeneratedAt) flushSync(() => setGeneratedAt(formatKoreanExportTime()))
+      // Add the export timestamp to the document itself; updating React state here
+      // rerenders the entire settlement detail twice for a single clipboard copy.
+      const timestamp = showGeneratedAt ? document.createElement('p') : undefined
+      if (timestamp) {
+        timestamp.className = 'seller-export-timestamp'
+        timestamp.textContent = `이미지 생성: ${formatKoreanExportTime()}${node.classList.contains('vendor-statement') ? '' : ' (Asia/Seoul)'}`
+        const timestampContainer = node.querySelector('.seller-document__footer') ?? node
+        timestampContainer.appendChild(timestamp)
+      }
       if (exportClass) node.classList.add(exportClass)
       try {
         // Keep clipboard.write in the original tap; only defer the PNG work.
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-        documentFontCss ??= getFontEmbedCSS(node, { preferredFontFormat: 'woff2' }).catch(error => { documentFontCss = undefined; throw error })
-        const fontEmbedCSS = await documentFontCss
+        const { toBlob } = await import('html-to-image')
         const blob = await toBlob(node, {
           backgroundColor: '#ffffff',
           cacheBust: false,
-          preferredFontFormat: 'woff2',
-          fontEmbedCSS,
+          // The site uses system fonts and has no @font-face assets to fetch.
+          fontEmbedCSS: '',
           pixelRatio: 1.5,
         })
         if (!blob) throw new Error('PNG 생성에 실패했습니다.')
@@ -1163,7 +1177,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
         return blob
       } finally {
         if (exportClass) node.classList.remove(exportClass)
-        if (setGeneratedAt) flushSync(() => setGeneratedAt(''))
+        timestamp?.remove()
       }
     })()
     documentPngJobs.set(node, job)
@@ -1184,7 +1198,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
       }
     } catch { showClipboardToast('이미지 생성에 실패했습니다. 다시 시도해주세요.', true) }
   }
-  const createSellerDocumentPng = () => createDocumentPng(sellerDocumentRef, 'seller-document--exporting', setSellerExportGeneratedAt)
+  const createSellerDocumentPng = () => createDocumentPng(sellerDocumentRef, 'seller-document--exporting', true)
 
   const saveSellerDocumentImage = async () => {
     try {
@@ -1264,7 +1278,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
 
   const saveManagerDocumentImage = async () => {
     try {
-      const blob = await createDocumentPng(managerDocumentRef, 'seller-document--exporting', setManagerExportGeneratedAt)
+      const blob = await createDocumentPng(managerDocumentRef, 'seller-document--exporting', true)
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -1278,7 +1292,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const copyManagerDocumentImage = async () => {
     if (!window.isSecureContext || !navigator.clipboard?.write || typeof ClipboardItem === 'undefined') { showClipboardToast('복사하지 못했습니다. 다시 시도해주세요.', true); return }
     try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': createDocumentPng(managerDocumentRef, 'seller-document--exporting', setManagerExportGeneratedAt) })])
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': createDocumentPng(managerDocumentRef, 'seller-document--exporting', true) })])
       showClipboardToast('클립보드로 복사되었습니다.')
     } catch { showClipboardToast('복사하지 못했습니다. 다시 시도해주세요.', true) }
   }
@@ -1390,6 +1404,8 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
           <Summary label="총매출" value={money(settlement.currentCalculation.grossSales)} amount />
         </div></section>
 
+        <SampleSettlementCandidates settlementId={settlement.id} campaignId={settlement.campaignId} canEdit={canEditCurrentSettlement && !settlementConfirmed && !hasUnresolvedRevision} onApplied={() => { setSettlement({ ...(settlementService.getSettlementById(settlement.id) ?? settlement) }); setStorageRevision(value => value + 1) }} />
+
         {salesImport?.supplyAudience === 'vendor' && <div className="action-row"><button type="button" className="secondary-button" onClick={() => setReadinessModal('vendor-info')}>벤더 정보 등록·수정 · {salesImport.settlementVendorName}</button></div>}
 
         {blockingWarnings.length > 0 && <ReadinessWarningSection id="settlement-preparation" title="정산 계산 준비 필요" warnings={blockingWarnings} />}
@@ -1420,12 +1436,12 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
                   {sellerExcelError && <p className="seller-excel-share__error" role="alert">{sellerExcelError}</p>}
                 </div>}
                 {!vendorSupply && canEditCurrentSettlement && <SellerDetailShare settlementId={settlement.id} enabled={settlementConfirmed && !hasUnresolvedRevision} createImage={createSellerDocumentPng} message={() => buildSellerMessage(null)} onCopied={async () => { settlementService.markSellerDelivered(settlement.id, new Date().toISOString()); await cloudSyncService.syncKeys([STORAGE_KEYS.settlements]) }} />}
-                <SellerSettlementDocument exportGeneratedAt={sellerExportGeneratedAt} rows={salesRows} sellerDocumentRef={sellerDocumentRef} settlement={settlement} />
+                <SellerSettlementDocument rows={salesRows} sellerDocumentRef={sellerDocumentRef} settlement={settlement} />
               </article>
               {canAccessManagerDocument && <article hidden={hasThreePartyDocuments && vendorDocumentTab !== 'manager' && !(vendorSupply && vendorCompare)} className={`settlement-document-column ${expandedDocument === 'manager' ? 'is-expanded' : ''}`} id="manager-settlement-document">
                 <div className="settlement-document-column__heading"><h3>{vendorSupply ? '회사 내부용 정산서' : companyDirectManager ? '회사 귀속 정산서' : '매니저 정산서'}</h3>{expandedDocument === 'manager' && <button aria-label="닫기" className="settlement-expanded-close no-print" onClick={() => setExpandedDocument(null)} type="button">×</button>}</div>
                 <ManagerDocumentActions companyDirect={companyDirectManager} hasRequest={settlementConfirmed && !hasUnresolvedRevision && Boolean(managerPaymentRequest)} statusNotice={settlementConfirmed && !hasUnresolvedRevision ? managerStatusNotice : unconfirmedStatusNotice} warnings={settlementConfirmed && !hasUnresolvedRevision ? managerWarningActions : []} onAccount={openManagerAccount} onCopy={copyManagerDocumentImage} onPreview={() => setExpandedDocument('manager')} onRequestPayment={() => setPaymentRequestTarget('manager')} onSave={saveManagerDocumentImage} paymentDisabled={!settlementConfirmed || hasUnresolvedRevision || managerButtonBlockReasons.length > 0} />
-                <ManagerSettlementDocument documentRef={managerDocumentRef} exportGeneratedAt={managerExportGeneratedAt} rows={salesRows} settlement={settlement} />
+                <ManagerSettlementDocument documentRef={managerDocumentRef} rows={salesRows} settlement={settlement} />
               </article>}
               {sellerCollectsPayment && salesImport && canAccessManagerDocument && <article hidden={vendorDocumentTab !== 'company'} className={`settlement-document-column ${expandedDocument === 'company' ? 'is-expanded' : ''}`} id="company-settlement-document">
                 <div className="settlement-document-column__heading"><h3>회사 내부 정산서</h3>{expandedDocument === 'company' && <button aria-label="닫기" className="settlement-expanded-close no-print" onClick={() => setExpandedDocument(null)} type="button">×</button>}</div>
@@ -1844,7 +1860,7 @@ function CompanyCollectionSettlementDocument({ documentRef, rows, settlement, so
   </div></div>
 }
 
-function ManagerSettlementDocument({ documentRef, exportGeneratedAt, rows, settlement }: { documentRef: RefObject<HTMLDivElement | null>; exportGeneratedAt: string; rows: SalesDataRow[]; settlement: Settlement }) {
+function ManagerSettlementDocument({ documentRef, rows, settlement }: { documentRef: RefObject<HTMLDivElement | null>; rows: SalesDataRow[]; settlement: Settlement }) {
   const campaign = getCampaign(settlement)
   const companyDirect = Boolean((salesDataService.getSalesDataImportById(settlement.salesDataImportId)?.supplyAudience ?? campaign?.supplyAudience) === 'vendor' || (campaign && isCompanyDirectManager(campaign.managerId, campaign.managerName)))
   const snapshots = campaign?.proposalSnapshots ?? []
@@ -1885,7 +1901,6 @@ function ManagerSettlementDocument({ documentRef, exportGeneratedAt, rows, settl
     <section className="manager-document__section"><h3>{companyDirect ? '회사 귀속' : '수수료 배분'}</h3><table className="seller-document__table manager-allocation-table"><tbody><tr><th>{companyDirect ? '최종 회사 귀속 대상 수수료' : '최종 배분 대상 수수료'}</th><td className="amount-cell">{money(settlement.currentCalculation.distributableVendorCommission)}</td></tr>{companyDirect ? <tr><th>회사 귀속액</th><td className="amount-cell">{money(settlement.currentCalculation.distributableVendorCommission)}</td></tr> : <><tr><th>매니저 배분율</th><td className="amount-cell">{formatFloorRate(settlement.currentCalculation.managerShareRate)}</td></tr><tr><th>매니저 배분액</th><td className="amount-cell">{money(report.managerBaseShare)}</td></tr></>}</tbody></table></section>
     <section className="manager-document__section"><h3>{companyDirect ? '회사 귀속 확인' : '매니저 최종 지급'}</h3><table className="seller-document__table"><tbody>{companyDirect ? <tr><th>VAT 포함 회사 귀속액</th><td className="amount-cell">{money(finalCompanyAttribution)}</td></tr> : <><tr><th>VAT 포함 매니저 배분금액</th><td className="amount-cell">{money(grossManagerAmount)}</td></tr>{managerBusinessType === 'simplified_business' && <tr><th>- 부가세</th><td className="amount-cell">- {money(managerPayout.vatAmount)}</td></tr>}{managerBusinessType === 'freelancer' && <><tr><th>원천세 신고금액</th><td className="amount-cell">{money(withholdingCalculation.withholdingBaseAmount)}</td></tr><tr><th>소득세 3%</th><td className="amount-cell">- {money(withholdingCalculation.incomeTaxAmount)}</td></tr><tr><th>지방소득세 (소득세의 10%)</th><td className="amount-cell">- {money(withholdingCalculation.localIncomeTaxAmount)}</td></tr><tr><th>총 원천세</th><td className="amount-cell">- {money(withholdingCalculation.totalWithholdingTaxAmount)}</td></tr></>}{managerBusinessType !== 'freelancer' && report.managerDeductions.map((item) => <tr key={item.id}><th>{managerCostLabel(item)}</th><td className="amount-cell">- {money(item.amount)}</td></tr>)}</>}{!companyDirect && settlement.currentCalculation.managerReimbursementTotal > 0 && <tr><th>+ 선지급 환급액(이벤트 등)</th><td className="amount-cell">+ {money(settlement.currentCalculation.managerReimbursementTotal)}</td></tr>}<tr className="manager-final-row"><th>{companyDirect ? '최종 회사 귀속액' : '최종 매니저 정산금액'}</th><td className="amount-cell"><strong>{money(finalCompanyAttribution)}</strong></td></tr></tbody></table></section>
     {!companyDirect && <section className="manager-document__section manager-payment-account"><h3>지급 계좌</h3><p><strong>{managerProfile?.bankName || '은행명 미등록'} / {managerProfile?.accountNumber || '계좌번호 미등록'} / {managerProfile?.accountHolder || '예금주명 미등록'}</strong></p></section>}
-    {exportGeneratedAt && <p className="seller-export-timestamp">이미지 생성: {exportGeneratedAt} (Asia/Seoul)</p>}
   </div></div>
 }
 
@@ -1903,7 +1918,7 @@ function ManagerDocumentActions({ companyDirect, hasRequest, statusNotice, warni
   return <div className="document-action-bar no-print"><div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview}>확대 보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="secondary-button" onClick={onAccount}>매니저 정보 확인하기</button>{companyDirect && !hasRequest ? <span className="status-badge done">회사 직속 · 매니저 배분·지급 없음</span> : <button className={`${hasRequest ? 'payment-edit-button' : 'primary-button'} document-payment-action`} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '매니저 지급요청 수정하기' : '매니저 지급 요청'}</button>}</div><div className={`document-status-region ${statusNotice.tone === 'unconfirmed' ? 'is-unconfirmed' : ''}`}><PayoutStatusBanner notice={statusNotice} /><PaymentBlockReasons ownerLabel="매니저" warnings={warnings} /></div></div>
 }
 
-function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, settlement }: { exportGeneratedAt: string; rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
+function SellerSettlementDocument({ rows, sellerDocumentRef, settlement }: { rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
   const campaign = getCampaign(settlement)
   const sellerProfile = campaign ? sellerMasterService.getSettlementProfile(campaign.sellerId, campaign.sellerBusinessId) : undefined
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
@@ -1933,7 +1948,6 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
       {!report.receivable && <p>품목별 합의 수수료 기준</p>}
       {report.receivable && report.shipping === undefined && <p>판매 데이터에서 실제 수령 배송비를 입력해주세요. 무료배송인 경우 0원을 입력합니다.</p>}
       <section className="seller-document__section"><h3>공급 회사 및 입금 안내</h3><table className="seller-document__table"><tbody><tr><th>회사명</th><td>{companySettlementProfile.legalName}</td><th>대표자</th><td>{companySettlementProfile.representativeName}</td></tr><tr><th>사업자등록번호</th><td colSpan={3}>{companySettlementProfile.businessRegistrationNumber}</td></tr><tr><th>주소</th><td colSpan={3}>{companySettlementProfile.businessAddress}</td></tr><tr><th>정산 문의</th><td colSpan={3}>{companySettlementProfile.taxInvoiceEmail}</td></tr><tr><th>입금 계좌</th><td colSpan={3}>{companySettlementProfile.settlementBankName} {companySettlementProfile.settlementBankAccount}<br />예금주: {companySettlementProfile.settlementAccountHolder}</td></tr></tbody></table></section>
-      {exportGeneratedAt && <p className="seller-export-timestamp">이미지 생성: {exportGeneratedAt}</p>}
     </div></div>
   }
 
@@ -2017,7 +2031,6 @@ function SellerSettlementDocument({ exportGeneratedAt, rows, sellerDocumentRef, 
         <footer className="seller-document__section seller-document__footer">
           <h3>4. 회사정보 / 정산안내</h3>
           <table className="seller-document__table seller-company-table"><tbody><tr><th>회사명</th><td>{companySettlementProfile.legalName}</td><th>대표자</th><td>{companySettlementProfile.representativeName}</td></tr><tr><th>사업자등록번호</th><td>{companySettlementProfile.businessRegistrationNumber}</td><th>업태 / 종목</th><td>{companySettlementProfile.businessType} / {companySettlementProfile.businessItem}</td></tr><tr><th>주소</th><td colSpan={3}>{companySettlementProfile.businessAddress}</td></tr><tr><th>세금계산서 발행 메일</th><td colSpan={3}><a href={`mailto:${companySettlementProfile.taxInvoiceEmail}`}>{companySettlementProfile.taxInvoiceEmail}</a></td></tr><tr><th>회사 정산 계좌</th><td colSpan={3}>{companySettlementProfile.settlementBankName} {companySettlementProfile.settlementBankAccount} · 예금주 {companySettlementProfile.settlementAccountHolder}</td></tr></tbody></table>
-          {exportGeneratedAt && <p className="seller-export-timestamp">이미지 생성: {exportGeneratedAt} (Asia/Seoul)</p>}
         </footer>
       </div>
     </div>

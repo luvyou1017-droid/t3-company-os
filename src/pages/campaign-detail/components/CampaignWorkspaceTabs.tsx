@@ -1,4 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { SAMPLE_PAYERS, sampleTotals, type SampleOrder } from '../../../features/samples/sampleOrderModel'
+import { sampleOrderStore } from '../../../features/samples/sampleOrderStore'
+import { readSampleSettlementState, sampleSettlementStatus } from '../../../features/samples/sampleSettlementStatus'
 import { appUsers } from '../../../shared/data/users'
 import { campaignActivityService } from '../../../shared/services/campaignActivityService'
 import { campaignFileService } from '../../../shared/services/campaignFileService'
@@ -119,10 +122,42 @@ export function CommunicationsTab({ campaign, onChanged }: { campaign: Campaign;
 }
 
 export function SamplesTab({ campaign, onExternal }: { campaign: Campaign; onExternal: (type: string, id?: string) => void }) {
-  const samples = sampleService.getSamplesByCampaignId(campaign.id)
-  return <section className="workspace-card"><div className="section-heading"><div><h3>샘플</h3><p>정산에는 제안서 예상값이 아닌 실제 Sample 확정값만 사용합니다.</p></div><button className="secondary-button" onClick={() => onExternal('samples')} type="button">샘플 관리 전체 보기</button></div>
-    {samples.length ? <div className="responsive-table"><table><thead><tr><th>샘플</th><th>수량·단가</th><th className="money-cell">실제 총비용</th><th>유·무상 / 부담자</th><th>상태</th><th>정산</th></tr></thead><tbody>{samples.map((s) => { const total = s.quantity * (s.unitPrice ?? s.sampleCost) + s.shippingCost; const mismatch = s.proposalExpectedTotalAmount != null && s.proposalExpectedTotalAmount !== total; return <tr key={s.id}><td><strong>{s.productName}</strong><small>{s.optionName}</small>{mismatch && <small className="danger-text">제안서 예상값과 실제 비용이 다릅니다.</small>}</td><td>{s.quantity}개 · {money(s.unitPrice ?? s.sampleCost)}</td><td className="money-cell">{money(total)}</td><td>{s.paymentType} · {s.costOwner}</td><td>{s.status} / {s.deliveryStatus}</td><td>{s.settlementReflected ? `반영 완료 (${s.settlementId})` : '미반영'}<button className="text-button table-action" onClick={() => onExternal('samples', s.id)} type="button">원본 보기</button></td></tr> })}</tbody></table></div> : <EmptyState action="샘플 등록" onAction={() => onExternal('samples')}>이 Campaign에 연결된 샘플이 없습니다.</EmptyState>}
-  </section>
+  const [result, setResult] = useState<{ campaignId: string; orders: SampleOrder[] } | null>(null)
+  const [loadError, setLoadError] = useState<{ campaignId: string; message: string } | null>(null)
+  const [, setSettlementRevision] = useState(0)
+  useEffect(() => {
+    let active = true
+    void sampleOrderStore.list().then((all) => { if (active) { setResult({ campaignId: campaign.id, orders: all.filter((order) => order.campaignId === campaign.id) }); setLoadError(null) } })
+      .catch((reason) => { if (active) setLoadError({ campaignId: campaign.id, message: reason instanceof Error ? reason.message : '샘플 요청을 불러오지 못했습니다.' }) })
+    return () => { active = false }
+  }, [campaign.id])
+  useEffect(() => {
+    const update = (event: Event) => {
+      const key = (event as CustomEvent<{ key: string }>).detail?.key
+      if (key === 't3_company_os_settlements' || key === 't3_company_os_settlement_deductions') setSettlementRevision((value) => value + 1)
+    }
+    window.addEventListener('t3-storage-updated', update)
+    return () => window.removeEventListener('t3-storage-updated', update)
+  }, [])
+  const orders = result?.campaignId === campaign.id ? result.orders : []
+  const error = loadError?.campaignId === campaign.id ? loadError.message : ''
+  const loading = result?.campaignId !== campaign.id && !error
+  const settlementState = readSampleSettlementState()
+  const legacy = sampleService.getSamplesByCampaignId(campaign.id)
+  const activeOrders = orders.filter((order) => order.status !== '취소')
+  const sellerOrders = activeOrders.filter((order) => order.payer === 'seller')
+  const sellerKnown = sellerOrders.every((order) => sampleTotals(order).sellerDeduction !== null)
+  const costKnown = activeOrders.every((order) => sampleTotals(order).companyCost !== null)
+  const sellerDeduction = sellerOrders.reduce((sum, order) => sum + (sampleTotals(order).sellerDeduction ?? 0), 0)
+  const companyCost = activeOrders.reduce((sum, order) => sum + (sampleTotals(order).companyCost ?? 0), 0)
+  const sellerCostKnown = sellerOrders.every((order) => sampleTotals(order).companyCost !== null)
+  const difference = sellerOrders.reduce((sum, order) => sum + (sampleTotals(order).difference ?? 0), 0)
+  return <div className="workspace-section-stack"><section className="workspace-card"><div className="section-heading"><div><h3>공구 연결 샘플</h3><p>샘플관리 요청에 연결된 공구를 기준으로 표시합니다. 금액은 정산 확정 전 참고값입니다.</p></div><button className="secondary-button" onClick={() => onExternal('samples')} type="button">샘플 관리 열기</button></div>
+    {loading && <p role="status">연결된 샘플을 불러오는 중…</p>}{error && <p className="danger-text" role="alert">{error}</p>}
+    {!loading && !error && <><div className="mini-summary-grid"><div className="mini-summary"><span>연결된 샘플</span><strong>{activeOrders.length}건</strong></div><div className="mini-summary"><span>셀러 부담 예정액</span><strong>{sellerKnown ? money(sellerDeduction) : '단가 확인 필요'}</strong></div><div className="mini-summary"><span>회사 원가 합계</span><strong>{costKnown ? money(companyCost) : '원가 확인 필요'}</strong></div><div className="mini-summary"><span>셀러 부담분 예상 차액</span><strong>{sellerKnown && sellerCostKnown ? money(difference) : '조건 확인 필요'}</strong></div></div><p className="section-description">예상 차액은 셀러 부담 샘플의 적용 공급가에서 회사 원가를 뺀 값입니다. 회사 최종 귀속액은 정산에서 확정하며, 이 화면의 금액은 자동 차감되지 않습니다.</p>
+    {orders.length ? <div className="responsive-table"><table><thead><tr><th>샘플 / SKU</th><th>수량</th><th>부담자</th><th>셀러 차감 예정</th><th>회사 원가</th><th>예상 차액</th><th>발주 상태</th><th>정산 연결</th></tr></thead><tbody>{orders.map((order) => { const totals = sampleTotals(order); const cancelled = order.status === '취소'; return <tr key={order.id}><td><strong>{order.productName}</strong><small>{order.optionName} · {order.id}</small></td><td>{order.quantity}개</td><td>{SAMPLE_PAYERS[order.payer]}</td><td>{cancelled ? '제외' : totals.sellerDeduction === null ? '단가 확인 필요' : money(totals.sellerDeduction)}</td><td>{cancelled ? '제외' : totals.companyCost === null ? '원가 확인 필요' : money(totals.companyCost)}</td><td>{cancelled ? '제외' : totals.difference === null ? '해당 없음/확인 필요' : money(totals.difference)}</td><td>{order.status}</td><td>{sampleSettlementStatus(order, settlementState.deductions, settlementState.activeSettlementIds)} <button className="text-button table-action" onClick={() => onExternal('samples', order.id)} type="button">원본 보기</button></td></tr> })}</tbody></table></div> : <EmptyState action="샘플 관리 열기" onAction={() => onExternal('samples')}>이 공구에 연결된 샘플 요청이 없습니다.</EmptyState>}</>}
+    {legacy.length > 0 && <details><summary>기존 샘플 기록 {legacy.length}건 보기</summary><p>이전 샘플 기록은 위의 신규 요청 합계에 중복 합산하지 않았습니다.</p><ul>{legacy.map((item) => <li key={item.id}>{item.productName} · {item.optionName} · {item.quantity}개</li>)}</ul></details>}
+  </section></div>
 }
 
 export function CsTab({ campaign, onExternal }: { campaign: Campaign; onExternal: (type: string, id?: string) => void }) {
