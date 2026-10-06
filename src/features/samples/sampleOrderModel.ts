@@ -131,8 +131,8 @@ export function reserveSampleExport(book: SampleOrderBook, ids: string[], batchI
 export function sampleExportRows(orders: SampleOrder[]): Array<Array<string | number>> {
   return [['주문/샘플 식별번호', '상품', '옵션', '수량', '수령인', '연락처', '주소', '배송메모'], ...orders.flatMap((order) => [order, ...(order.additionalItems ?? []).map(item => ({ ...order, ...item }))].map(item => [order.id, item.productName, [item.optionName, item.detailOption].filter(Boolean).join(' / '), item.quantity, order.recipient, order.phone, order.address, order.deliveryMemo]))]
 }
-export function sampleRecipientDefaults(seller?: { recipientName?: string; realName?: string; shippingPhone?: string; contact?: string; shippingAddress?: string }) {
-  return { recipient: seller?.recipientName || seller?.realName || '', phone: seller?.shippingPhone || seller?.contact || '', address: seller?.shippingAddress || '' }
+export function sampleRecipientDefaults(seller?: { recipientName?: string; realName?: string; shippingPhone?: string; contact?: string; shippingAddress?: string; sourceMetadata?: Record<string, unknown> }) {
+  return { recipient: seller?.recipientName || seller?.realName || '', phone: seller?.shippingPhone || seller?.contact || '', address: seller?.shippingAddress || '', deliveryMemo: String(seller?.sourceMetadata?.deliveryMemo ?? '') }
 }
 export function sampleCsv(orders: SampleOrder[]): string {
   const escape = (value: string | number) => {

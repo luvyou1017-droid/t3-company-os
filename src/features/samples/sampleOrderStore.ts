@@ -1,4 +1,4 @@
-import { blankOperations, type SampleOperations } from './sampleProvision'
+import { blankOperations, sampleItems, LOAN_STATUSES, type SampleOperations } from './sampleProvision'
 import { readSampleSettlementState } from './sampleSettlementStatus'
 import { isLinkedSampleDeduction } from './sampleSettlementCandidate'
 import { productService } from '../productMaster/services/productService'
@@ -104,6 +104,8 @@ export function makeSampleOrderStore(repo: SampleBookRepository, actorProvider: 
       return mutate((book, actor, at) => {
         const order = book.orders.find(item => item.id === id)
         if (!order || !order.provision || order.status === '취소' || order.history.length !== expectedHistoryLength) throw new Error('요청 상태가 변경됐습니다. 새로고침해주세요.')
+        const itemIds = new Set(sampleItems(order).map(item=>item.itemId))
+        for (const [itemId,state] of Object.entries(operations.itemLoans ?? {})) if (!itemIds.has(itemId) || !LOAN_STATUSES.includes(state.loanStatus)) throw new Error('요청에 포함된 SKU 회수상태를 확인해주세요.')
         const financialFields = ['depositRequestedAt','depositExpected','depositReceived','depositReceivedAt','depositConfirmedBy','offsetCompleted'] as const
         if (order.settlementClaim && financialFields.some(key => operations[key] !== (order.operations ?? blankOperations())[key])) throw new Error('정산 반영 요청 후 입금·상계 정보는 변경할 수 없습니다. 업체 정산상태는 별도로 저장할 수 있습니다.')
         const state = readSampleSettlementState()

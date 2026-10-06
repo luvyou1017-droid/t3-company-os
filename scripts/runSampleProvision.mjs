@@ -62,5 +62,18 @@ try {
  assert.equal(versioned.book.orders[0].costs.capturedAt,order.costs.capturedAt)
  assert.throws(()=>m.validateProvision({...draft,provision:{...draft.provision,unitPrice:-1}}),/0 이상/)
  assert.equal(sellerMasterService.getSellerById(seller.id).shippingAddress,undefined)
+ const noCampaign={...draft,campaignId:'',campaignName:'',provision:{...draft.provision,method:'대여'},additionalItems:[{productId:'existing-product',skuId:'sku-yellow',productName:'그라인더',optionName:'옐로우',detailOption:'',quantity:1,unitPrice:10000},{productId:'existing-product',skuId:'sku-pink',productName:'그라인더',optionName:'핑크',detailOption:'',quantity:1,unitPrice:10000}]}
+ model.validateSampleDraft(noCampaign)
+ const three=model.createSampleOrder(noCampaign,actor,'three','2026-10-06')
+ assert.equal(m.sampleItems(three).length,3)
+ assert.equal(new Set(m.sampleItems(three).map(i=>i.itemId)).size,3)
+ assert.equal(model.sampleExportRows([three]).length,4)
+ assert.throws(()=>model.validateSampleDraft({...noCampaign,additionalItems:[{...noCampaign.additionalItems[0],skuId:noCampaign.skuId}]}),/동일 SKU/)
+ const returnedId=m.sampleItems(three)[0].itemId
+ const partiallyReturned={...three,campaignId:'campaign',operations:{...m.blankOperations(),shippedAt:'2026-10-01',loanStatus:'사용 중',itemLoans:{[returnedId]:{loanStatus:'반납 완료',shippedAt:'2026-10-01',collectionDate:'',collectionMemo:''}}}}
+ assert.equal(m.itemNeedsCollection(m.itemLoanOrder(partiallyReturned,returnedId),{endDate:'2026-09-29'},'2026-10-06'),false)
+ assert.equal(m.needsCollection(partiallyReturned,{endDate:'2026-09-29'},'2026-10-06'),true)
+ assert.equal(m.matchingSampleCampaigns(three,campaigns,[])[0].id,'campaign')
+ console.log('PASS unlinked three-SKU draft, stable item IDs, duplicate SKU guard and partial returns')
  console.log('PASS sample provisioning regressions: conditional revenue, split totals, rounding, receipt/offset exclusion, reimbursement, loans, multi-SKU, recommendations, immutable snapshots, concurrent settlement claim')
 } finally {await vite.close()}

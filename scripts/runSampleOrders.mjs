@@ -91,8 +91,8 @@ test('CSV 헤더·인용부호·한글 BOM 및 수식 주입 방지', () => {
   assert.ok(csv.includes('010-0000-0000'))
 })
 test('셀러 수령정보 자동 채움 / 없는 정보는 공란', () => {
-  assert.deepEqual(sampleRecipientDefaults({ realName: '테스트', contact: '01000000000', shippingAddress: '테스트 주소' }), { recipient: '테스트', phone: '01000000000', address: '테스트 주소' })
-  assert.deepEqual(sampleRecipientDefaults(), { recipient: '', phone: '', address: '' })
+  assert.deepEqual(sampleRecipientDefaults({ realName: '테스트', contact: '01000000000', shippingAddress: '테스트 주소' }), { recipient: '테스트', phone: '01000000000', address: '테스트 주소', deliveryMemo:'' })
+  assert.deepEqual(sampleRecipientDefaults(), { recipient: '', phone: '', address: '', deliveryMemo:'' })
 })
 test('Excel 실제 생성·재읽기 / 전화번호 0과 텍스트 유지', () => {
   const workbook = XLSX.utils.book_new()

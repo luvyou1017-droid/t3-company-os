@@ -15,6 +15,7 @@ export type ProvisionSnapshot = {
   paymentMethod: typeof PAYMENT_METHODS[number]; orderMethod: string; landing: string
 }
 export type SampleOperations = {
+  itemLoans?: Record<string, {loanStatus: typeof LOAN_STATUSES[number]; shippedAt:string; collectionDate:string; collectionMemo:string}>
   depositRequestedAt: string; depositExpected: number | null; depositReceived: boolean
   depositReceivedAt: string; depositConfirmedBy: string; offsetCompleted: boolean
   supplierStatus: typeof SUPPLIER_STATUSES[number]
@@ -41,6 +42,8 @@ export function validateBurden(b: Burden, total: number | null) {
 export function validateProvision(draft: SampleOrderDraft, requireCosts = false) {
   const p = draft.provision
   if (!p) return
+  const skuIds = [draft.skuId,...(draft.additionalItems ?? []).map(i=>i.skuId)]
+  if (new Set(skuIds).size !== skuIds.length) throw new Error('동일 SKU는 한 행에서 수량을 조정해주세요.')
   if (!PROVISION_METHODS.includes(p.method) || !PAYMENT_METHODS.includes(p.paymentMethod)) throw new Error('제공·결제 방식을 확인해주세요.')
   const total = provisionTotal(draft)
   for (const amount of [p.unitPrice, p.shippingFee, p.threshold]) if (amount !== null && (!Number.isFinite(amount) || amount < 0)) throw new Error('금액은 0 이상이어야 합니다.')
@@ -96,7 +99,23 @@ export function collectionDue(order: SampleOrder, campaign?: Pick<Campaign, 'end
   date.setUTCDate(date.getUTCDate() + 7)
   return date.toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' })
 }
+export function sampleItems(order: SampleOrder) {
+  return [{productId:order.productId,skuId:order.skuId,productName:order.productName,optionName:order.optionName,detailOption:order.detailOption,quantity:order.quantity,unitPrice:order.provision?.unitPrice ?? order.costs.companyUnitCost},...(order.additionalItems ?? [])].map(item=>({...item,itemId:`${order.id}:${item.skuId}`}))
+}
+export function itemLoanOrder(order: SampleOrder, itemId:string):SampleOrder {
+  const override = order.operations?.itemLoans?.[itemId]
+  return override ? {...order,operations:{...blankOperations(),...order.operations,...override}} : order
+}
+export function matchingSampleCampaigns(order:SampleOrder,campaigns:Campaign[],settlements:Settlement[]) {
+  const products = new Set(sampleItems(order).map(i=>i.productId))
+  const names = new Set(sampleItems(order).map(i=>i.productName))
+  const matches=(c:Campaign)=>products.has(c.productId)||names.has(c.productName)
+  return unsettledCampaigns(campaigns,settlements,order.sellerId,order.sellerName,'').sort((a,b)=>Number(matches(b))-Number(matches(a))).map(c=>({...c,sampleProductMatch:matches(c)}))
+}
+export function itemNeedsCollection(order:SampleOrder,campaign:Pick<Campaign,'endDate'>|undefined,today:string) {
+  const due=collectionDue(order,campaign)
+  return !!due && today>=due && order.status!=='취소' && !!order.operations?.shippedAt && !['반납 완료','분실/파손'].includes(order.operations.loanStatus)
+}
 export function needsCollection(order: SampleOrder, campaign: Pick<Campaign, 'endDate'> | undefined, today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' })) {
-  const due = collectionDue(order, campaign)
-  return !!due && today >= due && order.status !== '취소' && !!order.operations?.shippedAt && !['반납 완료', '분실/파손'].includes(order.operations.loanStatus)
+  return sampleItems(order).some(item=>itemNeedsCollection(itemLoanOrder(order,item.itemId),campaign,today))
 }

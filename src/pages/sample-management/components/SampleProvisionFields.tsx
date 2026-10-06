@@ -1,3 +1,4 @@
+import { SampleChoiceField, ORDER_METHODS } from './SampleChoiceField'
 import { PROVISION_METHODS, PAYMENT_METHODS, provisionTotal, type Burden, type ProvisionSnapshot } from '../../../features/samples/sampleProvision'
 import type { SampleOrderDraft } from '../../../features/samples/sampleOrderModel'
 const owners = { supplier: '공급사', company: '회사(와이즈)', seller: '셀러', manager: '매니저' } as const
@@ -16,6 +17,6 @@ export function SampleProvisionFields({ draft, onChange }: { draft: SampleOrderD
     {p.method === '조건부 제공' ? <><label>기준 매출<input required type="number" min="0" value={p.threshold ?? ''} onChange={e => patch('threshold', e.target.value === '' ? null : Number(e.target.value))} /></label><BurdenFields title="기준 달성 시 부담" value={p.achieved} onChange={v => patch('achieved',v)} /><BurdenFields title="기준 미달 시 부담" value={p.missed} onChange={v => patch('missed',v)} /></> : <BurdenFields title="최종 부담처" value={p.burden} onChange={v => patch('burden',v)} />}
     <label>결제 방식<select value={p.paymentMethod} onChange={e => patch('paymentMethod',e.target.value as ProvisionSnapshot['paymentMethod'])}>{PAYMENT_METHODS.map(v => <option key={v}>{v}</option>)}</select></label></>}
     {['진행 시 협의','테스트 후 진행','조건부 제공'].includes(p.method) && <label>이번 요청의 적용 조건<textarea required={p.method !== '조건부 제공'} value={p.agreedTerms} onChange={e => patch('agreedTerms', e.target.value)} placeholder="진행 여부·회수·비용 조건" /></label>}
-    <div className="sample-order-fields"><label>발주방법<input value={p.orderMethod} onChange={e => patch('orderMethod', e.target.value)} placeholder="예: 발주모아 / 공급사 직접 요청" /></label><label>공구 진행 시 랜딩<input value={p.landing} onChange={e => patch('landing',e.target.value)} placeholder="랜딩 방식 또는 협의 내용" /></label></div>
+    <div className="sample-order-fields"><SampleChoiceField label="발주방법" value={p.orderMethod} options={ORDER_METHODS} onChange={v => patch('orderMethod',v)} /><label>공구 진행 시 랜딩<input value={p.landing} onChange={e => patch('landing',e.target.value)} placeholder="랜딩 방식 또는 협의 내용" /></label></div>
   </section>
 }
