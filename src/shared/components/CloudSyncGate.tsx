@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { recordStartupTiming } from '../utils/startupTiming'
 import { cloudSyncService, type CloudSyncStatus } from '../services/cloudSyncService'
 
 export function CloudSyncGate({ children }: { children: ReactNode }) {
@@ -9,6 +10,7 @@ export function CloudSyncGate({ children }: { children: ReactNode }) {
     let stop: () => void = () => undefined
     void cloudSyncService.initialize().then((result) => {
       if (!active) return
+      recordStartupTiming('workspace')
       setStatus(result.status)
       stop = result.stop
     })

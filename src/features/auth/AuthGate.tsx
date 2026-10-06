@@ -1,7 +1,11 @@
-import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { createContext, lazy, Suspense, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { isSupabaseConfigured, supabase } from '../../shared/lib/supabase'
-import { CloudSyncGate } from '../../shared/components/CloudSyncGate'
+import { recordStartupTiming } from '../../shared/utils/startupTiming'
+
+// Download workspace code alongside authentication, without blocking its start.
+const cloudGateModule = import('../../shared/components/CloudSyncGate')
+const CloudSyncGate = lazy(() => cloudGateModule.then(module => ({ default: module.CloudSyncGate })))
 
 const CEO_EMAIL = 'solution4834@naver.com'
 
@@ -42,12 +46,8 @@ export function AuthGate({ children, audience = 'internal' }: AuthGateProps & { 
       return
     }
 
-    void supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
-      setChecking(false)
-    })
-
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      recordStartupTiming('session')
       setSession(nextSession)
       if (!nextSession) setProfile(null)
       setChecking(false)
@@ -66,6 +66,7 @@ export function AuthGate({ children, audience = 'internal' }: AuthGateProps & { 
       .maybeSingle()
       .then(({ data }) => {
         if (!active) return
+        recordStartupTiming('profile')
         setProfile(data as CompanyProfile | null)
         setChecking(false)
       })
@@ -125,7 +126,7 @@ export function AuthGate({ children, audience = 'internal' }: AuthGateProps & { 
     )
   }
 
-  if (session && profile) return <AuthContext.Provider value={{ profile, signOut }}><CloudSyncGate>{children}</CloudSyncGate></AuthContext.Provider>
+  if (session && profile) return <AuthContext.Provider value={{ profile, signOut }}><Suspense fallback={<AuthNotice title="회사 데이터를 불러오고 있어요" description="잠시만 기다려 주세요." />}><CloudSyncGate>{children}</CloudSyncGate></Suspense></AuthContext.Provider>
 
   return (
     <main className="auth-page">

@@ -13,11 +13,6 @@ import { AppLayout } from './app/layouts/AppLayout'
 
 import './App.css'
 import type { CampaignTab } from './shared/types/campaignWorkspace'
-import { csService } from './shared/services/csService'
-import { sampleService } from './shared/services/sampleService'
-import { salesDataService } from './shared/services/salesDataService'
-import { settlementService } from './shared/services/settlementService'
-import { paymentEvidenceService } from './shared/services/paymentEvidenceService'
 import { openEvidenceReviewDetail } from './shared/utils/paymentNavigation'
 
 
@@ -148,7 +143,14 @@ function App() {
     setCampaignTab(tab)
   }
 
-  const openRelated = (targetId: string) => {
+  const openRelated = async (targetId: string) => {
+    const [{ paymentEvidenceService }, { csService }, { sampleService }, { salesDataService }, { settlementService }] = await Promise.all([
+      import('./shared/services/paymentEvidenceService'),
+      import('./shared/services/csService'),
+      import('./shared/services/sampleService'),
+      import('./shared/services/salesDataService'),
+      import('./shared/services/settlementService'),
+    ])
     const evidence = paymentEvidenceService.getAllEvidence().find((item) => item.id === targetId)
     if (evidence) return openEvidenceReviewDetail(evidence.id)
     const cs = csService.getCsCases().find((item) => item.id === targetId || item.caseNumber === targetId)
