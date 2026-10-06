@@ -79,14 +79,14 @@ function App() {
   const settlementRoute = parseSettlementRoute()
   const isPaymentRoute = window.location.pathname.startsWith('/payments')
   const masterRoute = parseMasterRoute()
-  const [activePage, setActivePage] = useState<AppPage>(window.location.pathname === '/sales-data' ? '판매 데이터' : settlementRoute ? '정산 관리' : route || window.location.pathname === '/campaigns/new' ? '공동구매 일정' : isPaymentRoute ? '지급 승인' : masterRoute?.page ?? 'Dashboard')
+  const [activePage, setActivePage] = useState<AppPage>(window.location.pathname === '/samples' ? '샘플 관리' : window.location.pathname === '/sales-data' ? '판매 데이터' : settlementRoute ? '정산 관리' : route || window.location.pathname === '/campaigns/new' ? '공동구매 일정' : isPaymentRoute ? '지급 승인' : masterRoute?.page ?? 'Dashboard')
   const [productId, setProductId] = useState<string | undefined>(masterRoute?.productId)
   const [proposalId, setProposalId] = useState<string | undefined>(proposalRoute?.mode === 'edit' ? proposalRoute.proposalId : undefined)
   const [paymentRouteKey, setPaymentRouteKey] = useState(0)
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(route?.campaignId ?? null)
   const [campaignTab, setCampaignTab] = useState<CampaignTab>(route?.tab ?? 'overview')
   const [selectedCsCaseId, setSelectedCsCaseId] = useState<string | null>(null)
-  const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
+  const [selectedSampleId, setSelectedSampleId] = useState<string | null>(window.location.pathname === '/samples' ? new URLSearchParams(window.location.search).get('sampleId') : null)
   const [selectedSalesDataImportId, setSelectedSalesDataImportId] = useState<string | null>(null)
   const [salesDataEditRequested, setSalesDataEditRequested] = useState(false)
   const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(settlementRoute?.settlementId ?? null)
@@ -102,6 +102,7 @@ function App() {
     setSelectedSalesDataImportId(null)
     setSalesDataEditRequested(false)
     setSelectedSettlementId(null)
+    if (page === '샘플 관리') window.history.pushState({}, '', '/samples')
     if (page === '판매 데이터') window.history.pushState({}, '', '/sales-data')
     if (page === '정산 관리') window.history.pushState({}, '', '/settlements')
     if (page === '지급 승인') window.history.pushState({ from: '/', label: '지급 요청 목록' }, '', '/payments?tab=requests')
@@ -112,7 +113,10 @@ function App() {
   useEffect(() => {
     const handlePopState = () => {
       const nextRoute = parseCampaignRoute()
-      if (window.location.pathname === '/sales-data') {
+      if (window.location.pathname === '/samples') {
+        setActivePage('샘플 관리')
+        setSelectedSampleId(new URLSearchParams(window.location.search).get('sampleId'))
+      } else if (window.location.pathname === '/sales-data') {
         setActivePage('판매 데이터')
         setSelectedSalesDataImportId(new URLSearchParams(window.location.search).get('import'))
       } else if (window.location.pathname.startsWith('/payments')) {

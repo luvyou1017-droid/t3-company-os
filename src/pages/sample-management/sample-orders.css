@@ -31,3 +31,9 @@
 .sample-history li { padding: 8px; }.sample-history span { display: block; font-size: 14px; margin-top: 4px; }
 .sample-order-dialog .bulk-import-backdrop { position: static; padding: 0; background: transparent; }.sample-order-dialog .quick-sku-panel { width: 100%; max-height: none; box-shadow: none; }
 @media(max-width:700px) { .sample-order-filters,.sample-cost-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }.sample-order-fields,.sample-detail-grid { grid-template-columns: minmax(0,1fr); }.sample-orders-body,.sample-order-dialog { padding: 16px; }.sample-search-row { align-items: stretch; flex-direction: column; }.sample-orders .panel__header { flex-wrap: wrap; gap: 12px; }.sample-order-dialog footer button { flex: 1; } }
+.sample-ended { background: #fff18b; color: #403400; padding: .1rem .3rem; border-radius: .2rem; }
+.sample-campaign-choices { display: flex; flex-direction: column; gap: .5rem; max-height: 15rem; overflow-y: auto; margin-top: .5rem; }
+.sample-campaign-choices button { text-align: left; white-space: normal; }
+.sample-campaign-choices button[aria-pressed="true"] { border-color: #1677ed; background: #eef5ff; }
+.sample-collection-alert { padding: 1rem; background: #fff5cf; border-radius: .75rem; margin: 1rem 0; }
+.sample-order-section fieldset { border: 1px solid #e3e7ed; padding: 1rem; margin: .75rem 0; border-radius: .75rem; }

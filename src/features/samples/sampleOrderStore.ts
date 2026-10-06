@@ -1,3 +1,6 @@
+import { blankOperations, type SampleOperations } from './sampleProvision'
+import { readSampleSettlementState } from './sampleSettlementStatus'
+import { isLinkedSampleDeduction } from './sampleSettlementCandidate'
 import { productService } from '../productMaster/services/productService'
 import type { SampleOrder } from './sampleOrderModel'
 import { supabase } from '../../shared/lib/supabase'
@@ -74,9 +77,49 @@ export function makeSampleOrderStore(repo: SampleBookRepository, actorProvider: 
       return mutate((book, actor, at) => {
         validateSampleDraft(draft)
         const order = book.orders.find((item) => item.id === id)
-        if (!order || order.status !== '요청' || order.exportBatchId || order.history.length !== expectedHistoryLength) throw new Error('요청 상태에서만 수정할 수 있습니다. 최신 내용을 확인해주세요.')
+        if (!order || order.settlementClaim || order.status !== '요청' || order.exportBatchId || order.history.length !== expectedHistoryLength) throw new Error('요청 상태에서만 수정할 수 있습니다. 최신 내용을 확인해주세요.')
         const next = { ...order, ...editableSampleFields(draft), history: [...order.history, { at, actorId: actor.id, actor: actor.name, action: '요청 정보·비용 수정' }] }
         return { ...book, orders: book.orders.map((item) => item.id === id ? next : item) }
+      })
+    },
+    async claimSettlement(id: string, settlementId: string, expectedOrder: SampleOrder) {
+      let claimed: SampleOrder | undefined
+      await mutate((book, actor, at) => {
+        const order = book.orders.find(item => item.id === id)
+        if (!order || JSON.stringify(order) !== JSON.stringify(expectedOrder)) throw new Error('샘플 정보가 변경됐습니다. 다시 확인해주세요.')
+        if (order.settlementClaim) throw new Error('이미 정산 반영 요청된 샘플입니다. 정산 연결 기록을 확인해주세요. 중복 차감하지 않았습니다.')
+        claimed = { ...order, settlementClaim: {settlementId,claimedAt:at,actorId:actor.id} }
+        return { ...book,orders:book.orders.map(item => item.id === id ? claimed! : item) }
+      })
+      return claimed!
+    },
+    async completeSettlementClaim(id: string, settlementId: string) {
+      return mutate((book, actor, at) => {
+        const order = book.orders.find(item => item.id === id)
+        if (!order?.settlementClaim || order.settlementClaim.settlementId !== settlementId) throw new Error('정산 반영 요청 기록을 확인해주세요.')
+        return { ...book, orders:book.orders.map(item => item.id === id ? { ...item, settlementClaim:{...item.settlementClaim!,committedAt:at}, history:[...item.history,{at,actorId:actor.id,actor:actor.name,action:'정산 저장 완료 확인'}] } : item) }
+      })
+    },
+    async updateOperations(id: string, operations: SampleOperations, expectedHistoryLength: number) {
+      return mutate((book, actor, at) => {
+        const order = book.orders.find(item => item.id === id)
+        if (!order || !order.provision || order.status === '취소' || order.history.length !== expectedHistoryLength) throw new Error('요청 상태가 변경됐습니다. 새로고침해주세요.')
+        const financialFields = ['depositRequestedAt','depositExpected','depositReceived','depositReceivedAt','depositConfirmedBy','offsetCompleted'] as const
+        if (order.settlementClaim && financialFields.some(key => operations[key] !== (order.operations ?? blankOperations())[key])) throw new Error('정산 반영 요청 후 입금·상계 정보는 변경할 수 없습니다. 업체 정산상태는 별도로 저장할 수 있습니다.')
+        const state = readSampleSettlementState()
+        if (state.deductions.some(d => state.activeSettlementIds.has(d.settlementId) && isLinkedSampleDeduction(d,id)) && (operations.depositReceived !== order.operations?.depositReceived || operations.offsetCompleted !== order.operations?.offsetCompleted)) throw new Error('이미 정산에 연결됐습니다. 추가 입금·상계를 기록하지 않았습니다.')
+        if (operations.depositReceived && (!operations.depositReceivedAt || !operations.depositConfirmedBy.trim() || operations.depositExpected === null || operations.depositExpected < 0)) throw new Error('입금 예정액·입금일·확인자를 입력해주세요.')
+        const next = { ...order, operations: { ...blankOperations(), ...operations }, history: [...order.history,{at,actorId:actor.id,actor:actor.name,action:'결제·입금·업체정산·대여 상태 확인'}] }
+        return { ...book, orders:book.orders.map(item => item.id === id ? next : item) }
+      })
+    },
+    async connectCampaign(id: string, campaign: { id: string; campaignName: string; sellerId: string; sellerName: string }, expectedHistoryLength: number) {
+      return mutate((book, actor, at) => {
+        const order = book.orders.find(item => item.id === id)
+        if (!order || order.status === '취소' || order.campaignId || order.history.length !== expectedHistoryLength) throw new Error('기존 공구 연결을 변경하지 않았습니다. 새로고침해주세요.')
+        if (order.provision?.method === '테스트 후 진행' && order.operations?.testStatus !== '진행 확정') throw new Error('진행 확정 후 공구를 연결해주세요.')
+        if (!campaign.id || (order.sellerId && campaign.sellerId !== order.sellerId && campaign.sellerName !== order.sellerName)) throw new Error('해당 셀러의 공구를 선택해주세요.')
+        return { ...book, orders:book.orders.map(item => item.id === id ? { ...item,campaignId:campaign.id,campaignName:campaign.campaignName,history:[...item.history,{at,actorId:actor.id,actor:actor.name,action:'공구 연결 (제공조건·배송정보 유지)'}] } : item) }
       })
     },
     async connectSeller(id: string, seller: { id: string; name: string }, expectedHistoryLength: number) {

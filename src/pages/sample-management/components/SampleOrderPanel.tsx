@@ -1,3 +1,9 @@
+import { isLinkedSampleDeduction } from '../../../features/samples/sampleSettlementCandidate'
+import { SampleOperationsFields } from './SampleOperationsFields'
+import { SampleLoanTab } from './SampleLoanTab'
+import { provisionTotal, unsettledCampaigns } from '../../../features/samples/sampleProvision'
+import { campaignService } from '../../../shared/services/campaignService'
+import { settlementService } from '../../../shared/services/settlementService'
 import { sellerMasterService, type SellerMaster } from '../../../shared/services/sellerMasterService'
 import { downloadBaljumoa } from '../../../features/samples/baljumoaExport'
 import { useEffect, useRef, useState } from 'react'
@@ -23,6 +29,8 @@ async function downloadOrders(orders: SampleOrder[], batchId: string) {
 }
 
 export function SampleOrderPanel({ initialSampleId }: { initialSampleId?: string | null }) {
+  const [tab,setTab] = useState('requests')
+  const [linkCampaign,setLinkCampaign] = useState('')
   const [orders, setOrders] = useState<SampleOrder[]>([])
   const [filter, setFilter] = useState(emptyFilter)
   const [selected, setSelected] = useState<string[]>([])
@@ -83,7 +91,7 @@ export function SampleOrderPanel({ initialSampleId }: { initialSampleId?: string
     setOrders(saved); setForm(null); setNotice('샘플 요청을 저장했습니다. 상세에서 승인 요청을 진행해주세요.')
   }
   const filtered = orders.filter((order) => {
-    const text = `${order.id} ${order.brandName} ${order.productName} ${order.optionName} ${order.detailOption} ${order.campaignName}`.toLowerCase()
+    const text = `${order.id} ${order.brandName} ${order.productName} ${order.optionName} ${order.detailOption} ${order.campaignName} ${order.sellerName}`.toLowerCase()
     const day = new Date(order.requestedAt).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' })
     return text.includes(filter.search.toLowerCase()) && (!filter.manager || order.managerId === filter.manager) && (!filter.seller || order.sellerId === filter.seller)
       && (!filter.payer || order.payer === filter.payer) && (!filter.status || order.status === filter.status)
@@ -93,7 +101,9 @@ export function SampleOrderPanel({ initialSampleId }: { initialSampleId?: string
   const options = (key: 'manager' | 'seller') => [...new Map(orders.map((order) => [key === 'manager' ? order.managerId : order.sellerId, key === 'manager' ? order.managerName : order.sellerName])).entries()]
   return <section className="sample-orders panel">
     <div className="panel__header"><div><p className="page-eyebrow">SAMPLE OPERATIONS</p><h2>샘플관리</h2><p>요청 → 승인 → 발주파일 생성 → 발주·배송 이력</p></div><button className="primary-button" type="button" disabled={busy || loading || !!error} onClick={() => { requestId.current = sampleRequestId(); setForm('new') }}>+ 샘플 요청</button></div>
-    <div className="sample-orders-body">
+    <div className="sample-orders-body"><div className="sample-toolbar"><button type="button" aria-pressed={tab === 'requests'} onClick={() => setTab('requests')}>샘플 요청</button><button type="button" aria-pressed={tab === 'loans'} onClick={() => setTab('loans')}>대여 회수</button></div>
+      {tab === 'loans' ? <SampleLoanTab orders={orders} onOpen={setDetailId} /> : <>
+
       <div className="sample-order-filters">
         <label>상품·SKU·공구 검색<input value={filter.search} onChange={(event) => setField('search', event.target.value)} /></label>
         {(['manager', 'seller'] as const).map((key) => <label key={key}>{key === 'manager' ? '매니저' : '셀러'}<select value={filter[key]} onChange={(event) => setField(key, event.target.value)}><option value="">전체</option>{options(key).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>)}
@@ -109,14 +119,18 @@ export function SampleOrderPanel({ initialSampleId }: { initialSampleId?: string
         {loading && <tr><td colSpan={12}>샘플 정보를 불러오는 중…</td></tr>}{!loading && !filtered.length && <tr><td colSpan={12}>{error ? '조회에 실패했습니다. 새로고침해주세요.' : '조건에 맞는 샘플 요청이 없습니다.'}</td></tr>}
         {filtered.map((order) => <tr key={order.id}>
           <td><input type="checkbox" title={order.orderedAt ? '이미 발주 완료' : order.exportBatchId ? '파일 생성 완료 · 상세에서 재다운로드' : order.status !== '발주대기' ? '상세에서 승인 후 선택 가능' : '발주파일에 포함'} aria-label={`${order.productName} ${order.id} 선택`} disabled={busy || order.status !== '발주대기' || !!order.exportBatchId || !!order.orderedAt} checked={selected.includes(order.id)} onChange={(event) => setSelected((ids) => event.target.checked ? [...ids, order.id] : ids.filter((id) => id !== order.id))} /></td>
-          <td>{dateLabel(order.requestedAt)}<small title={order.id}>{order.id}</small></td><td>{order.managerName}<small>{order.sellerName || order.targetDisplayName || '셀러 미지정'}</small></td><td>{order.campaignName || '미연결'}</td><td>[{order.brandName}] {order.productName}</td><td>{order.optionName}<small>{order.detailOption || '—'}</small></td><td>{order.quantity}</td><td className="sample-money">{sampleMoney(sampleTotals(order).companyCost)}</td><td>{SAMPLE_PAYERS[order.payer]}</td><td><strong>{order.status}</strong>{order.exportBatchId && <small>파일 생성됨</small>}</td><td>{settlementStatus(order)}</td><td><button className="secondary-button" type="button" onClick={() => { setDetailId(order.id); setReference(''); setError('') }}>상세</button></td>
+          <td>{dateLabel(order.requestedAt)}<small title={order.id}>{order.id}</small></td><td>{order.managerName}<small>{order.sellerName || order.targetDisplayName || '셀러 미지정'}</small></td><td>{order.campaignName || '미연결'}</td><td>[{order.brandName}] {order.productName}</td><td>{order.optionName}<small>{order.detailOption || '—'}</small></td><td>{order.quantity}</td><td className="sample-money">{sampleMoney(order.provision ? provisionTotal(order) : sampleTotals(order).companyCost)}</td><td>{order.provision?.method ?? SAMPLE_PAYERS[order.payer]}</td><td><strong>{order.status}</strong>{order.exportBatchId && <small>파일 생성됨</small>}</td><td>{settlementStatus(order)}</td><td><button className="secondary-button" type="button" onClick={() => { setDetailId(order.id); setReference(''); setError('') }}>상세</button></td>
         </tr>)}
       </tbody></table></div>
+      </>}
     </div>
     {detail && !form && <SampleOrderDialog title="샘플 요청 상세" onClose={() => setDetailId(null)} busy={busy}>
       <p className="sample-id">{detail.id}</p>{!detail.sellerId && <section><label>확인된 기존 셀러 연결<select value={linkSellerId} onChange={event => setLinkSellerId(event.target.value)}><option value="">셀러 선택</option>{sellerChoices.map(seller => <option key={seller.id} value={seller.id}>{seller.name}</option>)}</select></label><button type="button" className="secondary-button" disabled={busy || !linkSellerId} onClick={() => void action(async () => { const seller = sellerChoices.find(item => item.id === linkSellerId); if (!seller) return; setOrders(await sampleOrderStore.connectSeller(detail.id, seller, detail.history.length)); setNotice('셀러를 연결했습니다. 기존 배송정보와 비용은 유지됩니다.') })}>선택 셀러 연결</button></section>}<h3>[{detail.brandName}] {detail.productName}</h3><p>{detail.optionName} · {detail.detailOption || '세부옵션 없음'} · {detail.quantity}개</p>
       <dl className="sample-detail-grid"><div><dt>매니저 / 셀러</dt><dd>{detail.managerName} / {detail.sellerName || detail.targetDisplayName || '셀러 미지정'}</dd></div><div><dt>관련 공구</dt><dd>{detail.campaignName || '미연결'}</dd></div><div><dt>수령인 / 연락처</dt><dd>{detail.recipient} / {detail.phone}</dd></div><div><dt>주소</dt><dd>{detail.address}</dd></div><div><dt>배송메모</dt><dd>{detail.deliveryMemo || '없음'}</dd></div><div><dt>샘플 목적 / 메모</dt><dd>{detail.purpose} / {detail.memo || '없음'}</dd></div><div><dt>상태</dt><dd>{detail.status}</dd></div><div><dt>정산</dt><dd>{settlementStatus(detail)} · 실제 정산 차감·조정 항목 기준</dd></div></dl>
-      <p>{SAMPLE_PAYERS[detail.payer]} · {SAMPLE_PAYER_HELP[detail.payer]}</p><SampleCostSummary draft={detail} /><p>비용 기준: {dateLabel(detail.costs.capturedAt)} · {detail.costs.source === 'manual' ? '요청에서 직접 확인' : 'SKU 거래조건'}</p>
+      {!detail.campaignId && <section><label>셀러 미정산 공구 연결<select value={linkCampaign} onChange={e => setLinkCampaign(e.target.value)}><option value="">공구 선택</option>{unsettledCampaigns(campaignService.getCampaigns(), settlementService.getSettlements(),detail.sellerId,detail.sellerName,'').map(c => <option key={c.id} value={c.id}>{c.campaignName}</option>)}</select></label><button type="button" className="secondary-button" disabled={busy || !linkCampaign} onClick={() => void action(async () => { const c = campaignService.getCampaigns().find(c => c.id === linkCampaign); if (!c) return; setOrders(await sampleOrderStore.connectCampaign(detail.id,c,detail.history.length)); setLinkCampaign('') })}>공구 연결</button></section>}
+      {detail.provision && <SampleOperationsFields key={`${detail.id}-${detail.history.length}`} order={detail} busy={busy} reflected={settlementStatus(detail) === '반영 완료' || !!detail.settlementClaim} sellerReflected={settlementState.deductions.some(d => d.reflected && d.costOwner === 'seller' && settlementState.activeSettlementIds.has(d.settlementId) && isLinkedSampleDeduction(d,detail.id))} onSave={ops => action(async () => {setOrders(await sampleOrderStore.updateOperations(detail.id,ops,detail.history.length));setNotice('확인한 상태를 저장했습니다.')})} />}
+      {detail.additionalItems?.map((item,i) => <p key={i}>추가 SKU: {item.productName} · {item.optionName} · {item.quantity}개</p>)}
+      {!detail.provision && <p>{SAMPLE_PAYERS[detail.payer]} · {SAMPLE_PAYER_HELP[detail.payer]}</p>}<SampleCostSummary draft={detail} /><p>비용 기준: {dateLabel(detail.costs.capturedAt)} · {detail.costs.source === 'manual' ? '요청에서 직접 확인' : 'SKU 거래조건'}</p>
       {detail.exportBatchId && <section className="sample-order-section"><h3>발주파일</h3><p>이미 생성된 파일입니다. 재다운로드는 새 발주가 아닙니다. 발주모아에 중복 업로드하지 마세요.</p><button type="button" className="secondary-button" disabled={busy || detail.status === '취소'} onClick={redownload}>같은 발주파일 재다운로드</button>{detail.status === '발주대기' && <label>발주모아 발주번호 / 처리 확인 내용<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="실제 발주 후 입력" /></label>}{detail.externalOrderReference && <p>발주 확인: {detail.externalOrderReference} · {dateLabel(detail.orderedAt!)}</p>}</section>}
       <details><summary>상태·처리 이력 {detail.history.length}건</summary><ol className="sample-history">{detail.history.map((item, index) => <li key={`${item.at}-${index}`}><strong>{item.action}</strong><span>{item.actor} · {dateLabel(item.at)}</span></li>)}</ol></details>
       {error && <p className="sample-error" role="alert">{error}</p>}
