@@ -40,21 +40,8 @@ const initialFilters: CampaignFilters = {
   endDate: '',
 }
 
-function restoreFilters(saved?: Partial<CampaignFilters>): CampaignFilters {
-  const value = (field: keyof CampaignFilters) => {
-    const stored = saved?.[field]
-    return typeof stored === 'string' && stored !== '전체' ? stored : ''
-  }
-  const date = (field: 'startDate' | 'endDate') => {
-    const stored = value(field)
-    return /^\d{4}-\d{2}-\d{2}$/.test(stored) && !Number.isNaN(Date.parse(stored)) ? stored : ''
-  }
-  return { search: value('search'), managerName: value('managerName'), status: value('status'), linkOwner: value('linkOwner'), startDate: date('startDate'), endDate: date('endDate') }
-}
-
 type CampaignListState = {
   activeTab: CampaignViewTab
-  filters: CampaignFilters
   scrollY: number
 }
 
@@ -140,9 +127,9 @@ type CampaignSchedulePageProps = {
 
 export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps) {
   const { profile } = useCompanyAuth()
-  const savedState = storageService.getItem<CampaignListState>(STORAGE_KEYS.campaignListState, { activeTab: '전체', filters: initialFilters, scrollY: 0 })
+  const savedState = storageService.getItem<CampaignListState>(STORAGE_KEYS.campaignListState, { activeTab: '전체', scrollY: 0 })
   const [activeTab, setActiveTab] = useState<CampaignViewTab>(viewTabs.includes(savedState.activeTab) ? savedState.activeTab : '전체')
-  const [filters, setFilters] = useState<CampaignFilters>(() => restoreFilters(savedState.filters))
+  const [filters, setFilters] = useState<CampaignFilters>(initialFilters)
   const [selectedSchedule, setSelectedSchedule] = useState<CampaignSchedule | null>(null)
   const [creating, setCreating] = useState(() => window.location.pathname === '/campaigns/new')
   const [notice, setNotice] = useState('')
@@ -212,13 +199,13 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
   }, [profile.role])
 
   useEffect(() => {
-    const save = () => storageService.setItem(STORAGE_KEYS.campaignListState, { activeTab, filters, scrollY: window.scrollY })
+    const save = () => storageService.setItem(STORAGE_KEYS.campaignListState, { activeTab, scrollY: window.scrollY })
     window.addEventListener('scroll', save, { passive: true })
     return () => {
       window.removeEventListener('scroll', save)
       save()
     }
-  }, [activeTab, filters])
+  }, [activeTab])
 
   const filteredSchedules = useMemo(() => {
     const searchTerms = filters.search.trim().toLowerCase().split(/\s+/).filter(Boolean)
