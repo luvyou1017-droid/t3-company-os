@@ -1,4 +1,4 @@
-import { blankOperations, sampleItems, LOAN_STATUSES, type SampleOperations } from './sampleProvision'
+import { blankOperations, sampleItems, itemLoanOrder, LOAN_STATUSES, SUPPLIER_STATUSES, type SampleOperations } from './sampleProvision'
 import { readSampleSettlementState } from './sampleSettlementStatus'
 import { isLinkedSampleDeduction } from './sampleSettlementCandidate'
 import { productService } from '../productMaster/services/productService'
@@ -105,11 +105,19 @@ export function makeSampleOrderStore(repo: SampleBookRepository, actorProvider: 
         const order = book.orders.find(item => item.id === id)
         if (!order || !order.provision || order.status === '취소' || order.history.length !== expectedHistoryLength) throw new Error('요청 상태가 변경됐습니다. 새로고침해주세요.')
         const itemIds = new Set(sampleItems(order).map(item=>item.itemId))
-        for (const [itemId,state] of Object.entries(operations.itemLoans ?? {})) if (!itemIds.has(itemId) || !LOAN_STATUSES.includes(state.loanStatus)) throw new Error('요청에 포함된 SKU 회수상태를 확인해주세요.')
+        for (const [itemId,state] of Object.entries(operations.itemLoans ?? {})) if (!itemIds.has(itemId) || !LOAN_STATUSES.includes(state.loanStatus) || (order.itemConditionsVersion === 2 && sampleItems(order).find(item=>item.itemId===itemId)?.provision?.method !== '대여')) throw new Error('요청에 포함된 SKU 회수상태를 확인해주세요.')
         const financialFields = ['depositRequestedAt','depositExpected','depositReceived','depositReceivedAt','depositConfirmedBy','offsetCompleted'] as const
         if (order.settlementClaim && financialFields.some(key => operations[key] !== (order.operations ?? blankOperations())[key])) throw new Error('정산 반영 요청 후 입금·상계 정보는 변경할 수 없습니다. 업체 정산상태는 별도로 저장할 수 있습니다.')
+        for (const [itemId,itemState] of Object.entries(operations.itemFinancials ?? {})) {
+          if (!itemIds.has(itemId) || !SUPPLIER_STATUSES.includes(itemState.supplierStatus) || (itemState.depositExpected !== null && (!Number.isSafeInteger(itemState.depositExpected) || itemState.depositExpected < 0))) throw new Error('품목별 입금 금액을 확인해주세요.')
+          if (itemState.depositReceived && (!itemState.depositReceivedAt || !itemState.depositConfirmedBy.trim() || itemState.depositExpected === null)) throw new Error('품목별 입금 예정액·입금일·확인자를 입력해주세요.')
+        }
+        const financialItems = (value?: SampleOperations) => [...itemIds].sort().map(itemId => financialFields.map(key => value?.itemFinancials?.[itemId]?.[key] ?? blankOperations()[key]))
+        const itemFinancialChanged = JSON.stringify(financialItems(operations)) !== JSON.stringify(financialItems(order.operations))
+        if (order.settlementClaim && itemFinancialChanged) throw new Error('정산 반영 요청 후 품목별 입금·상계 정보는 변경할 수 없습니다.')
         const state = readSampleSettlementState()
         if (state.deductions.some(d => state.activeSettlementIds.has(d.settlementId) && isLinkedSampleDeduction(d,id)) && (operations.depositReceived !== order.operations?.depositReceived || operations.offsetCompleted !== order.operations?.offsetCompleted)) throw new Error('이미 정산에 연결됐습니다. 추가 입금·상계를 기록하지 않았습니다.')
+        if (itemFinancialChanged && state.deductions.some(d => state.activeSettlementIds.has(d.settlementId) && isLinkedSampleDeduction(d,id))) throw new Error('이미 정산에 연결됐습니다. 품목별 추가 입금·상계를 기록하지 않았습니다.')
         if (operations.depositReceived && (!operations.depositReceivedAt || !operations.depositConfirmedBy.trim() || operations.depositExpected === null || operations.depositExpected < 0)) throw new Error('입금 예정액·입금일·확인자를 입력해주세요.')
         const next = { ...order, operations: { ...blankOperations(), ...operations }, history: [...order.history,{at,actorId:actor.id,actor:actor.name,action:'결제·입금·업체정산·대여 상태 확인'}] }
         return { ...book, orders:book.orders.map(item => item.id === id ? next : item) }
@@ -119,7 +127,7 @@ export function makeSampleOrderStore(repo: SampleBookRepository, actorProvider: 
       return mutate((book, actor, at) => {
         const order = book.orders.find(item => item.id === id)
         if (!order || order.status === '취소' || order.campaignId || order.history.length !== expectedHistoryLength) throw new Error('기존 공구 연결을 변경하지 않았습니다. 새로고침해주세요.')
-        if (order.provision?.method === '테스트 후 진행' && order.operations?.testStatus !== '진행 확정') throw new Error('진행 확정 후 공구를 연결해주세요.')
+        if (sampleItems(order).some(item => {const view=itemLoanOrder(order,item.itemId);return view.provision?.method === '테스트 후 진행' && view.operations?.testStatus !== '진행 확정'})) throw new Error('진행 확정 후 공구를 연결해주세요.')
         if (!campaign.id || (order.sellerId && campaign.sellerId !== order.sellerId && campaign.sellerName !== order.sellerName)) throw new Error('해당 셀러의 공구를 선택해주세요.')
         return { ...book, orders:book.orders.map(item => item.id === id ? { ...item,campaignId:campaign.id,campaignName:campaign.campaignName,history:[...item.history,{at,actorId:actor.id,actor:actor.name,action:'공구 연결 (제공조건·배송정보 유지)'}] } : item) }
       })

@@ -1,7 +1,7 @@
 import { isLinkedSampleDeduction } from '../../../features/samples/sampleSettlementCandidate'
 import { SampleOperationsFields } from './SampleOperationsFields'
 import { SampleLoanTab } from './SampleLoanTab'
-import { provisionTotal, matchingSampleCampaigns } from '../../../features/samples/sampleProvision'
+import { provisionTotal, matchingSampleCampaigns, sampleItems } from '../../../features/samples/sampleProvision'
 import { campaignService } from '../../../shared/services/campaignService'
 import { settlementService } from '../../../shared/services/settlementService'
 import { sellerMasterService, type SellerMaster } from '../../../shared/services/sellerMasterService'
@@ -119,7 +119,7 @@ export function SampleOrderPanel({ initialSampleId }: { initialSampleId?: string
         {loading && <tr><td colSpan={12}>샘플 정보를 불러오는 중…</td></tr>}{!loading && !filtered.length && <tr><td colSpan={12}>{error ? '조회에 실패했습니다. 새로고침해주세요.' : '조건에 맞는 샘플 요청이 없습니다.'}</td></tr>}
         {filtered.map((order) => <tr key={order.id}>
           <td><input type="checkbox" title={order.orderedAt ? '이미 발주 완료' : order.exportBatchId ? '파일 생성 완료 · 상세에서 재다운로드' : order.status !== '발주대기' ? '상세에서 승인 후 선택 가능' : '발주파일에 포함'} aria-label={`${order.productName} ${order.id} 선택`} disabled={busy || order.status !== '발주대기' || !!order.exportBatchId || !!order.orderedAt} checked={selected.includes(order.id)} onChange={(event) => setSelected((ids) => event.target.checked ? [...ids, order.id] : ids.filter((id) => id !== order.id))} /></td>
-          <td>{dateLabel(order.requestedAt)}<small title={order.id}>{order.id}</small></td><td>{order.managerName}<small>{order.sellerName || order.targetDisplayName || '셀러 미지정'}</small></td><td>{order.campaignName || '미연결'}</td><td>[{order.brandName}] {order.productName}</td><td>{order.optionName}<small>{order.detailOption || '—'}</small></td><td>{order.quantity}</td><td className="sample-money">{sampleMoney(order.provision ? provisionTotal(order) : sampleTotals(order).companyCost)}</td><td>{order.provision?.method ?? SAMPLE_PAYERS[order.payer]}</td><td><strong className={order.status === '취소' ? 'sample-canceled' : undefined}>{order.status}</strong>{order.exportBatchId && <small>파일 생성됨</small>}</td><td>{settlementStatus(order)}</td><td><button className="secondary-button" type="button" onClick={() => { setDetailId(order.id); setReference(''); setError('') }}>상세</button></td>
+          <td>{dateLabel(order.requestedAt)}<small title={order.id}>{order.id}</small></td><td>{order.managerName}<small>{order.sellerName || order.targetDisplayName || '셀러 미지정'}</small></td><td>{order.campaignName || '미연결'}</td><td>[{order.brandName}] {order.productName}</td><td>{order.optionName}<small>{order.detailOption || '—'}</small></td><td>{order.quantity}</td><td className="sample-money">{sampleMoney(order.provision ? provisionTotal(order) : sampleTotals(order).companyCost)}</td><td>{order.itemConditionsVersion === 2 ? sampleItems(order).map((item,i)=>`SKU ${i+1}: ${item.provision?.method}`).join(' / ') : order.provision?.method ?? SAMPLE_PAYERS[order.payer]}</td><td><strong className={order.status === '취소' ? 'sample-canceled' : undefined}>{order.status}</strong>{order.exportBatchId && <small>파일 생성됨</small>}</td><td>{settlementStatus(order)}</td><td><button className="secondary-button" type="button" onClick={() => { setDetailId(order.id); setReference(''); setError('') }}>상세</button></td>
         </tr>)}
       </tbody></table></div>
       </>}

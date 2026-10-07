@@ -1,4 +1,4 @@
-import { blankOperations, validateProvision, type ProvisionSnapshot, type SampleOperations, type SampleLine } from './sampleProvision.ts'
+import { blankOperations, validateProvision, type ProvisionSnapshot, type SampleOperations, type SampleLine, sampleItems, itemLoanOrder } from './sampleProvision.ts'
 import type { ProductMaster, ProductSku } from '../productMaster/types.ts'
 
 export const SAMPLE_ORDER_STATUSES = ['요청', '승인대기', '발주대기', '발주완료', '배송중', '수령완료', '취소'] as const
@@ -18,7 +18,16 @@ export type SampleCostSnapshot = {
   source: 'sku' | 'manual'
   capturedAt: string
 }
+export type SamplePriceSnapshot = { groupBuyPrice: number | null; companySupplyPrice: number | null; totalCommissionRate: number | null; capturedAt: string }
+export function samplePriceSnapshot(product: ProductMaster, sku: ProductSku): SamplePriceSnapshot {
+  const cost = skuCostSnapshot(sku)
+  const price = nonNegativeMoney(sku.groupBuyPrice)
+  const rate = nonNegativeMoney(sku.totalCommissionRate ?? product.totalCommissionRate)
+  return { groupBuyPrice: price && price > 0 ? price : null, companySupplyPrice: cost.companyUnitCost,
+    totalCommissionRate: rate !== null && rate <= 100 ? rate : price && cost.companyUnitCost !== null && cost.companyUnitCost <= price ? Number(((price - cost.companyUnitCost) / price * 100).toFixed(2)) : null, capturedAt: cost.capturedAt }
+}
 export type SampleOrderDraft = {
+  itemConditionsVersion?: 2; primaryLineId?: string; priceSnapshot?: SamplePriceSnapshot
   provision?: ProvisionSnapshot; operations?: SampleOperations; additionalItems?: SampleLine[]
   supplierId?: string; supplierName?: string
   ordererName?: string; ordererPhone?: string
@@ -73,7 +82,7 @@ export function sampleTotals(draft: Pick<SampleOrderDraft, 'quantity' | 'costs' 
 }
 export function validateSampleDraft(draft: SampleOrderDraft, requireCosts = false) {
   validateProvision(draft, requireCosts)
-  if (draft.provision?.method === '테스트 후 진행' && draft.campaignId && draft.operations?.testStatus !== '진행 확정') throw new Error('진행 확정 후 공구를 연결해주세요.')
+  if (draft.campaignId && sampleItems(draft).some(item => {const view=itemLoanOrder(draft as SampleOrder,item.itemId);return view.provision?.method === '테스트 후 진행' && view.operations?.testStatus !== '진행 확정'})) throw new Error('진행 확정 후 공구를 연결해주세요.')
   if (!draft.productId || !draft.skuId) throw new Error('상품·SKU를 선택해주세요.')
   if ((!draft.targetType || draft.targetType === 'seller') && !draft.sellerId) throw new Error('셀러를 선택해주세요.')
   if (draft.targetType === 'vendor' && !draft.targetDisplayName?.trim()) throw new Error('거래처/벤더명을 입력해주세요.')
@@ -93,9 +102,9 @@ export function validateSampleDraft(draft: SampleOrderDraft, requireCosts = fals
   }
 }
 export function editableSampleFields(draft: SampleOrderDraft): SampleOrderDraft {
-  const { provision, operations, additionalItems, supplierId, supplierName, ordererName, ordererPhone, targetType, targetDisplayName, supplyAudience, sellerId, sellerName, campaignId, campaignName, productId, skuId, brandName, productName, optionName, detailOption,
+  const { itemConditionsVersion, primaryLineId, priceSnapshot, provision, operations, additionalItems, supplierId, supplierName, ordererName, ordererPhone, targetType, targetDisplayName, supplyAudience, sellerId, sellerName, campaignId, campaignName, productId, skuId, brandName, productName, optionName, detailOption,
     quantity, recipient, phone, address, purpose, memo, deliveryMemo, payer, supportType, supportAmount, costs } = draft
-  return structuredClone({ provision, operations, additionalItems, supplierId, supplierName, ordererName, ordererPhone, targetType, targetDisplayName, supplyAudience, sellerId, sellerName, campaignId, campaignName, productId, skuId, brandName, productName, optionName, detailOption,
+  return structuredClone({ itemConditionsVersion, primaryLineId, priceSnapshot, provision, operations, additionalItems, supplierId, supplierName, ordererName, ordererPhone, targetType, targetDisplayName, supplyAudience, sellerId, sellerName, campaignId, campaignName, productId, skuId, brandName, productName, optionName, detailOption,
     quantity, recipient, phone, address, purpose, memo, deliveryMemo, payer, supportType, supportAmount, costs })
 }
 export function createSampleOrder(draft: SampleOrderDraft, actor: SampleActor, id: string, at: string): SampleOrder {
@@ -112,7 +121,8 @@ export function transitionSample(order: SampleOrder, status: SampleOrderStatus, 
   if (status === '발주대기') validateSampleDraft(order, true)
   if (status === '발주완료' && (!order.exportBatchId || order.orderedAt || !reference.trim())) throw new Error('파일 생성 후 발주모아 발주번호 또는 처리 확인 내용을 입력해주세요.')
   const operations = order.provision?.method === '대여' ? { ...blankOperations(), ...order.operations, ...(status === '배송중' ? {loanStatus: '발송 완료' as const, shippedAt: new Date(at).toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})} : status === '수령완료' ? {loanStatus: '사용 중' as const} : {}) } : order.operations
-  return { ...order, status, operations, ...(status === '발주완료' ? { orderedAt: at, externalOrderReference: reference.trim() } : {}),
+  const nextOperations = order.itemConditionsVersion === 2 ? { ...blankOperations(), ...operations, itemLoans: { ...operations?.itemLoans, ...Object.fromEntries(sampleItems(order).filter(item => item.provision?.method === '대여').map(item => { const state = itemLoanOrder(order,item.itemId).operations!; return [item.itemId, { loanStatus: ['반납 완료','분실/파손'].includes(state.loanStatus) ? state.loanStatus : status === '배송중' ? '발송 완료' : status === '수령완료' ? '사용 중' : state.loanStatus, shippedAt: status === '배송중' ? new Date(at).toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'}) : state.shippedAt, collectionDate: state.collectionDate, collectionMemo: state.collectionMemo }] })) } } as SampleOperations : operations
+  return { ...order, status, operations: nextOperations, ...(status === '발주완료' ? { orderedAt: at, externalOrderReference: reference.trim() } : {}),
     history: [...order.history, { at, actorId: actor.id, actor: actor.name, from: order.status, to: status,
       action: status === '발주대기' ? '샘플 승인' : status === '요청' ? '보완 요청' : `상태 변경: ${status}` }] }
 }

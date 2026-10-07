@@ -1,4 +1,4 @@
-import { effectiveBurden } from './sampleProvision.ts'
+import { effectiveBurden, sampleItems, itemLoanOrder } from './sampleProvision.ts'
 import { sampleTotals, type SampleOrder } from './sampleOrderModel.ts'
 import type { SettlementDeduction } from '../../shared/types/settlement'
 
@@ -44,10 +44,14 @@ export function sampleSettlementCandidate(order: SampleOrder, campaignId: string
   } }
 }
 
-export function sampleSettlementCandidates(order: SampleOrder, campaignId: string, finalSales?: number) {
+export function sampleSettlementCandidates(order: SampleOrder, campaignId: string, finalSales?: number): {reason?:string; deductions:Array<Omit<SettlementDeduction, 'id' | 'settlementId' | 'createdAt' | 'updatedAt'>>} {
   if (!order.provision) { const result = sampleSettlementCandidate(order, campaignId); return { reason: result.reason, deductions: result.deduction ? [result.deduction] : [] } }
   if (order.campaignId !== campaignId || order.status === '취소' || !ORDERED.has(order.status)) return { reason: '공구 연결·발주 완료 확인 필요', deductions: [] }
   const result = effectiveBurden(order, finalSales)
+  if (order.itemConditionsVersion === 2 && result.shares) {
+    const deductions = sampleItems(order).flatMap(item => sampleSettlementCandidates(itemLoanOrder(order,item.itemId),campaignId,finalSales).deductions.map(d => ({...d,linkedData:d.linkedData.replace(`${sampleOrderLink(order.id)}:`,`${sampleOrderLink(order.id)}:item:${item.lineId}:`)})))
+    return { deductions, reason: deductions.length ? undefined : '정산 차감 불필요' }
+  }
   if (!result.shares) return { reason: result.reason, deductions: [] }
   const p = order.provision
   const deductions: Array<Omit<SettlementDeduction, 'id' | 'settlementId' | 'createdAt' | 'updatedAt'>> = []

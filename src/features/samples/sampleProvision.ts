@@ -1,4 +1,4 @@
-import type { SampleOrder, SampleOrderDraft, SamplePayer } from './sampleOrderModel.ts'
+import type { SampleOrder, SampleOrderDraft, SamplePayer, SamplePriceSnapshot } from './sampleOrderModel.ts'
 import type { Campaign } from '../../shared/types/campaign'
 import type { Settlement } from '../../shared/types/settlement'
 
@@ -15,6 +15,7 @@ export type ProvisionSnapshot = {
   paymentMethod: typeof PAYMENT_METHODS[number]; orderMethod: string; landing: string
 }
 export type SampleOperations = {
+  itemFinancials?: Record<string, Pick<SampleOperations, 'depositRequestedAt' | 'depositExpected' | 'depositReceived' | 'depositReceivedAt' | 'depositConfirmedBy' | 'offsetCompleted' | 'supplierStatus' | 'testStatus' | 'reviewRecovery' | 'reviewCost'>>
   itemLoans?: Record<string, {loanStatus: typeof LOAN_STATUSES[number]; shippedAt:string; collectionDate:string; collectionMemo:string}>
   depositRequestedAt: string; depositExpected: number | null; depositReceived: boolean
   depositReceivedAt: string; depositConfirmedBy: string; offsetCompleted: boolean
@@ -22,12 +23,16 @@ export type SampleOperations = {
   loanStatus: typeof LOAN_STATUSES[number]; shippedAt: string; collectionDate: string; collectionMemo: string
   testStatus: '테스트 중' | '진행 확정' | '진행 안 함'; reviewRecovery: boolean; reviewCost: boolean
 }
-export type SampleLine = { productId: string; skuId: string; productName: string; optionName: string; detailOption: string; quantity: number; unitPrice: number | null; supplierId?: string; supplierName?: string }
+export type SampleLine = { lineId?: string; provision?: ProvisionSnapshot; priceSnapshot?: SamplePriceSnapshot; productId: string; skuId: string; productName: string; optionName: string; detailOption: string; quantity: number; unitPrice: number | null; supplierId?: string; supplierName?: string }
 export const zeroShares = (): Shares => ({ seller: 0, company: 0, supplier: 0, manager: 0 })
 export const blankBurden = (): Burden => ({ mode: 'percent', shares: { ...zeroShares(), seller: 100 } })
 export const blankProvision = (): ProvisionSnapshot => ({ version: 1, capturedAt: new Date().toISOString(), method: '유상 구매', provider: '공급사', unitPrice: null, shippingFee: 0, burden: blankBurden(), threshold: null, achieved: { mode: 'free', shares: zeroShares() }, missed: blankBurden(), agreedTerms: '', paymentMethod: '정산 시 상계', orderMethod: '', landing: '' })
 export const blankOperations = (): SampleOperations => ({ depositRequestedAt: '', depositExpected: null, depositReceived: false, depositReceivedAt: '', depositConfirmedBy: '', offsetCompleted: false, supplierStatus: '공급사 정산 미완료', loanStatus: '대여 요청', shippedAt: '', collectionDate: '', collectionMemo: '', testStatus: '테스트 중', reviewRecovery: false, reviewCost: false })
-export function provisionTotal(draft: SampleOrderDraft) {
+export function provisionTotal(draft: SampleOrderDraft): number | null {
+  if (draft.itemConditionsVersion === 2) {
+    const totals = sampleItems(draft).map(item => !item.provision ? null : ['무상 제공','대여'].includes(item.provision.method) ? 0 : item.provision.unitPrice === null ? null : item.provision.unitPrice * item.quantity + item.provision.shippingFee)
+    return totals.some(total => total === null) ? null : totals.reduce<number>((sum,total) => sum + total!,0)
+  }
   const p = draft.provision
   if (!p || p.unitPrice === null || draft.additionalItems?.some(item => item.unitPrice === null)) return null
   return p.unitPrice * draft.quantity + (draft.additionalItems ?? []).reduce((sum, item) => sum + item.unitPrice! * item.quantity, 0) + p.shippingFee
@@ -40,6 +45,17 @@ export function validateBurden(b: Burden, total: number | null) {
   if (expected === null || Math.abs(values.reduce((s, v) => s + v, 0) - expected) > 0.000001) throw new Error(b.mode === 'percent' ? '부담 비율 합계는 100%여야 합니다.' : '부담 금액 합계는 총비용과 일치해야 합니다.')
 }
 export function validateProvision(draft: SampleOrderDraft, requireCosts = false) {
+  if (draft.itemConditionsVersion === 2) {
+    const items = sampleItems(draft)
+    if (items.some(item => !item.lineId || !item.provision) || new Set(items.map(item => item.lineId)).size !== items.length) throw new Error('품목별 제공조건과 식별번호를 확인해주세요.')
+    for (const item of items) {
+      if (!item.productId || !item.skuId || !Number.isSafeInteger(item.quantity) || item.quantity < 1) throw new Error('품목별 상품·SKU와 수량을 확인해주세요.')
+      validateProvision(itemLoanOrder(draft as SampleOrder,item.itemId),requireCosts)
+    }
+    const total = provisionTotal(draft)
+    if (total !== null && !Number.isSafeInteger(total)) throw new Error('계산 가능한 금액 범위를 초과했습니다.')
+    return
+  }
   const p = draft.provision
   if (!p) return
   const skuIds = [draft.skuId,...(draft.additionalItems ?? []).map(i=>i.skuId)]
@@ -68,7 +84,19 @@ export function allocate(b: Burden, total: number): Shares {
   for (let i = 0, remaining = total - Object.values(result).reduce((s, v) => s + v, 0); i < remaining; i++) result[sorted[i % 4]]++
   return result
 }
-export function effectiveBurden(order: SampleOrder, finalSales?: number) {
+export function effectiveBurden(order: SampleOrder, finalSales?: number): { reason?: string; shares?: Shares; total?: number } {
+  if (order.itemConditionsVersion === 2) {
+    const shares = zeroShares(); let total = 0
+    for (const item of sampleItems(order)) {
+      if (['무상 제공','대여'].includes(item.provision?.method ?? '')) continue
+      const result = effectiveBurden(itemLoanOrder(order,item.itemId),finalSales)
+      if (!result.shares) return {reason:result.reason}
+      for (const key of Object.keys(shares) as SamplePayer[]) shares[key] += result.shares[key]
+      total += result.total ?? 0
+    }
+    if (![total,...Object.values(shares)].every(Number.isSafeInteger)) return {reason:'계산 가능한 금액 범위를 초과했습니다.'}
+    return {shares,total}
+  }
   const p = order.provision
   if (!p) return { reason: '기존 제공조건' }
   if (['무상 제공', '대여'].includes(p.method)) return { reason: '정산 차감 불필요' }
@@ -99,12 +127,16 @@ export function collectionDue(order: SampleOrder, campaign?: Pick<Campaign, 'end
   date.setUTCDate(date.getUTCDate() + 7)
   return date.toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' })
 }
-export function sampleItems(order: SampleOrder) {
-  return [{productId:order.productId,skuId:order.skuId,productName:order.productName,optionName:order.optionName,detailOption:order.detailOption,quantity:order.quantity,unitPrice:order.provision?.unitPrice ?? order.costs.companyUnitCost},...(order.additionalItems ?? [])].map(item=>({...item,itemId:`${order.id}:${item.skuId}`}))
+export function sampleItems(order: SampleOrderDraft & {id?:string}) {
+  return [{lineId:order.primaryLineId,provision:order.provision,priceSnapshot:order.priceSnapshot,productId:order.productId,skuId:order.skuId,productName:order.productName,optionName:order.optionName,detailOption:order.detailOption,quantity:order.quantity,unitPrice:order.provision?.unitPrice ?? order.costs.companyUnitCost,supplierId:order.supplierId,supplierName:order.supplierName},...(order.additionalItems ?? [])].map(item=>({...item,provision:order.itemConditionsVersion === 2 ? item.provision : order.provision,itemId:`${order.id ?? 'draft'}:${item.lineId ?? item.skuId}`}))
 }
 export function itemLoanOrder(order: SampleOrder, itemId:string):SampleOrder {
-  const override = order.operations?.itemLoans?.[itemId]
-  return override ? {...order,operations:{...blankOperations(),...order.operations,...override}} : order
+  const loan = order.operations?.itemLoans?.[itemId]
+  if (order.itemConditionsVersion !== 2) return loan ? {...order,operations:{...blankOperations(),...order.operations,...loan}} : order
+  const item = sampleItems(order).find(item => item.itemId === itemId)
+  if (!item) throw new Error('샘플 품목을 찾을 수 없습니다.')
+  const financial = order.operations?.itemFinancials?.[itemId]
+  return {...order,...item,itemConditionsVersion:undefined,additionalItems:[],primaryLineId:item.lineId,operations:{...blankOperations(),testStatus:order.operations?.testStatus ?? '테스트 중',...financial,...loan}}
 }
 export function matchingSampleCampaigns(order:SampleOrder,campaigns:Campaign[],settlements:Settlement[]) {
   const products = new Set(sampleItems(order).map(i=>i.productId))
