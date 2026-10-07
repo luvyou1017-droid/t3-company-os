@@ -330,10 +330,7 @@ function ManagerPerformance({ settlements, onOpenDetail }: { settlements: Settle
 
 export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: string) => void }) {
   const [settlements, setSettlements] = useState(() => settlementService.getSettlements())
-  const [view, setView] = useState<'list' | 'archive' | 'managers' | 'calendar' | 'references'>(() => {
-    const saved = sessionStorage.getItem('settlement-view')
-    return saved === 'archive' || saved === 'managers' || saved === 'calendar' || saved === 'references' ? saved : 'list'
-  })
+  const [view, setView] = useState<'list' | 'archive' | 'managers' | 'calendar' | 'references'>('list')
   const changeView = (next: 'list' | 'archive' | 'managers' | 'calendar' | 'references') => {
     setView(next)
     sessionStorage.setItem('settlement-view', next)
@@ -345,7 +342,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
   })
   useEffect(() => { sessionStorage.setItem('settlement-search-v1', JSON.stringify(listFilters)) }, [listFilters])
   const [creationError, setCreationError] = useState('')
-  const [quick, setQuick] = useState<SettlementStatus | 'all'>(() => (sessionStorage.getItem('settlement-list-filter') as SettlementStatus | 'all' | null) ?? 'all')
+  const [quick, setQuick] = useState<SettlementStatus | 'all'>(() => { const saved = sessionStorage.getItem('settlement-list-filter') as SettlementStatus | 'all' | null; return saved === 'completed' ? 'all' : saved ?? 'all' })
 
   useEffect(() => {
     const savedScroll = Number(sessionStorage.getItem('settlement-list-scroll') ?? 0)
@@ -384,10 +381,9 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
   const campaignsById = new Map<string, Campaign>()
   for (const item of campaignService.getCampaigns()) if (!campaignsById.has(item.id)) campaignsById.set(item.id, item)
   const eligibleSales = salesImports.filter((item) => item.reviewStatus === '확정 완료' && item.settlementStatus === '정산 가능')
-  const today = koreaToday()
-  const archivedCount = settlements.filter(item => isArchivedSettlement(item, today)).length
+  const archivedCount = settlements.filter(item => isArchivedSettlement(item)).length
   const filtered = settlements.filter(item => {
-    if (isArchivedSettlement(item, today) !== (view === 'archive')) return false
+    if (isArchivedSettlement(item) !== (view === 'archive')) return false
     const campaign = campaignsById.get(item.campaignId)
     const pendingApproval = item.sellerPaymentRequestStatus === 'approval_pending' || item.managerPaymentRequestStatus === 'approval_pending'
     const statusMatch = view === 'archive' || quick === 'all' || (quick === 'approval_pending' ? pendingApproval || item.status === quick : item.status === quick)
@@ -408,7 +404,6 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
     ['수정 필요', settlements.filter((item) => item.status === 'revision_required').length],
     ['대표 승인 대기', settlements.filter((item) => item.status === 'approval_pending' || item.sellerPaymentRequestStatus === 'approval_pending' || item.managerPaymentRequestStatus === 'approval_pending').length],
     ['지급 준비', settlements.filter((item) => item.status === 'payment_ready').length],
-    ['최종 완료', settlements.filter((item) => item.status === 'completed' && !isArchivedSettlement(item, today)).length],
   ] as const
 
   const weekEnd = addCalendarDays(koreaToday(), 6)
@@ -441,7 +436,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
           {view === 'list' && <button className="primary-button" disabled={!eligibleSales.length} onClick={createFirstReadySettlement} type="button">정산 생성</button>}
         </div>
         <nav className="settlement-view-tabs" aria-label="정산 관리 화면 선택">
-          {([['list', '정산 목록'], ['archive', `완료 보관함 (${archivedCount})`], ['managers', '매니저별 KPI'], ['calendar', '정산 달력'], ['references', '매출 레퍼런스']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={view === id} className={view === id ? 'is-active' : ''} onClick={() => changeView(id)}>{label}</button>)}
+          {([['list', '처리할 정산'], ['archive', `완료 내역 (${archivedCount})`], ['managers', '매니저별 KPI'], ['calendar', '정산 달력'], ['references', '매출 레퍼런스']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={view === id} className={view === id ? 'is-active' : ''} onClick={() => changeView(id)}>{label}</button>)}
         </nav>
         {view === 'list' && <>
         <div className="settlement-kpi-grid">
@@ -476,8 +471,8 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
       {(view === 'list' || view === 'archive') && <section className="panel settlement-view">
         <div className="panel__header">
           <div>
-            <h2>{view === 'archive' ? '완료 보관함' : '정산 목록'}</h2>
-            <p>{view === 'archive' ? '셀러·매니저 입금이 모두 완료되고 한 달이 지난 정산입니다. 기록과 정산서는 그대로 보존됩니다.' : '진행 중인 정산과 입금 완료 후 한 달 이내의 정산입니다.'}</p>
+            <h2>{view === 'archive' ? '완료 내역' : '처리할 정산'}</h2>
+            <p>{view === 'archive' ? '최종 정산 완료된 건입니다. 검색으로 과거 기록과 정산서를 확인할 수 있습니다.' : '아직 최종 완료되지 않은 정산만 표시합니다. 완료된 건은 완료 내역에서 확인해주세요.'}</p>
           </div>
           <strong className="result-count">{filtered.length}건</strong>
         </div>
@@ -489,7 +484,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
               <label>기간 시작<input type="date" value={listFilters.from} onChange={event => setListFilters({ ...listFilters, from: event.target.value })} /></label>
               <label>기간 종료<input type="date" value={listFilters.to} onChange={event => setListFilters({ ...listFilters, to: event.target.value })} /></label>
             </div>
-          {filtered.length === 0 && <p className="empty-state">{view === 'archive' ? '입금 완료 후 한 달이 지난 정산이 없습니다.' : '검색 조건에 맞는 정산이 없습니다.'}</p>}
+          {filtered.length === 0 && <p className="empty-state">{view === 'archive' ? '검색 조건에 맞는 완료 정산이 없습니다.' : '검색 조건에 맞는 정산이 없습니다.'}</p>}
           <div className="schedule-table-wrap settlement-table-wrap">
             <table className="schedule-table settlement-table">
               <thead>

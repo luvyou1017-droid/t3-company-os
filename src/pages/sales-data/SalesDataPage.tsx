@@ -1,3 +1,4 @@
+import { isCompletedSalesImport } from '../../shared/utils/settlementArchive'
 import { getTodayInSeoul, getDaysBetweenCalendarDates } from '../../features/campaignSchedules/scheduleStatus'
 import { SampleCampaignLinks } from './SampleCampaignLinks'
 import { salesSourceLabel } from '../../shared/utils/salesSourceLabel'
@@ -15,6 +16,7 @@ import { STORAGE_KEYS, storageService } from '../../shared/services/storageServi
 import { UploadConditionsReview } from './UploadConditionsReview'
 import { authorLabels, campaignChannel, channelLabels, documentKindLabels, getUploadConditions, captureUploadTerms, applyReviewedUpload } from '../../shared/utils/uploadSettlementConditions'
 import type { SettlementDocumentAuthor, SettlementDocumentKind, SettlementSkuCondition } from '../../shared/types/settlementTerms'
+import type { Settlement } from '../../shared/types/settlement'
 import type { CampaignSalesChannelType } from '../../shared/types/campaign'
 import { SalesColumnReview } from './SalesColumnReview'
 import { inspectSalesWorkbook, findLearnedRule, headerSignature, mapSalesSheet, type ColumnMap, type ColumnRule, type SheetSample } from '../../shared/utils/salesColumnLearning'
@@ -135,6 +137,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
   const [imports, setImports] = useState(() => salesDataService.getSalesDataImports())
   const [rows, setRows] = useState(() => salesDataService.getSalesDataRows())
   const [quick, setQuick] = useState<SalesQuickFilter>('전체')
+  const [listView, setListView] = useState<'pending' | 'completed'>('pending')
   const [search, setSearch] = useState('')
   const [month, setMonth] = useState('')
   const [oldestFirst, setOldestFirst] = useState(true)
@@ -181,6 +184,11 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
   }
 
   const endedImports = useMemo(() => imports.filter(item => !salesDataService.isHiddenDeletedPlaceholder(item)).filter(isCampaignEnded), [imports])
+  const completedIds = useMemo(() => {
+    const settlements = storageService.getItem<Settlement[]>(STORAGE_KEYS.settlements, [])
+    return new Set(endedImports.filter(item => isCompletedSalesImport(item, settlements)).map(item => item.id))
+  }, [endedImports])
+  const scopedImports = useMemo(() => endedImports.filter(item => completedIds.has(item.id) === (listView === 'completed')), [endedImports, completedIds, listView])
   const selectedImport = endedImports.find((item) => item.id === selectedImportId) ?? null
   useEffect(() => {
     if (!initialEditRequested || !selectedImport) return
@@ -199,16 +207,16 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
   }
 
   const counts = useMemo<Record<Exclude<SalesQuickFilter, '전체'>, number>>(() => ({
-    '오늘 수신': endedImports.filter((item) => matchesQuick(item, '오늘 수신')).length,
-    '업로드 대기': endedImports.filter((item) => item.reviewStatus === '업로드 대기').length,
-    '검수 대기': endedImports.filter((item) => matchesQuick(item, '검수 대기')).length,
-    '오류 확인 필요': endedImports.filter((item) => item.reviewStatus === '오류 확인 필요').length,
-    '확정 완료': endedImports.filter((item) => item.reviewStatus === '확정 완료').length,
-    '정산 대기': endedImports.filter((item) => item.settlementStatus === '정산 가능').length,
-  }), [endedImports])
+    '오늘 수신': scopedImports.filter((item) => matchesQuick(item, '오늘 수신')).length,
+    '업로드 대기': scopedImports.filter((item) => item.reviewStatus === '업로드 대기').length,
+    '검수 대기': scopedImports.filter((item) => matchesQuick(item, '검수 대기')).length,
+    '오류 확인 필요': scopedImports.filter((item) => item.reviewStatus === '오류 확인 필요').length,
+    '확정 완료': scopedImports.filter((item) => item.reviewStatus === '확정 완료').length,
+    '정산 대기': scopedImports.filter((item) => item.settlementStatus === '정산 가능').length,
+  }), [scopedImports])
 
-  const months = [...new Set(endedImports.map(item => (item.salesEndDate || getImportCampaign(item)?.endDate || '').slice(0, 7)).filter(Boolean))].sort().reverse()
-  const filteredImports = useMemo(() => endedImports
+  const months = [...new Set(scopedImports.map(item => (item.salesEndDate || getImportCampaign(item)?.endDate || '').slice(0, 7)).filter(Boolean))].sort().reverse()
+  const filteredImports = useMemo(() => scopedImports
     .filter(item => !month || (item.salesEndDate || getImportCampaign(item)?.endDate || '').startsWith(month))
     .filter((item) => matchesQuick(item, quick))
     .filter((item) => {
@@ -220,7 +228,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
       const aDate = a.salesEndDate || getImportCampaign(a)?.endDate || '9999-12-31'
       const bDate = b.salesEndDate || getImportCampaign(b)?.endDate || '9999-12-31'
       return (oldestFirst ? 1 : -1) * aDate.localeCompare(bDate) || (a.salesEndDate || '').localeCompare(b.salesEndDate || '') || a.campaignId.localeCompare(b.campaignId)
-    }), [endedImports, quick, search, month, oldestFirst])
+    }), [scopedImports, quick, search, month, oldestFirst])
 
   return (
     <section className="campaign-schedule-page sales-data-page">
@@ -232,7 +240,10 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
             <h2>판매 데이터</h2>
           </div>
         </div>
-        <p className="schedule-summary__scope">판매 종료 및 정산 중 공구의 판매 데이터 상태 · 전체 {endedImports.length}건</p>
+        <p className="schedule-summary__scope">{listView === 'completed' ? '최종 정산 완료된 판매데이터' : '판매 종료 후 처리할 판매데이터'} · {scopedImports.length}건</p>
+        <nav className="action-row" aria-label="판매데이터 목록 구분">
+          {([['pending', `처리할 건 (${endedImports.length - completedIds.size})`], ['completed', `완료 내역 (${completedIds.size})`]] as const).map(([id,label]) => <button className={listView === id ? 'primary-button' : 'secondary-button'} type="button" aria-pressed={listView === id} key={id} onClick={() => { setListView(id); setQuick('전체'); setMonth(''); setSearch('') }}>{label}</button>)}
+        </nav>
         <div className="schedule-summary__grid">
           {quickFilters.map((filter) => (
             <button className={quick === filter ? 'summary-count-card is-active' : 'summary-count-card'} key={filter} onClick={() => setQuick(quick === filter ? '전체' : filter)} type="button">
@@ -247,13 +258,13 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
       <section className="panel">
         <div className="panel__header">
           <div>
-            <h2>판매 데이터 목록</h2>
-            <p>판매가 종료된 공동구매만 표시됩니다. 파일 업로드 또는 수기 입력 후 정산으로 연결합니다.</p>
+            <h2>{listView === 'completed' ? '완료 내역' : '처리할 판매데이터'}</h2>
+            <p>{listView === 'completed' ? '완료된 판매데이터와 정산 기록을 검색해서 확인할 수 있습니다.' : '판매가 종료되고 정산이 아직 완료되지 않은 건만 표시합니다.'}</p>
           </div>
           <strong className="result-count">{filteredImports.length}건</strong>
         </div>
         <div className="schedule-panel__body">
-          <div className="action-row"><label>판매 월<select value={month} onChange={event => setMonth(event.target.value)}><option value="">전체</option>{months.map(value => <option key={value} value={value}>{value.slice(0,4)}년 {Number(value.slice(5))}월</option>)}</select></label><button className="secondary-button" type="button" onClick={() => { setQuick('전체'); setMonth(''); setSearch('') }}>전체보기</button><label>경과일 정렬<select value={String(oldestFirst)} onChange={event => setOldestFirst(event.target.value === 'true')}><option value="true">오래된 종료 공구 먼저</option><option value="false">최근 종료 공구 먼저</option></select></label></div><label className="sales-list-search"><span>판매데이터 검색</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="공구명, 셀러, 벤더, 브랜드, 상품명, 파일명 검색" /><small>공구 종료일이 빠른 순</small></label>
+          <div className="action-row"><label>판매 월<select value={month} onChange={event => setMonth(event.target.value)}><option value="">전체</option>{months.map(value => <option key={value} value={value}>{value.slice(0,4)}년 {Number(value.slice(5))}월</option>)}</select></label><button className="secondary-button" type="button" onClick={() => { setQuick('전체'); setMonth(''); setSearch('') }}>검색 초기화</button><label>경과일 정렬<select value={String(oldestFirst)} onChange={event => setOldestFirst(event.target.value === 'true')}><option value="true">오래된 종료 공구 먼저</option><option value="false">최근 종료 공구 먼저</option></select></label></div><label className="sales-list-search"><span>판매데이터 검색</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="공구명, 셀러, 벤더, 브랜드, 상품명, 파일명 검색" /><small>공구 종료일이 빠른 순</small></label>
           {filteredImports.length === 0 && <p role="status">검색 조건에 맞는 판매데이터가 없습니다.</p>}
           <div className="schedule-table-wrap sales-data-table-wrap">
             <table className="schedule-table sales-data-table">
