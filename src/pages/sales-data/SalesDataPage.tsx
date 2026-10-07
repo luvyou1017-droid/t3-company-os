@@ -28,7 +28,7 @@ import { parseSalesDataFile, shouldAskPendingPaymentPolicy, UnmatchedSalesPrices
 import { openCampaignDetail } from '../../shared/utils/campaignNavigation'
 import { calculateSrookPayFee, DEFAULT_SROOKPAY_FEE_RATE } from '../../shared/utils/srookPay'
 import { manualCommissionComparison } from '../../shared/utils/manualSettlement'
-import { effectiveSalesRows } from '../../shared/utils/otherSalesAggregate'
+import { assertOtherSourceRowsPreserved, effectiveSalesRows } from '../../shared/utils/otherSalesAggregate'
 import { normalizeProductMatchText } from '../../shared/utils/productSkuMatching'
 import { LandingPageBadge } from '../../shared/components/LandingPageBadge'
 import { sellerSettlementFileService } from '../../shared/services/sellerSettlementFileService'
@@ -262,7 +262,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
               <tbody>
                 {filteredImports.map((salesImport) => {
                   const campaign = getImportCampaign(salesImport)
-                  const net = calculateSalesTotals(rows.filter((row) => row.salesDataImportId === salesImport.id), salesImport)
+                  const net = buildSalesAnalysis(salesImport, rows.filter((row) => row.salesDataImportId === salesImport.id)).totals
                   const validationErrors = buildSalesAnalysis(salesImport, rows.filter((row) => row.salesDataImportId === salesImport.id), campaign).validation.results
                     .filter((result) => result.status === 'error')
                     .map((result) => result.message)
@@ -289,7 +289,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
           <div className="schedule-mobile-list">
             {filteredImports.map((salesImport) => {
               const campaign = getImportCampaign(salesImport)
-              const net = calculateSalesTotals(rows.filter((row) => row.salesDataImportId === salesImport.id), salesImport)
+              const net = buildSalesAnalysis(salesImport, rows.filter((row) => row.salesDataImportId === salesImport.id)).totals
               const mobileErrors = buildSalesAnalysis(salesImport, rows.filter((row) => row.salesDataImportId === salesImport.id), campaign).validation.results.filter((result) => result.status === 'error').map((result) => result.message)
               return (
                 <button className="schedule-mobile-card" key={salesImport.id} onClick={() => openImport(salesImport.id)} type="button">
@@ -474,6 +474,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
   const directEditLocked = Boolean(linkedSettlement && settlementService.isSettlementConfirmed(linkedSettlement))
   const saveOtherAggregate = async () => {
     if (directEditLocked || linkedSettlement) { setOtherSaveMessage('기존 정산이 있으면 기타 묶음을 수정할 수 없습니다.'); return }
+    if (campaignChannel(campaign, salesImport) !== 'supplier_link') { setOtherSaveMessage('기타 총매출 입력은 공급사 링크 공구에서 사용할 수 있습니다.'); return }
     const amount = Number(otherSales), totalRate = Number(otherTotalRate), sellerRate = Number(otherSellerRate)
     if (!otherRowIds.length || !Number.isSafeInteger(amount) || amount <= 0 || !otherTotalRate.trim() || !otherSellerRate.trim()
       || !Number.isFinite(totalRate) || totalRate <= 0 || totalRate > 100 || !Number.isFinite(sellerRate) || sellerRate < 0 || sellerRate > totalRate) {
@@ -481,7 +482,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
     }
     const aggregate = { sourceRowIds: otherRowIds, totalSales: amount, totalCommissionRate: totalRate, sellerCommissionRate: sellerRate, savedAt: new Date().toISOString() }
     try {
-      const next = { ...salesImport, otherSalesAggregate: aggregate, reviewStatus: '검수 중' as const, settlementStatus: '정산 전' as const }
+      const next = { ...salesImport, otherSalesAggregate: aggregate, commissionCalculationType: 'sku' as const, reviewStatus: '검수 중' as const, settlementStatus: '정산 전' as const }
       const effective = effectiveSalesRows(rows, next)
       const nextTotals = calculateSalesTotals(effective, next)
       salesDataService.updateSalesDataImport({ ...next, totalQuantity: nextTotals.totalQuantity, totalSalesAmount: nextTotals.totalSalesAmount })
@@ -1066,7 +1067,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           <div><h3>판매 수량·정산 조건</h3><p>옵션별 판매수량, 취소·반품, 판매가와 수수료율을 직접 수정할 수 있습니다.</p></div>
           <button className="secondary-button" disabled={directEditLocked} onClick={() => onManualInput(salesImport)} title={directEditLocked ? '확정된 정산서는 정산 관리에서 확정을 해제한 후 수정할 수 있습니다.' : undefined} type="button">{directEditLocked ? '확정 해제 후 수정 가능' : '판매 수량·조건 수정'}</button>
         </div>
-        <section className="sales-ai-card" aria-label="기타 품목 매출 묶기">
+        {campaignChannel(campaign, salesImport) === 'supplier_link' && <section className="sales-ai-card" aria-label="기타 품목 매출 묶기">
           <div className="checklist-head"><div><h3>기타 품목 · 총매출 수기 입력</h3><p>아래 원본 판매행을 선택하면 해당 행은 정산에서 제외되고 ‘기타’ 한 줄만 반영됩니다. 원본 파일과 행은 보존됩니다.</p></div></div>
           <div className="comparison-table-wrap"><table className="comparison-table"><thead><tr><th>기타에 포함</th><th>원본 옵션</th><th>원본 순매출</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><input type="checkbox" aria-label={`${row.optionName} 기타에 포함`} disabled={directEditLocked || Boolean(linkedSettlement)} checked={otherRowIds.includes(row.id)} onChange={(event) => setOtherRowIds((ids) => event.target.checked ? [...ids, row.id] : ids.filter((id) => id !== row.id))} /></td><td>{row.optionName}</td><td>{formatCurrency(row.netSales)}</td></tr>)}</tbody></table></div>
           <p>선택한 {otherRowIds.length}행 원본 순매출: {formatCurrency(rows.filter((row) => otherRowIds.includes(row.id)).reduce((sum, row) => sum + row.netSales, 0))} · 수기 총매출과 차이는 저장 전 확인해주세요.</p>
@@ -1077,7 +1078,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           </div>
           <div className="action-row"><button className="primary-button" type="button" disabled={directEditLocked || Boolean(linkedSettlement)} onClick={() => void saveOtherAggregate()}>기타 묶음 저장</button>{salesImport.otherSalesAggregate && <button className="secondary-button" type="button" disabled={directEditLocked || Boolean(linkedSettlement)} onClick={async () => { try { const next = { ...salesImport, otherSalesAggregate: undefined, reviewStatus: '검수 중' as const, settlementStatus: '정산 전' as const }; const rawTotals = calculateSalesTotals(rows, next); salesDataService.updateSalesDataImport({ ...next, totalQuantity: rawTotals.totalQuantity, totalSalesAmount: rawTotals.totalSalesAmount }); salesDataService.validateSalesData(salesImport.id); await cloudSyncService.syncKeys([STORAGE_KEYS.salesDataImports, STORAGE_KEYS.salesDataRows]); setOtherRowIds([]); setOtherSaveMessage('묶음을 해제했습니다. 원본 판매행으로 복원되었습니다.'); onSync() } catch (error) { setOtherSaveMessage(error instanceof Error ? error.message : '해제하지 못했습니다.') } }}>기타 묶음 해제</button>}</div>
           {otherSaveMessage && <p role="status">{otherSaveMessage}</p>}
-        </section>
+        </section>}
         <section className="comparison-table-wrap">
           <table className="comparison-table sales-row-table">
             <thead><tr><th>옵션명</th><th>{salesImport.pendingPaymentPolicy === 'exclude' && (salesImport.fileAnalysis?.pendingPaymentQuantity ?? 0) > 0 ? '결제대기 제외 후 판매수량' : '판매수량'}</th><th>판매가</th><th>총매출</th><th>{salesImport.fileAnalysis?.sourceDocumentType === 'supplier_settlement' ? '취소/반품 수량' : '취소수량'}</th><th>환불수량</th><th>순판매수량</th><th>순매출</th><th>셀러 수수료율</th><th>총 수수료율</th></tr></thead>
@@ -1244,7 +1245,8 @@ function ManualSalesDataModal({ salesImport, rows, onClose, onSave }: { salesImp
       reportedCommissionAmount: reportedAmount.trim() === '' ? undefined : Number(reportedAmount.replace(/,/g, '')) + offsetAmount,
       quantityBasis, sourceMessage, reportedOffsetAmount: offsetAmount } : undefined,
   }
-  const comparison = manualCommissionComparison(preparedImport, preparedRows)
+  const effectivePreparedRows = (() => { try { return effectiveSalesRows(preparedRows, preparedImport) } catch { return preparedRows } })()
+  const comparison = manualCommissionComparison(preparedImport, effectivePreparedRows)
   const campaign = campaignService.getCampaignById(salesImport.campaignId)
   const resolveAudienceRate = (skuId: string, audience = supplyAudience, vendor = vendorName) => {
     if (audience === 'vendor') {
@@ -1345,7 +1347,9 @@ function ManualSalesDataModal({ salesImport, rows, onClose, onSave }: { salesImp
       if (shippingDetails.some((item) => (item.quantity > 0 || item.unitPrice > 0 || item.label.trim()) && (!item.label.trim() || !Number.isInteger(item.quantity) || item.quantity < 0 || !Number.isFinite(item.unitPrice) || item.unitPrice < 0))) throw new Error('배송비 항목·건수·단가를 확인해주세요.')
       if (preparedRows.some((row) => row.settlementSupplyPrice !== undefined && (row.settlementSupplyPrice < 0 || row.settlementSupplyPrice > row.unitPrice))) throw new Error('이번 정산 공급가는 0원 이상, 판매가 이하로 입력해주세요.')
       if (supplyAudience === 'vendor' && (!vendorName.trim() || draftRows.some((row) => row.sellerCommissionRate === undefined))) throw new Error('벤더명과 모든 SKU의 벤더 수수료 조건을 등록해주세요.')
-      const totals = calculateSalesTotals(preparedRows, preparedImport)
+      assertOtherSourceRowsPreserved(rows, preparedRows, salesImport)
+      if (salesImport.otherSalesAggregate && campaignChannel(campaign, preparedImport) !== 'supplier_link') throw new Error('기타 묶음을 해제한 후 거래구분을 변경해주세요.')
+      const totals = calculateSalesTotals(effectiveSalesRows(preparedRows, preparedImport), preparedImport)
       const nextImport: SalesDataImport = { ...preparedImport,
         settlementTerms: salesImport.settlementTerms ? captureUploadTerms(manualChannel || salesImport.settlementTerms.salesChannelType, preparedRows, salesImport.settlementTerms.sellerCheckoutPricingVersion === 2) : undefined,
         totalQuantity: totals.totalQuantity, totalSalesAmount: totals.totalSalesAmount,

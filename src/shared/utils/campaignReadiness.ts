@@ -39,6 +39,7 @@ export function settlementReadinessErrors(c: Campaign | undefined, products: Pro
   const campaignChannel = getCampaignSalesChannel(c)
   const termsChannel = source?.settlementTerms?.salesChannelType
   const channel = termsChannel ?? campaignChannel
+  if (source?.otherSalesAggregate && channel !== 'supplier_link') errors.push('기타 총매출 정산은 공급사 링크 공구에서만 사용할 수 있습니다.')
   if (!channel) errors.push('거래구분 미등록')
   else if ((campaignChannel && termsChannel && campaignChannel !== termsChannel) || (c.supplyAudience && source?.supplyAudience && c.supplyAudience !== source.supplyAudience)) errors.push('거래구분 불일치')
   const excludedIssues = source?.commissionSyncIssues?.filter((issue) => source.otherSalesAggregate?.sourceRowIds.includes(issue.rowId)).length ?? 0

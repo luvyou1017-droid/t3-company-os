@@ -71,7 +71,7 @@ export async function syncProductCommissionRates(salesDataImportId: string, prod
   const policyRatePairs = new Set(activePolicySkus.map((sku) => `${Number(totalRate(policyProduct!, sku).toFixed(4))}:${Number((sku.sellerCommissionRate ?? policyProduct!.sellerCommissionRate).toFixed(4))}`))
   const inferredCampaignTotal = Boolean(policyProduct && activePolicySkus.some((sku) => sku.pricingType === 'quantity_tier') && policyRatePairs.size === 1)
   const commissionCalculationType = policyProduct?.commissionCalculationType ?? (inferredCampaignTotal ? 'campaign_total' : 'sku')
-  if (policyProduct && policyProduct.sellerCommissionRate > 0 && commissionCalculationType === 'campaign_total' && manuallyMatchedSkuIds.size === 0) {
+  if (!salesImport.otherSalesAggregate && policyProduct && policyProduct.sellerCommissionRate > 0 && commissionCalculationType === 'campaign_total' && manuallyMatchedSkuIds.size === 0) {
     const totalCommissionRate = policyProduct.totalCommissionRate ?? campaign?.totalCommissionRate ?? salesImport.totalCommissionRate
     const sellerCommissionRate = policyProduct.sellerCommissionRate > 0
       ? policyProduct.sellerCommissionRate

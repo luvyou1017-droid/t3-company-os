@@ -1,7 +1,7 @@
 import { initialSalesDataImports, initialSalesDataRows } from '../data/salesData'
 import type { SalesDataImport, SalesDataRow } from '../types/salesData'
 import { calculateSalesTotals, validateSalesRows } from '../utils/salesData'
-import { effectiveSalesRows } from '../utils/otherSalesAggregate'
+import { assertOtherSourceRowsPreserved, effectiveSalesRows } from '../utils/otherSalesAggregate'
 import { campaignService } from './campaignService'
 import { STORAGE_KEYS, storageService } from './storageService'
 import { workService } from './workService'
@@ -166,7 +166,8 @@ export const salesDataService = {
   addSalesDataRows(salesDataImportId: string, rows: SalesDataRow[]) {
     const currentRows = this.getSalesDataRows().filter((row) => row.salesDataImportId !== salesDataImportId)
     const targetImport = this.getSalesDataImportById(salesDataImportId)
-    const totals = calculateSalesTotals(rows, targetImport)
+    if (targetImport) assertOtherSourceRowsPreserved(this.getRowsByImportId(salesDataImportId), rows, targetImport)
+    const totals = calculateSalesTotals(targetImport ? effectiveSalesRows(rows, targetImport) : rows, targetImport)
     this.saveRows([...rows, ...currentRows])
     if (targetImport) {
       this.updateSalesDataImport({

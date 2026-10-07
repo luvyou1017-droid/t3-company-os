@@ -42,6 +42,7 @@ import {
 } from '../utils/settlement'
 import { calculateFinalSellerPayment } from '../utils/sellerSettlement'
 import { validateSalesRows } from '../utils/salesData'
+import { effectiveSalesRows, prepareOtherSalesRevision } from '../utils/otherSalesAggregate'
 import { campaignService } from './campaignService'
 import { campaignEventOperationService } from './campaignEventOperationService'
 import { notificationService } from './notificationService'
@@ -580,7 +581,7 @@ export const settlementService = {
       if (!salesImport) return settlement
       const deductions = [...(deductionsBySettlementId.get(settlement.id) ?? []), ...offsetDeductions(settlement)]
       markSamplesReflected(settlement.id, deductions)
-      const current = calculateSettlement(salesImport, rowsByImportId.get(salesImport.id) ?? [], deductions, settlement.taxType)
+      const current = calculateSettlement(salesImport, effectiveSalesRows(rowsByImportId.get(salesImport.id) ?? [], salesImport), deductions, settlement.taxType)
       if (!settlement.calculationSnapshot) return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current) }
       const changed = current.grossSales !== settlement.calculationSnapshot.grossSales || current.grossCommission !== settlement.calculationSnapshot.grossCommission || current.sellerCommissionAmount !== settlement.calculationSnapshot.sellerCommissionAmount || current.deductionTotal !== settlement.calculationSnapshot.deductionTotal
       if (settlement.settlementConfirmed === false) {
@@ -674,16 +675,16 @@ export const settlementService = {
     const activeRequestStatuses = ['evidence_pending', 'request_ready', 'approval_pending', 'approved', 'sent', 'on_hold']
     if ((settlement.sellerPaymentRequestStatus && activeRequestStatuses.includes(settlement.sellerPaymentRequestStatus)) || (settlement.managerPaymentRequestStatus && activeRequestStatuses.includes(settlement.managerPaymentRequestStatus))) throw new Error('지급요청이 존재하는 정산서는 수정할 수 없습니다.')
     const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)!
-    if (salesImport.otherSalesAggregate) throw new Error('기타 묶음이 있는 정산은 판매 데이터에서 묶음을 해제한 후 수정해주세요.')
-    const previousRows = salesDataService.getRowsByImportId(settlement.salesDataImportId).map((row) => ({ ...row }))
+    const previousRows = salesDataService.getSettlementRowsByImportId(settlement.salesDataImportId).map((row) => ({ ...row }))
     const previousDeductions = this.getDeductionsBySettlementId(settlement.id).map((item) => ({ ...item }))
     const previousInput: SettlementRevisionDraft = { settlementId: settlement.id, reason: settlement.sourceChangeReason || '수정 전 적용값', rows: previousRows, totalCommissionRate: salesImport.totalCommissionRate ?? settlement.currentCalculation.totalCommissionRate, sellerCommissionRate: salesImport.sellerCommissionRate ?? settlement.currentCalculation.sellerCommissionRate, deductions: previousDeductions }
+    const revisionRows = input.rows.map((row) => { const netQuantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0); return { ...row, grossSales: row.quantity * row.unitPrice, netQuantity, netSales: netQuantity * row.unitPrice } })
+    const prepared = prepareOtherSalesRevision(salesImport, salesDataService.getRowsByImportId(settlement.salesDataImportId), revisionRows)
     const calculation = this.previewRevision(input, changedBy)
     reconcileReceivable({ ...settlement, currentCalculation: calculation }, settlement, campaignService.getCampaignById(settlement.campaignId)?.sellerId)
     if (settlement.sellerReceivable && allocatedAmount(this.getSettlements(), settlement.sellerReceivable.id) > (calculation.sellerReceivableAmount ?? 0)) throw new Error('미수금 상계를 먼저 취소해주세요.')
-    const rows = input.rows.map((row) => { const netQuantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0); return { ...row, grossSales: row.quantity * row.unitPrice, netQuantity, netSales: netQuantity * row.unitPrice } })
-    salesDataService.saveRows([...rows, ...salesDataService.getSalesDataRows().filter((row) => row.salesDataImportId !== settlement.salesDataImportId)])
-    salesDataService.updateSalesDataImport({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate, totalQuantity: rows.reduce((sum, row) => sum + row.quantity, 0), totalSalesAmount: rows.reduce((sum, row) => sum + row.grossSales, 0) })
+    salesDataService.saveRows([...prepared.rows, ...salesDataService.getSalesDataRows().filter((row) => row.salesDataImportId !== settlement.salesDataImportId)])
+    salesDataService.updateSalesDataImport({ ...prepared.source, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate, totalQuantity: revisionRows.reduce((sum, row) => sum + row.quantity, 0), totalSalesAmount: revisionRows.reduce((sum, row) => sum + row.grossSales, 0) })
     this.saveDeductions([...input.deductions, ...this.getDeductions().filter((item) => item.settlementId !== settlement.id)])
     const next: Settlement = { ...settlement, settlementVersion: settlement.settlementVersion + 1, status: 'review_pending', updatedAt: now(), currentCalculation: calculation, calculationSteps: createCalculationSteps(calculation), hasSourceChanged: false, sourceChangeReason: undefined }
     this.saveSettlements(this.getSettlements().map((item) => item.id === settlement.id ? next : item))
