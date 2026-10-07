@@ -727,11 +727,11 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     if (!settlement) return
     const targetCampaign = getCampaign(settlement)
     const targetImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
-    const targetRows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
+    const targetRows = salesDataService.getSettlementRowsByImportId(settlement.salesDataImportId)
     const targetRule = sellerSettlementService.getSellerSettlementRule(settlement.campaignId)
     const targetProfile = targetCampaign ? sellerMasterService.getSellerById(targetCampaign.sellerId) : undefined
     const targetDeductions = settlementService.getDeductionsBySettlementId(settlement.id).filter((item) => item.amount > 0)
-    const hasCommissionIssues = (targetImport?.commissionSyncIssues?.length ?? 0) > 0
+    const hasCommissionIssues = targetImport?.commissionSyncIssues?.some((issue) => !targetImport.otherSalesAggregate?.sourceRowIds.includes(issue.rowId)) ?? false
     const ratesValid = !hasCommissionIssues && targetRows.length > 0 && settlement.currentCalculation.totalCommissionRate >= settlement.currentCalculation.sellerCommissionRate && settlement.currentCalculation.sellerCommissionRate >= 0 && settlement.currentCalculation.totalCommissionRate <= 100
     const ownersResolved = targetDeductions.every((item) => item.costOwner !== 'undecided' && item.applyLocation !== 'needs_review')
     const accountRegistered = Boolean(targetProfile?.bankName?.trim() && targetProfile.accountNumber?.trim() && targetProfile.accountHolder?.trim())
@@ -778,7 +778,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const logs = settlementService.getActivityLogsBySettlementId(settlement.id)
   const validation = validateSettlement(settlement)
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
-  const salesRows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
+  const salesRows = salesDataService.getSettlementRowsByImportId(settlement.salesDataImportId)
   const salesChannel = campaignChannel(campaign, salesImport)
   const sellerCollectsPayment = salesChannel === 'seller_checkout'
   const vendorSupply = salesImport?.supplyAudience === 'vendor'
@@ -859,7 +859,8 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const managerShareValid = managerShareCalculated(settlement.currentCalculation)
   const settlementPreparationWarnings: ReadinessWarning[] = []
   if (!salesDataConfirmed) settlementPreparationWarnings.push({ id: 'sales', message: '판매 데이터 확정이 필요합니다.', actionLabel: '판매 데이터 확인', severity: 'blocking', action: () => onOpenSalesData?.(settlement.salesDataImportId) })
-  if ((salesImport?.commissionSyncUnmatchedRows ?? 0) > 0) settlementPreparationWarnings.push({ id: 'sku-rate-match', message: `상품 DB 수수료와 연결되지 않은 판매행이 ${salesImport?.commissionSyncUnmatchedRows}개 있습니다.`, actionLabel: '판매 데이터 확인', severity: 'blocking', action: () => onOpenSalesData?.(settlement.salesDataImportId) })
+  const remainingUnmatched = Math.max((salesImport?.commissionSyncUnmatchedRows ?? 0) - (salesImport?.commissionSyncIssues?.filter((issue) => salesImport.otherSalesAggregate?.sourceRowIds.includes(issue.rowId)).length ?? 0), 0)
+  if (remainingUnmatched > 0) settlementPreparationWarnings.push({ id: 'sku-rate-match', message: `상품 DB 수수료와 연결되지 않은 판매행이 ${remainingUnmatched}개 있습니다.`, actionLabel: '판매 데이터 확인', severity: 'blocking', action: () => onOpenSalesData?.(settlement.salesDataImportId) })
   if (!commissionRatesValid) settlementPreparationWarnings.push({ id: 'commission', message: '수수료율 확인이 필요합니다.', actionLabel: '수수료율 확인', severity: 'blocking', action: () => setReadinessModal('commission') })
   const costsConfirmed = checklist.sampleCostReflected && checklist.eventCostReflected && checklist.otherDeductionsConfirmed && checklist.costOwnersConfirmed && unresolvedCostOwners.length === 0
   if (!costsConfirmed) settlementPreparationWarnings.push({ id: 'costs', message: '샘플비·차감·조정내역·기타 차감과 부담 주체를 한 번에 확인해주세요.', actionLabel: '비용/차감 확인', severity: 'non-blocking', action: () => setReadinessModal('costs') })

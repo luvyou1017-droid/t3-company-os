@@ -3,6 +3,7 @@ import type { SalesDataImport, SalesDataRow, SalesDataTotals, SalesValidationRes
 import { getCompanySalesEventCostTotal } from './salesEventCosts.ts'
 import { calculateSrookPayFee, DEFAULT_SROOKPAY_FEE_RATE } from './srookPay.ts'
 import { manualCommissionComparison } from './manualSettlement.ts'
+import { effectiveSalesRows } from './otherSalesAggregate.ts'
 
 export function formatCurrency(value: number) {
   return `${Math.round(value).toLocaleString('ko-KR')}원`
@@ -74,6 +75,11 @@ function worstStatus(results: SalesValidationResult[]): SalesValidationStatus {
 
 export function validateSalesRows(salesImport: SalesDataImport, rows: SalesDataRow[], campaign?: Campaign) {
   const results: SalesValidationResult[] = []
+  try {
+    if (salesImport.otherSalesAggregate && !rows.some((row) => row.aggregateKind)) rows = effectiveSalesRows(rows, salesImport)
+  } catch (error) {
+    results.push({ status: 'error', message: error instanceof Error ? error.message : '기타 묶음을 확인해주세요.' })
+  }
   if (salesImport.documentKind && !salesImport.documentAuthor) results.push({ status: 'error', message: '정산 자료 작성 주체를 확인해주세요.' })
 
   const nextRows = rows.map((row) => {
@@ -87,7 +93,7 @@ export function validateSalesRows(salesImport: SalesDataImport, rows: SalesDataR
     if (row.netQuantity < 0) rowResults.push({ status: 'error', message: `${item}: 순판매수량이 음수입니다.`, rowId: row.id })
     const totalRate = row.totalCommissionRate ?? salesImport.totalCommissionRate ?? 25
     const sellerRate = row.sellerCommissionRate ?? salesImport.sellerCommissionRate ?? salesImport.commissionRate ?? Number.NaN
-    const commissionIssue = salesImport.commissionSyncIssues?.find((issue) => issue.rowId === row.id)
+    const commissionIssue = salesImport.commissionSyncIssues?.find((issue) => issue.rowId === row.id && !salesImport.otherSalesAggregate?.sourceRowIds.includes(issue.rowId))
     if (commissionIssue) rowResults.push({ status: 'error', message: commissionIssue.message ?? '상품 SKU와 수수료 연결을 확인해주세요.', rowId: row.id })
     if (!Number.isFinite(totalRate) || totalRate < 0 || totalRate > 100) rowResults.push({ status: 'error', message: `${row.optionName || '해당 SKU'} 총수수료율은 0~100 사이여야 합니다.`, rowId: row.id })
     if (!Number.isFinite(sellerRate) || sellerRate < 0 || sellerRate > 100) rowResults.push({ status: 'error', message: `${row.optionName || '해당 SKU'} 셀러 수수료율은 0~100 사이여야 합니다.`, rowId: row.id })
@@ -135,7 +141,7 @@ export function validateSalesRows(salesImport: SalesDataImport, rows: SalesDataR
 
 export function buildSalesAnalysis(salesImport: SalesDataImport, rows: SalesDataRow[], campaign?: Campaign) {
   const validation = validateSalesRows(salesImport, rows, campaign)
-  const totals = calculateSalesTotals(rows, salesImport)
+  const totals = validation.totals
   const messages = [
     validation.status === 'error' ? '오류 확인 필요' : '판매수량 이상 없음',
     totals.totalSalesAmount === salesImport.totalSalesAmount ? '옵션별 합계 일치' : '옵션별 합계 불일치',

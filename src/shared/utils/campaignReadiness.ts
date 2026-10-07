@@ -33,7 +33,7 @@ export function campaignReadiness(c: Campaign, products: ProductMaster[] = []) {
   const tasks = [!productLinked && '상품 연결 필요', !supplierLinked && '공급처 미연결', termErrors.length > 0 && '정산조건 확인 필요'].filter(Boolean) as string[]
   return { productLinked, supplierLinked, tasks, label: tasks.length ? tasks.join(' · ') : '정산 준비 완료' }
 }
-export function settlementReadinessErrors(c: Campaign | undefined, products: ProductMaster[], rows?: SalesDataRow[], source?: Pick<SalesDataImport, 'settlementTerms' | 'supplyAudience' | 'commissionSyncUnmatchedRows'>) {
+export function settlementReadinessErrors(c: Campaign | undefined, products: ProductMaster[], rows?: SalesDataRow[], source?: Pick<SalesDataImport, 'settlementTerms' | 'supplyAudience' | 'commissionSyncUnmatchedRows' | 'commissionSyncIssues' | 'otherSalesAggregate'>) {
   if (!c) return ['공구일정 연결 필요']
   const errors: string[] = []
   const campaignChannel = getCampaignSalesChannel(c)
@@ -41,10 +41,11 @@ export function settlementReadinessErrors(c: Campaign | undefined, products: Pro
   const channel = termsChannel ?? campaignChannel
   if (!channel) errors.push('거래구분 미등록')
   else if ((campaignChannel && termsChannel && campaignChannel !== termsChannel) || (c.supplyAudience && source?.supplyAudience && c.supplyAudience !== source.supplyAudience)) errors.push('거래구분 불일치')
-  if ((source?.commissionSyncUnmatchedRows ?? 0) > 0) errors.push('SKU 매칭 필요')
-  const targets = rows?.length ? rows.filter(r => r.netQuantity > 0).map(r => ({ productId: r.productId || c.productId, skuId: r.skuId, sellerSupplyPrice: r.sellerSupplyPrice, sellerCommissionRate: r.sellerCommissionRate }))
+  const excludedIssues = source?.commissionSyncIssues?.filter((issue) => source.otherSalesAggregate?.sourceRowIds.includes(issue.rowId)).length ?? 0
+  if ((source?.commissionSyncUnmatchedRows ?? 0) > excludedIssues) errors.push('SKU 매칭 필요')
+  const targets = rows?.length ? rows.filter(r => r.netQuantity > 0 && r.aggregateKind !== 'other').map(r => ({ productId: r.productId || c.productId, skuId: r.skuId, sellerSupplyPrice: r.sellerSupplyPrice, sellerCommissionRate: r.sellerCommissionRate }))
     : (c.campaignProducts?.length ? c.campaignProducts : [{ productId: c.productId }]).map(p => ({ productId: p.productId, skuId: undefined, sellerSupplyPrice: undefined, sellerCommissionRate: undefined }))
-  if (!targets.length) errors.push('정산 상품/SKU 확인 필요')
+  if (!targets.length && !rows?.some((row) => row.aggregateKind === 'other')) errors.push('정산 상품/SKU 확인 필요')
   const valid = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0
   for (const target of targets) {
     const product = products.find(p => p.id === target.productId || (target.skuId && p.skus.some(s => s.id === target.skuId)))

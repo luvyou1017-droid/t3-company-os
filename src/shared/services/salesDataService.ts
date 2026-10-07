@@ -1,6 +1,7 @@
 import { initialSalesDataImports, initialSalesDataRows } from '../data/salesData'
 import type { SalesDataImport, SalesDataRow } from '../types/salesData'
 import { calculateSalesTotals, validateSalesRows } from '../utils/salesData'
+import { effectiveSalesRows } from '../utils/otherSalesAggregate'
 import { campaignService } from './campaignService'
 import { STORAGE_KEYS, storageService } from './storageService'
 import { workService } from './workService'
@@ -144,6 +145,11 @@ export const salesDataService = {
   getRowsByImportId(id: string) {
     return this.getSalesDataRows().filter((row) => row.salesDataImportId === id)
   },
+  getSettlementRowsByImportId(id: string) {
+    const source = this.getSalesDataImportById(id)
+    const rows = this.getRowsByImportId(id)
+    return source ? effectiveSalesRows(rows, source) : rows
+  },
   createSalesDataImport(salesImport: SalesDataImport) {
     const campaign = campaignService.getCampaignById(salesImport.campaignId)
     salesImport = { ...salesImport, supplyAudience: salesImport.supplyAudience ?? campaign?.supplyAudience ?? 'seller', settlementVendorName: salesImport.settlementVendorName ?? campaign?.settlementVendorName }
@@ -177,7 +183,12 @@ export const salesDataService = {
     if (!targetImport) return undefined
     const campaign = campaignService.getCampaignById(targetImport.campaignId)
     const validation = validateSalesRows(targetImport, this.getRowsByImportId(salesDataImportId), campaign)
-    this.saveRows([...validation.rows, ...this.getSalesDataRows().filter((row) => row.salesDataImportId !== salesDataImportId)])
+    const selected = new Set(targetImport.otherSalesAggregate?.sourceRowIds ?? [])
+    const validatedById = new Map(validation.rows.map((row) => [row.id, row]))
+    const originalRows = this.getRowsByImportId(salesDataImportId).map((row) => selected.has(row.id)
+      ? { ...row, validationStatus: 'valid' as const, validationMessage: '기타 묶음 원본 · 정산에서 제외' }
+      : validatedById.get(row.id) ?? row)
+    this.saveRows([...originalRows, ...this.getSalesDataRows().filter((row) => row.salesDataImportId !== salesDataImportId)])
     const reviewStatus = validation.status === 'error' ? '오류 확인 필요' : validation.status === 'warning' ? '검수 중' : '검수 중'
     this.updateSalesDataImport({ ...targetImport, reviewStatus })
     return validation
