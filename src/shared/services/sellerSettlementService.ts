@@ -78,7 +78,7 @@ function calculate(rule: SellerSettlementRule, settlementId: string): SellerSett
   const settlement = settlementService.getSettlementById(settlementId)
   if (!settlement) throw new Error('기존 정산을 찾을 수 없습니다.')
   const sales = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
-  const rows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
+  const rows = salesDataService.getSettlementRowsByImportId(settlement.salesDataImportId)
   if (!sales) throw new Error('판매 데이터를 찾을 수 없습니다.')
   const items = rows.map((row) => ({ optionName: row.optionName, quantity: row.netQuantity, unitPrice: row.unitPrice, amount: row.netSales }))
   const sellerSubtotal = calculateSellerProductSubtotal(rows, settlement.currentCalculation.sellerCommissionRate)
@@ -172,7 +172,7 @@ export const sellerSettlementService = {
     if (!campaign || !rule) throw new Error('셀러 정산 정보를 확인해주세요.')
     if (rule.businessType !== 'freelancer' && (!rule.evidenceConfirmed || !rule.confirmedEvidenceType)) throw new Error('증빙 유형을 최종 확인해주세요.')
     const sales = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
-    const rows = salesDataService.getRowsByImportId(settlement.salesDataImportId)
+    const rows = salesDataService.getSettlementRowsByImportId(settlement.salesDataImportId)
     const calculation = calculate(rule, settlement.id)
     const document: SellerSettlementDocument = {
       id: `seller-document-${settlement.id}`, settlementId, campaignId: campaign.id,

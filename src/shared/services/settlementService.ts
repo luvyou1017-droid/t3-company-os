@@ -42,6 +42,7 @@ import {
 } from '../utils/settlement'
 import { calculateFinalSellerPayment } from '../utils/sellerSettlement'
 import { validateSalesRows } from '../utils/salesData'
+import { effectiveSalesRows, prepareOtherSalesRevision } from '../utils/otherSalesAggregate'
 import { campaignService } from './campaignService'
 import { campaignEventOperationService } from './campaignEventOperationService'
 import { notificationService } from './notificationService'
@@ -59,7 +60,7 @@ const paymentDueDate = '2026-07-22'
 
 function settlementCreationErrors(salesImport: SalesDataImport) {
   const campaign = campaignService.getCampaignById(salesImport.campaignId)
-  return settlementReadinessErrors(campaign, campaignProductCatalogService.getManagedProducts(), salesDataService.getRowsByImportId(salesImport.id), salesImport)
+  return settlementReadinessErrors(campaign, campaignProductCatalogService.getManagedProducts(), salesDataService.getSettlementRowsByImportId(salesImport.id), salesImport)
 }
 
 function isLegacyMockSettlement(settlement: Settlement) {
@@ -174,7 +175,7 @@ function createSalesDeductions(settlementId: string, salesImport: SalesDataImpor
   const isSrookPayCampaign = campaign?.salesChannelType === 'wise_shop_link'
     || campaign?.proposalSnapshots?.some((snapshot) => snapshot.actualSalesChannel === 'wise_shop_link')
   if (isSrookPayCampaign && salesImport.shippingRevenue !== undefined) {
-    const productNetSales = salesDataService.getRowsByImportId(salesImport.id).reduce((sum, row) => sum + row.netSales, 0)
+    const productNetSales = salesDataService.getSettlementRowsByImportId(salesImport.id).reduce((sum, row) => sum + row.netSales, 0)
     const feeRate = salesImport.srookPayFeeRate ?? DEFAULT_SROOKPAY_FEE_RATE
     const estimatedFee = calculateSrookPayFee(productNetSales, salesImport.shippingRevenue, feeRate)
     const feeAmount = salesImport.srookPayActualFeeAmount ?? estimatedFee
@@ -310,7 +311,7 @@ function createSettlementNotification(settlement: Settlement, title: string, mes
 }
 
 function isEligibleSalesData(salesImport: SalesDataImport) {
-  const rows = salesDataService.getRowsByImportId(salesImport.id)
+  const rows = salesDataService.getSettlementRowsByImportId(salesImport.id)
   const validation = validateSalesRows(salesImport, rows, campaignService.getCampaignById(salesImport.campaignId))
   return salesImport.reviewStatus === '확정 완료' && salesImport.settlementStatus === '정산 가능' && Boolean(salesImport.campaignId) && validation.status !== 'error'
 }
@@ -319,7 +320,7 @@ function withRecalculation(settlement: Settlement, reason = '계산 실행'): Se
   if (settlementService.isSettlementConfirmed(settlement)) return settlement
   const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
   if (!salesImport) return settlement
-  const rows = salesDataService.getRowsByImportId(salesImport.id)
+  const rows = salesDataService.getSettlementRowsByImportId(salesImport.id)
   const events = getSalesEventCosts(salesImport)
   const deductions = settlementService.getDeductionsBySettlementId(settlement.id).map(item => {
     const event = events.find(event => item.linkedData === `sales_data:${salesImport.id}:event:${event.id}`)
@@ -356,7 +357,7 @@ export const settlementService = {
   saveSupplierPayment(id: string, terms: import('../utils/supplierPayment').SupplierPayment) {
     const settlement = this.getSettlementById(id)
     if (!settlement || this.isSettlementConfirmed(settlement)) throw new Error('확정 정산은 공급사 지급조건을 수정할 수 없습니다. 기존 정산 수정 절차를 이용해주세요.')
-    if (calculateSupplierPayment(terms, salesDataService.getRowsByImportId(settlement.salesDataImportId)).amount === undefined) throw new Error('회사 실제 공급가·수량·공급사 지급 배송비를 확인해주세요.')
+    if (calculateSupplierPayment(terms, salesDataService.getSettlementRowsByImportId(settlement.salesDataImportId)).amount === undefined) throw new Error('회사 실제 공급가·수량·공급사 지급 배송비를 확인해주세요.')
     const next = { ...settlement, supplierPayment: structuredClone(terms), updatedAt: new Date().toISOString() }
     this.saveSettlements(this.getSettlements().map(item => item.id === id ? next : item))
     return next
@@ -496,7 +497,7 @@ export const settlementService = {
       const itemDeductions = [...createSampleDeductions(id, salesImport.campaignId, sampleService.getSamplesByCampaignId(salesImport.campaignId)), ...createSalesDeductions(id, salesImport)]
       const status: SettlementStatus = index === 2 ? 'approved' : index === 1 ? 'review_pending' : 'draft'
       const taxType = taxTypeFromBusinessType(campaign?.businessType)
-      const currentCalculation = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), itemDeductions, taxType)
+      const currentCalculation = calculateSettlement(salesImport, salesDataService.getSettlementRowsByImportId(salesImport.id), itemDeductions, taxType)
       const snapshot = status === 'approved' ? currentCalculation : undefined
       const settlement: Settlement = {
         id,
@@ -580,7 +581,7 @@ export const settlementService = {
       if (!salesImport) return settlement
       const deductions = [...(deductionsBySettlementId.get(settlement.id) ?? []), ...offsetDeductions(settlement)]
       markSamplesReflected(settlement.id, deductions)
-      const current = calculateSettlement(salesImport, rowsByImportId.get(salesImport.id) ?? [], deductions, settlement.taxType)
+      const current = calculateSettlement(salesImport, effectiveSalesRows(rowsByImportId.get(salesImport.id) ?? [], salesImport), deductions, settlement.taxType)
       if (!settlement.calculationSnapshot) return { ...settlement, currentCalculation: current, calculationSteps: createCalculationSteps(current) }
       const changed = current.grossSales !== settlement.calculationSnapshot.grossSales || current.grossCommission !== settlement.calculationSnapshot.grossCommission || current.sellerCommissionAmount !== settlement.calculationSnapshot.sellerCommissionAmount || current.deductionTotal !== settlement.calculationSnapshot.deductionTotal
       if (settlement.settlementConfirmed === false) {
@@ -613,7 +614,7 @@ export const settlementService = {
     const createdAt = now()
     const deductions = [...createSampleDeductions(id, salesImport.campaignId, sampleService.getSamplesByCampaignId(salesImport.campaignId)), ...createSalesDeductions(id, salesImport)]
     const taxType = taxTypeFromBusinessType(campaign?.businessType)
-    const currentCalculation = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), deductions, taxType)
+    const currentCalculation = calculateSettlement(salesImport, salesDataService.getSettlementRowsByImportId(salesImport.id), deductions, taxType)
     const snapshot = initialStatus === 'draft' || initialStatus === 'review_pending' ? undefined : currentCalculation
     const settlement: Settlement = {
       id,
@@ -674,15 +675,16 @@ export const settlementService = {
     const activeRequestStatuses = ['evidence_pending', 'request_ready', 'approval_pending', 'approved', 'sent', 'on_hold']
     if ((settlement.sellerPaymentRequestStatus && activeRequestStatuses.includes(settlement.sellerPaymentRequestStatus)) || (settlement.managerPaymentRequestStatus && activeRequestStatuses.includes(settlement.managerPaymentRequestStatus))) throw new Error('지급요청이 존재하는 정산서는 수정할 수 없습니다.')
     const salesImport = salesDataService.getSalesDataImportById(settlement.salesDataImportId)!
-    const previousRows = salesDataService.getRowsByImportId(settlement.salesDataImportId).map((row) => ({ ...row }))
+    const previousRows = salesDataService.getSettlementRowsByImportId(settlement.salesDataImportId).map((row) => ({ ...row }))
     const previousDeductions = this.getDeductionsBySettlementId(settlement.id).map((item) => ({ ...item }))
     const previousInput: SettlementRevisionDraft = { settlementId: settlement.id, reason: settlement.sourceChangeReason || '수정 전 적용값', rows: previousRows, totalCommissionRate: salesImport.totalCommissionRate ?? settlement.currentCalculation.totalCommissionRate, sellerCommissionRate: salesImport.sellerCommissionRate ?? settlement.currentCalculation.sellerCommissionRate, deductions: previousDeductions }
+    const revisionRows = input.rows.map((row) => { const netQuantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0); return { ...row, grossSales: row.quantity * row.unitPrice, netQuantity, netSales: netQuantity * row.unitPrice } })
+    const prepared = prepareOtherSalesRevision(salesImport, salesDataService.getRowsByImportId(settlement.salesDataImportId), revisionRows)
     const calculation = this.previewRevision(input, changedBy)
     reconcileReceivable({ ...settlement, currentCalculation: calculation }, settlement, campaignService.getCampaignById(settlement.campaignId)?.sellerId)
     if (settlement.sellerReceivable && allocatedAmount(this.getSettlements(), settlement.sellerReceivable.id) > (calculation.sellerReceivableAmount ?? 0)) throw new Error('미수금 상계를 먼저 취소해주세요.')
-    const rows = input.rows.map((row) => { const netQuantity = Math.max(row.quantity - row.canceledQuantity - row.refundedQuantity, 0); return { ...row, grossSales: row.quantity * row.unitPrice, netQuantity, netSales: netQuantity * row.unitPrice } })
-    salesDataService.saveRows([...rows, ...salesDataService.getSalesDataRows().filter((row) => row.salesDataImportId !== settlement.salesDataImportId)])
-    salesDataService.updateSalesDataImport({ ...salesImport, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate, totalQuantity: rows.reduce((sum, row) => sum + row.quantity, 0), totalSalesAmount: rows.reduce((sum, row) => sum + row.grossSales, 0) })
+    salesDataService.saveRows([...prepared.rows, ...salesDataService.getSalesDataRows().filter((row) => row.salesDataImportId !== settlement.salesDataImportId)])
+    salesDataService.updateSalesDataImport({ ...prepared.source, totalCommissionRate: input.totalCommissionRate, sellerCommissionRate: input.sellerCommissionRate, totalQuantity: revisionRows.reduce((sum, row) => sum + row.quantity, 0), totalSalesAmount: revisionRows.reduce((sum, row) => sum + row.grossSales, 0) })
     this.saveDeductions([...input.deductions, ...this.getDeductions().filter((item) => item.settlementId !== settlement.id)])
     const next: Settlement = { ...settlement, settlementVersion: settlement.settlementVersion + 1, status: 'review_pending', updatedAt: now(), currentCalculation: calculation, calculationSteps: createCalculationSteps(calculation), hasSourceChanged: false, sourceChangeReason: undefined }
     this.saveSettlements(this.getSettlements().map((item) => item.id === settlement.id ? next : item))
@@ -850,7 +852,7 @@ export const settlementService = {
     const at = now()
     const deductions: SettlementDeduction[] = candidate.deductions.map((item,index) => ({ ...item, id: `deduction-${settlementId}-${order.id}-${index}`, settlementId, createdAt: at, updatedAt: at }))
     // Validate the entire draft before writing either the deduction or the settlement.
-    const preview = calculateSettlement(salesImport, salesDataService.getRowsByImportId(salesImport.id), [...this.getDeductionsBySettlementId(settlementId), ...deductions], settlement.taxType)
+    const preview = calculateSettlement(salesImport, salesDataService.getSettlementRowsByImportId(salesImport.id), [...this.getDeductionsBySettlementId(settlementId), ...deductions], settlement.taxType)
     const validation = validateSettlementCalculation(preview)
     if (!validation.valid) throw new Error(`샘플비 반영 전 계산 확인 필요: ${validation.errors.join(' · ')}`)
     if (validateOnly) return settlement

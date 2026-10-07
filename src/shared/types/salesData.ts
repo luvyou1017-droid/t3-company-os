@@ -79,6 +79,14 @@ export type SalesDataImport = {
   commissionSyncVersion?: number
   commissionSyncIssues?: CommissionSyncIssue[]
   commissionManualMatches?: Record<string, string>
+  /** Selected imported rows remain in storage; settlement uses one manual aggregate instead. */
+  otherSalesAggregate?: {
+    sourceRowIds: string[]
+    totalSales: number
+    totalCommissionRate: number
+    sellerCommissionRate: number
+    savedAt: string
+  }
   settlementTerms?: import('./settlementTerms').SettlementTerms
   fileOrigin?: 'order_hub' | 'srookpay'
   documentAuthor?: import('./settlementTerms').SettlementDocumentAuthor
@@ -153,6 +161,7 @@ export type SalesFileAnalysis = {
 }
 
 export type SalesDataRow = {
+  aggregateKind?: 'other'
   skuOptionName?: string
   detailOption?: string
   id: string

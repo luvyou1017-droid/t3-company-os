@@ -28,6 +28,7 @@ import { parseSalesDataFile, shouldAskPendingPaymentPolicy, UnmatchedSalesPrices
 import { openCampaignDetail } from '../../shared/utils/campaignNavigation'
 import { calculateSrookPayFee, DEFAULT_SROOKPAY_FEE_RATE } from '../../shared/utils/srookPay'
 import { manualCommissionComparison } from '../../shared/utils/manualSettlement'
+import { assertOtherSourceRowsPreserved, effectiveSalesRows } from '../../shared/utils/otherSalesAggregate'
 import { normalizeProductMatchText } from '../../shared/utils/productSkuMatching'
 import { LandingPageBadge } from '../../shared/components/LandingPageBadge'
 import { sellerSettlementFileService } from '../../shared/services/sellerSettlementFileService'
@@ -261,7 +262,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
               <tbody>
                 {filteredImports.map((salesImport) => {
                   const campaign = getImportCampaign(salesImport)
-                  const net = calculateSalesTotals(rows.filter((row) => row.salesDataImportId === salesImport.id), salesImport)
+                  const net = buildSalesAnalysis(salesImport, rows.filter((row) => row.salesDataImportId === salesImport.id)).totals
                   const validationErrors = buildSalesAnalysis(salesImport, rows.filter((row) => row.salesDataImportId === salesImport.id), campaign).validation.results
                     .filter((result) => result.status === 'error')
                     .map((result) => result.message)
@@ -288,7 +289,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
           <div className="schedule-mobile-list">
             {filteredImports.map((salesImport) => {
               const campaign = getImportCampaign(salesImport)
-              const net = calculateSalesTotals(rows.filter((row) => row.salesDataImportId === salesImport.id), salesImport)
+              const net = buildSalesAnalysis(salesImport, rows.filter((row) => row.salesDataImportId === salesImport.id)).totals
               const mobileErrors = buildSalesAnalysis(salesImport, rows.filter((row) => row.salesDataImportId === salesImport.id), campaign).validation.results.filter((result) => result.status === 'error').map((result) => result.message)
               return (
                 <button className="schedule-mobile-card" key={salesImport.id} onClick={() => openImport(salesImport.id)} type="button">
@@ -355,6 +356,11 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
   const [syncingSku, setSyncingSku] = useState(false)
   const [skuSyncResult, setSkuSyncResult] = useState<{ tone: 'complete' | 'warning' | 'danger'; message: string } | null>(null)
   const [showErrorsOnly, setShowErrorsOnly] = useState(false)
+  const [otherRowIds, setOtherRowIds] = useState<string[]>(() => salesImport?.otherSalesAggregate?.sourceRowIds ?? [])
+  const [otherSales, setOtherSales] = useState(() => salesImport?.otherSalesAggregate?.totalSales.toString() ?? '')
+  const [otherTotalRate, setOtherTotalRate] = useState(() => salesImport?.otherSalesAggregate?.totalCommissionRate.toString() ?? '')
+  const [otherSellerRate, setOtherSellerRate] = useState(() => salesImport?.otherSalesAggregate?.sellerCommissionRate.toString() ?? '')
+  const [otherSaveMessage, setOtherSaveMessage] = useState('')
   const [eventDrafts, setEventDrafts] = useState<SalesEventCost[]>(() => salesImport ? (getSalesEventCosts(salesImport).length ? getSalesEventCosts(salesImport) : [createEventCostDraft()]) : [])
   const [eventSaveStatus, setEventSaveStatus] = useState<{ tone: 'complete' | 'danger'; message: string } | null>(null)
   const [vendorShippingDetails, setVendorShippingDetails] = useState(() => salesImport?.shippingDetails ?? [{ label: '기본택배비', quantity: 0, unitPrice: 3000 }, { label: '도서산간비', quantity: 0, unitPrice: 3000 }])
@@ -391,9 +397,9 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
       .finally(() => { if (active) setConditionsLoading(false) })
     return () => { active = false }
   }, [salesImportId, uploadConditionsRestored, !!uploadReview, !!priceRetry, catalogRefresh, salesImport?.supplyAudience, salesImport?.settlementVendorName])
-  const unmatchedRows = salesImport?.commissionSyncUnmatchedRows ?? 0
-  const hasCommissionIssues = Boolean(salesImport?.commissionSyncIssues?.length)
-  const needsCommissionPolicyRefresh = (salesImport?.commissionSyncVersion ?? 0) < PRODUCT_COMMISSION_SYNC_VERSION
+  const unmatchedRows = Math.max((salesImport?.commissionSyncUnmatchedRows ?? 0) - (salesImport?.commissionSyncIssues?.filter((issue) => salesImport.otherSalesAggregate?.sourceRowIds.includes(issue.rowId)).length ?? 0), 0)
+  const hasCommissionIssues = Boolean(salesImport?.commissionSyncIssues?.some((issue) => !salesImport.otherSalesAggregate?.sourceRowIds.includes(issue.rowId)))
+  const needsCommissionPolicyRefresh = !salesImport?.otherSalesAggregate && (salesImport?.commissionSyncVersion ?? 0) < PRODUCT_COMMISSION_SYNC_VERSION
   useEffect(() => {
     if (!salesImport) return
     const storedEvents = getSalesEventCosts(salesImport)
@@ -444,14 +450,15 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
 
   const campaign = getImportCampaign(salesImport)
   const supply = getSupplyDisplay(salesImport)
-  const totals = calculateSalesTotals(rows, salesImport)
+  const effectiveRows = (() => { try { return effectiveSalesRows(rows, salesImport) } catch { return rows } })()
+  const totals = calculateSalesTotals(effectiveRows, salesImport)
   const analysis = buildSalesAnalysis(salesImport, rows, campaign)
   const errorMessages = Array.from(new Set(analysis.validation.results.filter((result) => result.status === 'error').map((result) => result.message)))
-  if ((salesImport.commissionSyncUnmatchedRows ?? 0) > 0) errorMessages.push(`상품 DB의 SKU와 연결되지 않은 판매행이 ${salesImport.commissionSyncUnmatchedRows}개 있습니다. 옵션명을 확인하거나 상품 구성을 먼저 등록해주세요.`)
+  if (unmatchedRows > 0) errorMessages.push(`상품 DB의 SKU와 연결되지 않은 판매행이 ${unmatchedRows}개 있습니다. 옵션명을 확인하거나 상품 구성을 먼저 등록해주세요.`)
   const hasError = errorMessages.length > 0
   const rateLabel = (key: 'totalCommissionRate' | 'sellerCommissionRate', fallback?: number) => {
-    if ((salesImport.commissionSyncUnmatchedRows ?? 0) > 0) return 'SKU 연결 확인 필요'
-    const rates = Array.from(new Set(rows.map((row) => row[key]).filter((rate): rate is number => Number.isFinite(rate)))).sort((a, b) => a - b)
+    if (unmatchedRows > 0) return 'SKU 연결 확인 필요'
+    const rates = Array.from(new Set(effectiveRows.map((row) => row[key]).filter((rate): rate is number => Number.isFinite(rate)))).sort((a, b) => a - b)
     if (rates.length > 1) return 'SKU마다 상이'
     const rate = rates[0] ?? fallback
     return rate === undefined ? '수수료 확인 필요' : `${Number(rate.toFixed(2))}%`
@@ -465,6 +472,26 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
   const linkedSettlement = settlementService.getSettlements().find((item) => item.salesDataImportId === salesImport.id)
   const settlementCreated = Boolean(createdSettlementId) || salesImport.settlementStatus === '정산 생성됨' || salesImport.settlementStatus === '정산 완료'
   const directEditLocked = Boolean(linkedSettlement && settlementService.isSettlementConfirmed(linkedSettlement))
+  const saveOtherAggregate = async () => {
+    if (directEditLocked || linkedSettlement) { setOtherSaveMessage('기존 정산이 있으면 기타 묶음을 수정할 수 없습니다.'); return }
+    if (campaignChannel(campaign, salesImport) !== 'supplier_link') { setOtherSaveMessage('기타 총매출 입력은 공급사 링크 공구에서 사용할 수 있습니다.'); return }
+    const amount = Number(otherSales), totalRate = Number(otherTotalRate), sellerRate = Number(otherSellerRate)
+    if (!otherRowIds.length || !Number.isSafeInteger(amount) || amount <= 0 || !otherTotalRate.trim() || !otherSellerRate.trim()
+      || !Number.isFinite(totalRate) || totalRate <= 0 || totalRate > 100 || !Number.isFinite(sellerRate) || sellerRate < 0 || sellerRate > totalRate) {
+      setOtherSaveMessage('원본 행을 선택하고 총매출(원), 총·셀러 수수료율(0~100%)을 확인해주세요.'); return
+    }
+    const aggregate = { sourceRowIds: otherRowIds, totalSales: amount, totalCommissionRate: totalRate, sellerCommissionRate: sellerRate, savedAt: new Date().toISOString() }
+    try {
+      const next = { ...salesImport, otherSalesAggregate: aggregate, commissionCalculationType: 'sku' as const, reviewStatus: '검수 중' as const, settlementStatus: '정산 전' as const }
+      const effective = effectiveSalesRows(rows, next)
+      const nextTotals = calculateSalesTotals(effective, next)
+      salesDataService.updateSalesDataImport({ ...next, totalQuantity: nextTotals.totalQuantity, totalSalesAmount: nextTotals.totalSalesAmount })
+      salesDataService.validateSalesData(salesImport.id)
+      await cloudSyncService.syncKeys([STORAGE_KEYS.salesDataImports, STORAGE_KEYS.salesDataRows])
+      setOtherSaveMessage('기타 묶음을 저장했습니다. 원본 판매행은 보존되고 정산에는 한 번만 반영됩니다.')
+      onSync()
+    } catch (error) { setOtherSaveMessage(error instanceof Error ? error.message : '기타 묶음을 저장하지 못했습니다.') }
+  }
   const isSrookPayCampaign = campaign?.salesChannelType === 'wise_shop_link'
     || campaign?.proposalSnapshots?.some((snapshot) => snapshot.actualSalesChannel === 'wise_shop_link')
   const srookPayFeeRate = salesImport.srookPayFeeRate ?? DEFAULT_SROOKPAY_FEE_RATE
@@ -648,6 +675,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
         documentAuthor, documentKind: detectedKind, fileOrigin: uploadChannel === 'wise_shop_link' && documentAuthor === 'company' ? (detectWiseShopFileOrigin(file.name) ?? fileOrigin) : undefined,
         settlementTerms: captureUploadTerms(uploadChannel, selectedRows, salesImport.supplyAudience !== 'vendor'),
         commissionCalculationType: 'sku',
+        otherSalesAggregate: undefined,
         commissionSyncVersion: PRODUCT_COMMISSION_SYNC_VERSION, commissionSyncIssues: [], commissionSyncUnmatchedRows: 0,
         manualSettlement: undefined,
         uploadedBy: '허수정',
@@ -940,7 +968,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
         {(salesImport.commissionSyncIssues?.length ?? 0) > 0 && <section className="sales-ai-card">
           <div className="checklist-head"><div><h3>SKU 연결 불일치 상세</h3><p>수량 할인 상품은 색상·사이즈가 아니라 주문에 실제 적용된 개당가격으로 수량 구간을 연결합니다.</p></div><StatusBadge label={`${salesImport.commissionSyncIssues?.length ?? 0}개 확인 필요`} tone="danger" /></div>
           <div className="comparison-table-wrap sku-matching-table"><table className="comparison-table"><thead><tr><th>정산서 옵션명</th><th>할인 후 실판매가</th><th>연결 후보</th><th>등록 가격 기준</th><th>가격 차이</th><th>판단</th><th>수정</th></tr></thead><tbody>
-            {salesImport.commissionSyncIssues?.map((issue) => <SkuMatchRow allCandidates={searchableSkuCandidates} issue={issue} key={issue.rowId} productsError={matchProductsError} productsLoading={matchProductsLoading} salesImportId={salesImport.id} onMatched={() => { salesDataService.validateSalesData(salesImport.id); onSync() }} />)}
+            {salesImport.commissionSyncIssues?.filter((issue) => !salesImport.otherSalesAggregate?.sourceRowIds.includes(issue.rowId)).map((issue) => <SkuMatchRow allCandidates={searchableSkuCandidates} issue={issue} key={issue.rowId} productsError={matchProductsError} productsLoading={matchProductsLoading} salesImportId={salesImport.id} onMatched={() => { salesDataService.validateSalesData(salesImport.id); onSync() }} />)}
           </tbody></table></div>
           <p className="section-description">수량 구간의 실판매가가 일치하면 해당 구간으로 연결하세요. 가격이 다르면 색상 SKU를 새로 만들지 말고 상품 DB에 누락된 수량 구간을 먼저 추가해주세요.</p>
         </section>}
@@ -1039,14 +1067,26 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           <div><h3>판매 수량·정산 조건</h3><p>옵션별 판매수량, 취소·반품, 판매가와 수수료율을 직접 수정할 수 있습니다.</p></div>
           <button className="secondary-button" disabled={directEditLocked} onClick={() => onManualInput(salesImport)} title={directEditLocked ? '확정된 정산서는 정산 관리에서 확정을 해제한 후 수정할 수 있습니다.' : undefined} type="button">{directEditLocked ? '확정 해제 후 수정 가능' : '판매 수량·조건 수정'}</button>
         </div>
+        {campaignChannel(campaign, salesImport) === 'supplier_link' && <section className="sales-ai-card" aria-label="기타 품목 매출 묶기">
+          <div className="checklist-head"><div><h3>기타 품목 · 총매출 수기 입력</h3><p>아래 원본 판매행을 선택하면 해당 행은 정산에서 제외되고 ‘기타’ 한 줄만 반영됩니다. 원본 파일과 행은 보존됩니다.</p></div></div>
+          <div className="comparison-table-wrap"><table className="comparison-table"><thead><tr><th>기타에 포함</th><th>원본 옵션</th><th>원본 순매출</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><input type="checkbox" aria-label={`${row.optionName} 기타에 포함`} disabled={directEditLocked || Boolean(linkedSettlement)} checked={otherRowIds.includes(row.id)} onChange={(event) => setOtherRowIds((ids) => event.target.checked ? [...ids, row.id] : ids.filter((id) => id !== row.id))} /></td><td>{row.optionName}</td><td>{formatCurrency(row.netSales)}</td></tr>)}</tbody></table></div>
+          <p>선택한 {otherRowIds.length}행 원본 순매출: {formatCurrency(rows.filter((row) => otherRowIds.includes(row.id)).reduce((sum, row) => sum + row.netSales, 0))} · 수기 총매출과 차이는 저장 전 확인해주세요.</p>
+          <div className="sales-event-entry__grid">
+            <label className="form-field"><span>기타 총매출 (원)</span><NumericInput min="1" type="number" disabled={directEditLocked || Boolean(linkedSettlement)} value={otherSales} onChange={(event) => setOtherSales(event.target.value)} /></label>
+            <label className="form-field"><span>총 수수료율 (%)</span><NumericInput min="0" max="100" type="number" disabled={directEditLocked || Boolean(linkedSettlement)} value={otherTotalRate} onChange={(event) => setOtherTotalRate(event.target.value)} /></label>
+            <label className="form-field"><span>셀러 수수료율 (%)</span><NumericInput min="0" max="100" type="number" disabled={directEditLocked || Boolean(linkedSettlement)} value={otherSellerRate} onChange={(event) => setOtherSellerRate(event.target.value)} /></label>
+          </div>
+          <div className="action-row"><button className="primary-button" type="button" disabled={directEditLocked || Boolean(linkedSettlement)} onClick={() => void saveOtherAggregate()}>기타 묶음 저장</button>{salesImport.otherSalesAggregate && <button className="secondary-button" type="button" disabled={directEditLocked || Boolean(linkedSettlement)} onClick={async () => { try { const next = { ...salesImport, otherSalesAggregate: undefined, reviewStatus: '검수 중' as const, settlementStatus: '정산 전' as const }; const rawTotals = calculateSalesTotals(rows, next); salesDataService.updateSalesDataImport({ ...next, totalQuantity: rawTotals.totalQuantity, totalSalesAmount: rawTotals.totalSalesAmount }); salesDataService.validateSalesData(salesImport.id); await cloudSyncService.syncKeys([STORAGE_KEYS.salesDataImports, STORAGE_KEYS.salesDataRows]); setOtherRowIds([]); setOtherSaveMessage('묶음을 해제했습니다. 원본 판매행으로 복원되었습니다.'); onSync() } catch (error) { setOtherSaveMessage(error instanceof Error ? error.message : '해제하지 못했습니다.') } }}>기타 묶음 해제</button>}</div>
+          {otherSaveMessage && <p role="status">{otherSaveMessage}</p>}
+        </section>}
         <section className="comparison-table-wrap">
           <table className="comparison-table sales-row-table">
             <thead><tr><th>옵션명</th><th>{salesImport.pendingPaymentPolicy === 'exclude' && (salesImport.fileAnalysis?.pendingPaymentQuantity ?? 0) > 0 ? '결제대기 제외 후 판매수량' : '판매수량'}</th><th>판매가</th><th>총매출</th><th>{salesImport.fileAnalysis?.sourceDocumentType === 'supplier_settlement' ? '취소/반품 수량' : '취소수량'}</th><th>환불수량</th><th>순판매수량</th><th>순매출</th><th>셀러 수수료율</th><th>총 수수료율</th></tr></thead>
             <tbody>
-              {rows.filter((row) => !showErrorsOnly || row.validationStatus === 'error').map((row) => (
+              {effectiveRows.filter((row) => !showErrorsOnly || row.validationStatus === 'error').map((row) => (
                 <tr key={row.id}><td title={row.validationStatus === 'valid' ? undefined : row.validationMessage}>{row.optionName}{row.validationStatus !== 'valid' && <span aria-label={row.validationMessage || '판매행 확인 필요'}> ⚠️</span>}</td><td>{row.quantity}</td><td>{formatCurrency(row.unitPrice)}</td><td>{formatCurrency(row.grossSales)}</td><td>{row.canceledQuantity}</td><td>{row.refundedQuantity}</td><td>{row.netQuantity}</td><td>{formatCurrency(row.netSales)}</td><td>{row.sellerCommissionRate === undefined ? '확인 필요' : `${Number(row.sellerCommissionRate.toFixed(2))}%`}</td><td>{row.totalCommissionRate === undefined ? '확인 필요' : `${Number(row.totalCommissionRate.toFixed(2))}%`}</td></tr>
               ))}
-              {showErrorsOnly && !rows.some((row) => row.validationStatus === 'error') && <tr><td colSpan={10}>오류가 있는 판매행이 없습니다.</td></tr>}
+              {showErrorsOnly && !effectiveRows.some((row) => row.validationStatus === 'error') && <tr><td colSpan={10}>오류가 있는 판매행이 없습니다.</td></tr>}
             </tbody>
             <tfoot>
               <tr className="sales-row-total"><th>전체 합계</th><td>{totals.totalQuantity.toLocaleString('ko-KR')}개</td><td>-</td><td>{formatCurrency(totals.totalSalesAmount)}</td><td>{totals.canceledQuantity.toLocaleString('ko-KR')}개</td><td>{totals.refundedQuantity.toLocaleString('ko-KR')}개</td><td>{totals.netQuantity.toLocaleString('ko-KR')}개</td><td>{formatCurrency(totals.netSales)}</td><td>{sellerRateLabel}</td><td>{totalRateLabel}</td></tr>
@@ -1205,7 +1245,8 @@ function ManualSalesDataModal({ salesImport, rows, onClose, onSave }: { salesImp
       reportedCommissionAmount: reportedAmount.trim() === '' ? undefined : Number(reportedAmount.replace(/,/g, '')) + offsetAmount,
       quantityBasis, sourceMessage, reportedOffsetAmount: offsetAmount } : undefined,
   }
-  const comparison = manualCommissionComparison(preparedImport, preparedRows)
+  const effectivePreparedRows = (() => { try { return effectiveSalesRows(preparedRows, preparedImport) } catch { return preparedRows } })()
+  const comparison = manualCommissionComparison(preparedImport, effectivePreparedRows)
   const campaign = campaignService.getCampaignById(salesImport.campaignId)
   const resolveAudienceRate = (skuId: string, audience = supplyAudience, vendor = vendorName) => {
     if (audience === 'vendor') {
@@ -1306,7 +1347,9 @@ function ManualSalesDataModal({ salesImport, rows, onClose, onSave }: { salesImp
       if (shippingDetails.some((item) => (item.quantity > 0 || item.unitPrice > 0 || item.label.trim()) && (!item.label.trim() || !Number.isInteger(item.quantity) || item.quantity < 0 || !Number.isFinite(item.unitPrice) || item.unitPrice < 0))) throw new Error('배송비 항목·건수·단가를 확인해주세요.')
       if (preparedRows.some((row) => row.settlementSupplyPrice !== undefined && (row.settlementSupplyPrice < 0 || row.settlementSupplyPrice > row.unitPrice))) throw new Error('이번 정산 공급가는 0원 이상, 판매가 이하로 입력해주세요.')
       if (supplyAudience === 'vendor' && (!vendorName.trim() || draftRows.some((row) => row.sellerCommissionRate === undefined))) throw new Error('벤더명과 모든 SKU의 벤더 수수료 조건을 등록해주세요.')
-      const totals = calculateSalesTotals(preparedRows, preparedImport)
+      assertOtherSourceRowsPreserved(rows, preparedRows, salesImport)
+      if (salesImport.otherSalesAggregate && campaignChannel(campaign, preparedImport) !== 'supplier_link') throw new Error('기타 묶음을 해제한 후 거래구분을 변경해주세요.')
+      const totals = calculateSalesTotals(effectiveSalesRows(preparedRows, preparedImport), preparedImport)
       const nextImport: SalesDataImport = { ...preparedImport,
         settlementTerms: salesImport.settlementTerms ? captureUploadTerms(manualChannel || salesImport.settlementTerms.salesChannelType, preparedRows, salesImport.settlementTerms.sellerCheckoutPricingVersion === 2) : undefined,
         totalQuantity: totals.totalQuantity, totalSalesAmount: totals.totalSalesAmount,
