@@ -1,5 +1,10 @@
-import { blankOperations, sampleItems, itemLoanOrder, LOAN_STATUSES, SUPPLIER_STATUSES, type SampleOperations } from './sampleProvision'
+import { blankOperations, sampleItems, LOAN_STATUSES, SUPPLIER_STATUSES, type SampleOperations } from './sampleProvision'
 import { readSampleSettlementState } from './sampleSettlementStatus'
+import { sameSampleSeller, sampleLinkBlockReason } from './sampleCampaignLink'
+import { settlementService } from '../../shared/services/settlementService'
+import type { Campaign } from '../../shared/types/campaign'
+import type { Settlement } from '../../shared/types/settlement'
+import { STORAGE_KEYS, storageService } from '../../shared/services/storageService'
 import { isLinkedSampleDeduction } from './sampleSettlementCandidate'
 import { productService } from '../productMaster/services/productService'
 import type { SampleOrder } from './sampleOrderModel'
@@ -123,12 +128,17 @@ export function makeSampleOrderStore(repo: SampleBookRepository, actorProvider: 
         return { ...book, orders:book.orders.map(item => item.id === id ? next : item) }
       })
     },
-    async connectCampaign(id: string, campaign: { id: string; campaignName: string; sellerId: string; sellerName: string }, expectedHistoryLength: number) {
+    async connectCampaign(id: string, campaign: Pick<Campaign, 'id' | 'campaignName' | 'sellerId' | 'sellerName' | 'status' | 'deletedAt'>, expectedHistoryLength: number) {
       return mutate((book, actor, at) => {
         const order = book.orders.find(item => item.id === id)
         if (!order || order.status === '취소' || order.campaignId || order.history.length !== expectedHistoryLength) throw new Error('기존 공구 연결을 변경하지 않았습니다. 새로고침해주세요.')
-        if (sampleItems(order).some(item => {const view=itemLoanOrder(order,item.itemId);return view.provision?.method === '테스트 후 진행' && view.operations?.testStatus !== '진행 확정'})) throw new Error('진행 확정 후 공구를 연결해주세요.')
-        if (!campaign.id || (order.sellerId && campaign.sellerId !== order.sellerId && campaign.sellerName !== order.sellerName)) throw new Error('해당 셀러의 공구를 선택해주세요.')
+        const blocked = sampleLinkBlockReason(order)
+        if (blocked) throw new Error(blocked)
+        if (!campaign.id || !sameSampleSeller(order, campaign)) throw new Error('해당 셀러의 공구를 선택해주세요.')
+        const settlements = storageService.getItem<Settlement[]>(STORAGE_KEYS.settlements, [])
+        if (campaign.deletedAt || campaign.status === 'settled' || settlements.some(item => item.campaignId === campaign.id && item.status !== 'canceled' && settlementService.isSettlementConfirmed(item))) throw new Error('확정된 정산이 있거나 종료 처리된 공구에는 샘플을 새로 연결할 수 없습니다.')
+        const state = readSampleSettlementState()
+        if (state.deductions.some(item => state.activeSettlementIds.has(item.settlementId) && isLinkedSampleDeduction(item, id))) throw new Error('이미 정산에 연결된 샘플입니다. 기존 반영 내역을 확인해주세요.')
         return { ...book, orders:book.orders.map(item => item.id === id ? { ...item,campaignId:campaign.id,campaignName:campaign.campaignName,history:[...item.history,{at,actorId:actor.id,actor:actor.name,action:'공구 연결 (제공조건·배송정보 유지)'}] } : item) }
       })
     },

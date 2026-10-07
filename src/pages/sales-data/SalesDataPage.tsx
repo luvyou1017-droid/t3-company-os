@@ -1,4 +1,5 @@
 import { getTodayInSeoul, getDaysBetweenCalendarDates } from '../../features/campaignSchedules/scheduleStatus'
+import { SampleCampaignLinks } from './SampleCampaignLinks'
 import { salesSourceLabel } from '../../shared/utils/salesSourceLabel'
 import { NumericInput } from '../../shared/components/NumericInput'
 import { paymentRequestService } from '../../shared/services/paymentRequestService'
@@ -859,6 +860,8 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           <p>판매 셀러와 정산 대상은 공구별로 관리합니다. 같은 셀러도 이번 공구의 공급 방식에 따라 정산 대상이 달라질 수 있습니다.</p>
           <button className="secondary-button" type="button" onClick={() => openCampaignDetail(salesImport.campaignId)}>공구 연결 정보 확인</button>
         </div>
+
+        {campaign && <SampleCampaignLinks key={campaign.id} campaign={campaign} locked={directEditLocked || campaign.status === 'settled' || !!campaign.deletedAt} disabled={uploading || creatingSettlement} />}
 
         <section
           className={`sales-upload-box${draggingFile ? ' is-dragging' : ''}`}

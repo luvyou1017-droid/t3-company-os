@@ -1,4 +1,4 @@
-import { provisionTotal } from '../../../features/samples/sampleProvision'
+import { provisionTotal, sampleItems } from '../../../features/samples/sampleProvision'
 import { useEffect, useState } from 'react'
 import { sampleTotals, type SampleOrder } from '../../../features/samples/sampleOrderModel'
 import { sampleOrderStore } from '../../../features/samples/sampleOrderStore'
@@ -19,7 +19,7 @@ export function SampleSettlementCandidates({ settlementId, campaignId, canEdit, 
   useEffect(() => {
     let active = true
     setLoading(true)
-    void sampleOrderStore.list().then(all => { if (active) setOrders(all.filter(order => order.campaignId === campaignId && !['무상 제공', '대여'].includes(order.provision?.method ?? '') && !order.operations?.offsetCompleted)) })
+    void sampleOrderStore.list().then(all => { if (active) setOrders(all.filter(order => order.campaignId === campaignId && (order.itemConditionsVersion === 2 ? sampleItems(order).some(item => !['무상 제공', '대여'].includes(item.provision?.method ?? '')) : !['무상 제공', '대여'].includes(order.provision?.method ?? '') && !order.operations?.offsetCompleted))) })
       .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : '샘플을 불러오지 못했습니다.') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
