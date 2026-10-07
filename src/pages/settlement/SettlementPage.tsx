@@ -339,20 +339,14 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
     sessionStorage.setItem('settlement-view', next)
     sessionStorage.removeItem('settlement-list-scroll')
   }
-  const [listFilters, setListFilters] = useState(() => {
-    const defaults = { query: '', manager: '', brand: '', from: '', to: '' }
-    try { return { ...defaults, ...JSON.parse(sessionStorage.getItem('settlement-search-v1') ?? '{}') } as typeof defaults } catch { return defaults }
-  })
-  useEffect(() => { sessionStorage.setItem('settlement-search-v1', JSON.stringify(listFilters)) }, [listFilters])
+  const [listFilters, setListFilters] = useState(() => ({ query: '', manager: '', brand: '', from: '', to: '' }))
   const [creationError, setCreationError] = useState('')
-  const [quick, setQuick] = useState<SettlementStatus | 'all'>(() => (sessionStorage.getItem('settlement-list-filter') as SettlementStatus | 'all' | null) ?? 'all')
+  const [quick, setQuick] = useState<SettlementStatus | 'all'>('all')
 
   useEffect(() => {
     const savedScroll = Number(sessionStorage.getItem('settlement-list-scroll') ?? 0)
     requestAnimationFrame(() => window.scrollTo({ top: savedScroll }))
   }, [])
-
-  useEffect(() => { sessionStorage.setItem('settlement-list-filter', quick) }, [quick])
 
   useEffect(() => {
     let active = true
