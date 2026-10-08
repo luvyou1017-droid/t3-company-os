@@ -27,6 +27,7 @@ export interface SellerMaster {
   notionLastEditedTime?: string
   lastSyncedAt?: string
   sourceMetadata?: Record<string, unknown>
+  historicalSellerIds?: string[]
   businesses?: SellerBusinessProfile[]
 }
 
@@ -104,6 +105,7 @@ function fromRow(row: Record<string, unknown>): SellerMaster {
     notionPageId: String(row.notion_source_id ?? metadata.notionPageId ?? ''),
     notionLastEditedTime: String(metadata.notionLastEditedTime ?? ''), lastSyncedAt: String(metadata.lastSyncedAt ?? ''),
     businesses, sourceMetadata: metadata,
+    historicalSellerIds: Array.isArray(metadata.historicalSellerIds) ? metadata.historicalSellerIds.filter((id): id is string => typeof id === 'string' && Boolean(id)) : [],
   }
 }
 
@@ -115,7 +117,7 @@ function toRow(seller: SellerMaster) {
     bank_name: seller.bankName?.trim() || null, account_holder: seller.accountHolder?.trim() || null,
     notion_source_id: seller.notionPageId?.trim() || null,
     updated_at: seller.updatedAt,
-    metadata: { ...seller.sourceMetadata, realName: seller.realName?.trim() || '', recipientName: seller.recipientName?.trim() || '', shippingPhone: seller.shippingPhone?.trim() || '', shippingAddress: seller.shippingAddress?.trim() || '', defaultMdId: seller.defaultMdId, defaultManagerId: seller.defaultManagerId, bankName: seller.bankName?.trim() || '', accountNumber: seller.accountNumber?.trim() || '', accountHolder: seller.accountHolder?.trim() || '', businesses: seller.businesses ?? [], notionPageId: seller.notionPageId?.trim() || '', notionLastEditedTime: seller.notionLastEditedTime || '', lastSyncedAt: seller.lastSyncedAt || '' },
+    metadata: { ...seller.sourceMetadata, historicalSellerIds: seller.historicalSellerIds ?? [], realName: seller.realName?.trim() || '', recipientName: seller.recipientName?.trim() || '', shippingPhone: seller.shippingPhone?.trim() || '', shippingAddress: seller.shippingAddress?.trim() || '', defaultMdId: seller.defaultMdId, defaultManagerId: seller.defaultManagerId, bankName: seller.bankName?.trim() || '', accountNumber: seller.accountNumber?.trim() || '', accountHolder: seller.accountHolder?.trim() || '', businesses: seller.businesses ?? [], notionPageId: seller.notionPageId?.trim() || '', notionLastEditedTime: seller.notionLastEditedTime || '', lastSyncedAt: seller.lastSyncedAt || '' },
   }
 }
 
@@ -126,7 +128,9 @@ export const sellerMasterService = {
   },
   async loadSellerById(id: string) {
     if (getDataProviderMode() !== 'supabase' || !supabase) return this.getSellerById(id) ?? null
-    const { data, error } = await supabase.from('sellers').select('*').eq('id', id).maybeSingle()
+    const resolvedId = this.getSellerById(id)?.id ?? id
+    if (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(resolvedId)) return null
+    const { data, error } = await supabase.from('sellers').select('*').eq('id', resolvedId).maybeSingle()
     if (error) throw error
     if (!data) return null
     const seller = fromRow(data)
@@ -152,11 +156,18 @@ export const sellerMasterService = {
     const normalized = normalize(query)
     return this.listSellers().filter((seller) => !normalized || normalize(`${seller.name} ${seller.instagramId ?? ''} ${seller.realName ?? ''} ${seller.businessName ?? ''} ${(seller.businesses ?? []).map(business => business.businessName).join(' ')}`).includes(normalized))
   },
-  getSellerById(id: string) { return getSellers().find((seller) => seller.id === id) },
-  async saveSellerProfile(profile: SellerMaster) {
+  getSellerById(id: string) {
+    if (!id) return undefined
+    const exact = getSellers().find(seller => seller.id === id)
+    if (exact) return exact
+    const matches = getSellers().filter(seller => seller.historicalSellerIds?.includes(id))
+    return matches.length === 1 ? matches[0] : undefined
+  },
+  async saveSellerProfile(profile: SellerMaster, options: { createOnly?: boolean } = {}) {
     const existing = await this.loadSellerById(profile.id)
+    if (options.createOnly && existing) throw new Error('이미 등록된 셀러 ID입니다. 목록을 새로고침하고 기존 셀러를 수정해주세요.')
     if (profile.updatedAt && existing?.updatedAt && profile.updatedAt !== existing.updatedAt) throw new Error('셀러 정보가 변경되었습니다. 다시 불러온 뒤 저장해주세요.')
-    const normalized = { ...existing, ...Object.fromEntries(Object.entries(profile).filter(([,value]) => value !== undefined)), sourceMetadata: existing?.sourceMetadata ?? profile.sourceMetadata, active: profile.active ?? existing?.active ?? true, updatedAt: new Date().toISOString() } as SellerMaster
+    const normalized = { ...existing, ...Object.fromEntries(Object.entries(profile).filter(([,value]) => value !== undefined)), id: existing?.id ?? profile.id, sourceMetadata: existing?.sourceMetadata ?? profile.sourceMetadata, active: profile.active ?? existing?.active ?? true, updatedAt: new Date().toISOString() } as SellerMaster
     if (getDataProviderMode() === 'supabase') {
       if (!supabase) throw new Error('데이터베이스 연결을 확인해주세요.')
       const payload = toRow(normalized)
