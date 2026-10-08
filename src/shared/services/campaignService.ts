@@ -36,6 +36,7 @@ export type CampaignCreateInput = {
   brandName: string
   productName: string
   managerId: string
+  managerName?: string
   mdId: string
   startDate: string
   endDate: string
@@ -370,7 +371,7 @@ export const campaignService = {
       productId: input.campaignProducts?.[0]?.productId ?? '',
       productName: input.productName.trim(),
       managerId: input.managerId,
-      managerName: manager?.name ?? '',
+      managerName: input.managerName?.trim() || manager?.name || '',
       mdId: input.mdId,
       mdName: md?.name ?? '',
       startDate: input.startDate,

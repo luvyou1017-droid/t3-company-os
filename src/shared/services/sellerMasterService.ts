@@ -98,7 +98,7 @@ function fromRow(row: Record<string, unknown>): SellerMaster {
     recipientName: String(metadata.recipientName ?? ''),
     shippingPhone: String(metadata.shippingPhone ?? ''),
     shippingAddress: String(metadata.shippingAddress ?? metadata.address ?? row.address ?? ''),
-    defaultManagerId: String(metadata.defaultManagerId ?? ''), active: Boolean(row.active),
+    defaultManagerId: String(metadata.defaultManagerId || row.manager_id || ''), active: row.active !== false,
     bankName: String(row.bank_name ?? metadata.bankName ?? primary?.bankName ?? ''), accountHolder: String(row.account_holder ?? metadata.accountHolder ?? primary?.accountHolder ?? ''), accountNumber: String(metadata.accountNumber ?? primary?.accountNumber ?? ''),
     createdAt: String(row.created_at ?? ''), updatedAt: String(row.updated_at ?? ''),
     notionPageId: String(row.notion_source_id ?? metadata.notionPageId ?? ''),
@@ -136,14 +136,21 @@ export const sellerMasterService = {
   async loadSellers(includeInactive = false) {
     if (getDataProviderMode() !== 'supabase') return this.listSellers(includeInactive)
     if (!supabase) return []
-    const { data, error } = await supabase.from('sellers').select('*').order('seller_name')
-    if (error) throw error
-    remoteCache = (data ?? []).map((row) => fromRow(row))
+    const rows: SellerMaster[] = []
+    const pageSize = 500
+    for (let start = 0; ; start += pageSize) {
+      const { data, error } = await supabase.from('sellers').select('*').order('seller_name').order('id').range(start, start + pageSize - 1)
+      if (error) throw error
+      rows.push(...(data ?? []).map(row => fromRow(row)))
+      if (!data || data.length < pageSize) break
+    }
+    remoteCache = rows
     return this.listSellers(includeInactive)
   },
   searchSellers(query: string) {
-    const normalized = query.trim().toLowerCase()
-    return this.listSellers().filter((seller) => !normalized || `${seller.name} ${seller.instagramId ?? ''} ${seller.businessName ?? ''}`.toLowerCase().includes(normalized))
+    const normalize = (value: string) => value.normalize('NFKC').replace(/[\s@]/g, '').toLowerCase()
+    const normalized = normalize(query)
+    return this.listSellers().filter((seller) => !normalized || normalize(`${seller.name} ${seller.instagramId ?? ''} ${seller.realName ?? ''} ${seller.businessName ?? ''} ${(seller.businesses ?? []).map(business => business.businessName).join(' ')}`).includes(normalized))
   },
   getSellerById(id: string) { return getSellers().find((seller) => seller.id === id) },
   async saveSellerProfile(profile: SellerMaster) {

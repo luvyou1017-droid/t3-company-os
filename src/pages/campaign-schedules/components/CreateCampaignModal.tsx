@@ -1,3 +1,6 @@
+import { QuickSellerModal } from '../../../shared/components/QuickSellerModal'
+import { SellerHistoryNotice } from '../../../shared/components/SellerHistoryNotice'
+import { managerDirectoryService } from '../../../shared/services/managerDirectoryService'
 import type { SupplierPilotRow } from '../../../shared/data/notionSupplierPilot10'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { appUsers, DEFAULT_MD_USER_ID, getUserById } from '../../../shared/data/users'
@@ -26,7 +29,6 @@ type Props = { onClose: () => void; onCreated: (campaign: Campaign) => void }
 type Draft = CampaignCreationFormData
 type CampaignFormErrors = Partial<Record<CampaignFormErrorKey, string>>
 
-const managers = appUsers.filter((user) => ['대표', '팀장', '매니저'].includes(user.role))
 const mds = appUsers.filter((user) => user.role === 'MD')
 const money = (value: number) => `${Math.round(value).toLocaleString('ko-KR')}원`
 const initial: Draft = {
@@ -80,6 +82,16 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
   const [helperPreview, setHelperPreview] = useState<AiCampaignDraft | null>(null)
   const [, setProductCatalogRevision] = useState(0)
   const [, setSellerRevision] = useState(0)
+  const [managers, setManagers] = useState(() => managerDirectoryService.list())
+  const [quickSellerOpen, setQuickSellerOpen] = useState(false)
+  const [sellerLoading, setSellerLoading] = useState(true)
+  const [sellerError, setSellerError] = useState('')
+  const loadSellers = async () => {
+    setSellerLoading(true); setSellerError('')
+    try { await sellerMasterService.loadSellers(true); setSellerRevision(revision => revision + 1) }
+    catch { setSellerError('셀러 DB를 불러오지 못했습니다. 조회를 다시 시도해주세요.') }
+    finally { setSellerLoading(false) }
+  }
 
   const brands = campaignProductCatalogService.searchBrands(brandQuery)
   const sellers = sellerMasterService.searchSellers(sellerQuery)
@@ -101,9 +113,8 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
   const status = missing.length ? (form.sellerName || form.products.length ? '필수값 누락' : '입력 중') : '저장 가능'
 
   useEffect(() => {
-    void sellerMasterService.loadSellers()
-      .then(() => setSellerRevision((revision) => revision + 1))
-      .catch(() => setNotice('셀러 DB를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'))
+    void loadSellers()
+    void managerDirectoryService.load().then(setManagers).catch(() => setNotice('매니저 DB를 불러오지 못했습니다. 등록된 기존 담당자만 표시합니다.'))
     void productService.listProducts()
       .then((products) => {
         campaignProductCatalogService.registerProductMasters(products)
@@ -188,7 +199,7 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
     if (hasChangedAssignees && !window.confirm('직접 변경한 담당자가 있습니다. 새 셀러의 기본 담당자로 변경할까요?')) {
       setForm((current) => ({ ...current, ...sellerFields }))
     } else {
-      setForm((current) => ({ ...current, ...sellerFields, mdId: seller.defaultMdId, managerId: seller.defaultManagerId }))
+      setForm((current) => ({ ...current, ...sellerFields, mdId: seller.defaultMdId, managerId: seller.defaultManagerId || current.managerId }))
     }
     sellerMasterService.rememberSeller(seller.id)
     setSellerQuery(seller.name)
@@ -294,7 +305,7 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
     const input: CampaignCreateInput = {
       supplyAudience: form.supplyAudience ?? 'seller', settlementVendorName: form.settlementVendorName,
       campaignName, sellerId: form.sellerId, sellerName: form.sellerName, sellerBusinessId: form.sellerBusinessId, sellerBusinessName: form.sellerBusinessName, brandName: first?.brandName ?? selectedBrand?.name ?? '', productName: first?.productName ?? '',
-      managerId: form.managerId, mdId: form.mdId, startDate: form.startDate, endDate: form.endDate,
+      managerId: form.managerId, managerName: managerDirectoryService.name(form.managerId), mdId: form.mdId, startDate: form.startDate, endDate: form.endDate,
       linkOwner: form.salesChannelType === 'seller_checkout' ? 'seller' : form.salesChannelType === 'supplier_link' ? 'brand' : 'company',
       businessType: form.businessType as CampaignCreationBusinessType, totalCommissionRate: proposal?.totalCommissionRate ?? 0,
       sellerCommissionRate: proposal?.effectiveSellerCommissionRate ?? 0, settlementDueDate: form.settlementDueDate,
@@ -339,12 +350,13 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
     {notice && <p className="campaign-v2-notice">{notice}</p>}
     <div className="campaign-create-form campaign-create-scroll-form">
       <section className="campaign-create-section" id="campaign-section-products"><div className="section-heading"><h3>1. 셀러 및 상품 정보</h3>{productSectionErrorCount > 0 && <button className="section-error-badge" onClick={() => scrollToFirstInvalidField(visibleErrors, fieldOrder.slice(0, 4))}>필수값 {productSectionErrorCount}개 누락</button>}</div><p className="section-description">셀러에서 상품 선택까지 끊김 없이 입력합니다.</p><div className="campaign-create-grid">
-        <label className={visibleErrors.sellerId ? 'campaign-field--error' : ''} id="campaign-field-seller"><span>셀러 검색·선택 *</span><input aria-autocomplete="list" aria-controls="campaign-seller-results" aria-expanded={Boolean(sellers.length)} aria-invalid={Boolean(visibleErrors.sellerId)} placeholder="셀러명을 검색하세요" role="combobox" value={sellerQuery} onChange={(event) => updateSellerQuery(event.target.value)} /><select id="campaign-seller-results" size={Math.min(5, sellers.length + 1)} value={form.sellerId} onChange={(event) => selectSeller(event.target.value)}><option value="">아래 검색 결과에서 셀러를 선택하세요</option>{sellers.map((seller) => <option key={seller.id} value={seller.id}>{seller.name}</option>)}</select>{form.sellerId && <small className="success-text">✓ {form.sellerName} 선택 완료</small>}{visibleErrors.sellerId && <small className="field-error">{visibleErrors.sellerId}</small>}{!sellers.length && <small>등록된 셀러가 없습니다. 셀러 DB에서 먼저 등록해주세요.</small>}<small>최근 선택 셀러: {sellerMasterService.getRecentSellers().map((seller) => seller.name).join(', ') || '없음'}</small><button className="text-button field-link-button" onClick={() => window.location.assign(sellerMasterService.getRegistrationPath())} type="button">새 셀러 등록</button></label>
+        <label className={visibleErrors.sellerId ? 'campaign-field--error' : ''} id="campaign-field-seller"><span>셀러 검색·선택 *</span><input aria-autocomplete="list" aria-controls="campaign-seller-results" aria-expanded={Boolean(sellers.length)} aria-invalid={Boolean(visibleErrors.sellerId)} placeholder="셀러명을 검색하세요" role="combobox" value={sellerQuery} onChange={(event) => updateSellerQuery(event.target.value)} /><select id="campaign-seller-results" size={Math.min(5, sellers.length + 1)} value={form.sellerId} onChange={(event) => selectSeller(event.target.value)}><option value="">아래 검색 결과에서 셀러를 선택하세요</option>{sellers.map((seller) => <option key={seller.id} value={seller.id}>{seller.name}</option>)}</select>{form.sellerId && <small className="success-text">✓ {form.sellerName} 선택 완료</small>}{visibleErrors.sellerId && <small className="field-error">{visibleErrors.sellerId}</small>}{sellerLoading ? <small role="status">셀러 DB를 불러오는 중입니다.</small> : sellerError ? <small role="alert">{sellerError}</small> : !sellers.length && <small>검색 결과가 없습니다. 다른 이름이나 인스타그램으로 검색하거나 간편 등록해주세요.</small>}<button type="button" className="text-button" disabled={sellerLoading} onClick={() => void loadSellers()}>셀러 목록 새로고침</button><small>최근 선택 셀러: {sellerMasterService.getRecentSellers().map((seller) => seller.name).join(', ') || '없음'}</small><button className="text-button field-link-button" disabled={sellerLoading || !!sellerError} onClick={() => setQuickSellerOpen(true)} type="button">+ 신규 셀러 간편 등록</button></label>
         <div style={{ gridColumn: '1 / -1', minWidth: 0 }}><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input style={{ width: 18, height: 18, minHeight: 18, flex: '0 0 18px' }} type="checkbox" checked={form.supplyAudience === 'vendor'} onChange={(event) => setForm({ ...form, supplyAudience: event.target.checked ? 'vendor' : 'seller' })} /><span>벤더 공급</span></label><small>기본은 셀러 직공급입니다.</small>{form.supplyAudience === 'vendor' && <label><span>정산 벤더명 *</span><input list="campaign-vendor-partners" placeholder="예: 소셜라운지" value={form.settlementVendorName ?? ''} onChange={(event) => setForm({ ...form, settlementVendorName: event.target.value })} /><datalist id="campaign-vendor-partners">{getVendorPartners().map((partner) => <option key={partner.id} value={partner.companyName} />)}</datalist></label>}</div>
         <label className={visibleErrors.businessType ? 'campaign-field--error' : ''} id="campaign-field-business-type"><span>정산 사업자 * · 셀러 정보 자동 적용</span>{activeBusinesses.length > 0 ? <select aria-invalid={Boolean(visibleErrors.businessType)} value={form.sellerBusinessId} onChange={(event) => { const business = activeBusinesses.find((item) => item.id === event.target.value); if (business) setForm({ ...form, sellerBusinessId: business.id, sellerBusinessName: business.businessName, businessType: business.businessType }) }}>{activeBusinesses.map((business) => <option key={business.id} value={business.id}>{business.businessName} · {getBusinessTypeLabel(business.businessType)}</option>)}</select> : <input aria-invalid={Boolean(visibleErrors.businessType)} readOnly value={form.businessType ? `${form.sellerBusinessName || '기존 사업자'} · ${getBusinessTypeLabel(form.businessType)}` : '미등록'} />}{visibleErrors.businessType && <small className="field-error">{visibleErrors.businessType}</small>}<button className="text-button field-link-button" disabled={!form.sellerId} onClick={() => window.location.assign(sellerMasterService.getManagementPath(form.sellerId))} type="button">셀러 정보에서 수정</button></label>
         <label className={visibleErrors.brandId ? 'campaign-field--error' : ''} id="campaign-field-brand"><span>브랜드 검색·선택 (선택)</span><input placeholder="브랜드명 검색" value={brandQuery} onChange={(event) => setBrandQuery(event.target.value)} /><select aria-invalid={Boolean(visibleErrors.brandId)} size={Math.min(4, brands.length || 1)} value={form.brandId} onChange={(event) => { campaignProductCatalogService.rememberBrand(event.target.value); setForm({ ...form, brandId: event.target.value }); setProductQuery('') }}>{brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select>{visibleErrors.brandId && <small className="field-error">{visibleErrors.brandId}</small>}{!brands.length && <small>검색 결과가 없습니다. 새 브랜드 등록 화면은 준비 중입니다.</small>}<small>최근 선택: {campaignProductCatalogService.getRecentBrands().map((brand) => brand.name).join(', ') || selectedBrand?.name || '없음'}</small></label>
         <label className={visibleErrors.campaignProducts ? 'campaign-field--error' : ''} id="campaign-field-products"><span>상품 검색·다중 선택 (선택)</span><input disabled={!form.brandId} placeholder="상품명 검색" value={productQuery} onChange={(event) => setProductQuery(event.target.value)} /><select aria-invalid={Boolean(visibleErrors.campaignProducts)} disabled={!form.brandId} onChange={(event) => selectProduct(event.target.value)} value=""><option value="">상품 선택</option>{availableProducts.map((product) => <option key={product.id} value={product.id}>{product.productName}</option>)}</select>{form.brandId && !availableProducts.length && <small>이 브랜드에 등록된 상품이 없습니다.</small>}{visibleErrors.campaignProducts && <small className="field-error">{visibleErrors.campaignProducts}</small>}<button className="text-button field-link-button" type="button" onClick={() => { const saved = saveDraft(); const returnTo = saved ? `/campaigns/new?draftId=${encodeURIComponent(saved.id)}` : '/campaigns/new'; window.location.assign(`${campaignProductCatalogService.getProductRegistrationPath()}?returnTo=${encodeURIComponent(returnTo)}`) }}>+ 새 상품 등록</button></label>
       </div>
+      {!sellerLoading && !sellerError && <SellerHistoryNotice sellers={sellerMasterService.listSellers(true)} query={sellerQuery} />}
       {form.sellerId && !form.businessType && <p className="campaign-policy-warning">선택한 셀러의 사업자 유형이 등록되지 않았습니다.<br />셀러 정보를 먼저 완성해주세요.</p>}
       <div className="selected-product-list">{form.products.map((product, index) => <article key={product.id}><div><span>{index + 1}</span><strong>{product.brandName} · {product.productName}</strong></div><div className="button-row"><button className="text-button" disabled={index === 0} onClick={() => move(index, -1)}>↑</button><button className="text-button" disabled={index === form.products.length - 1} onClick={() => move(index, 1)}>↓</button><button className="text-button danger-text" onClick={() => updateProducts(form.products.filter((item) => item.id !== product.id).map((item, displayOrder) => ({ ...item, displayOrder })))}>삭제</button></div></article>)}</div>
       {policyMissing && <p className="campaign-policy-warning">선택한 상품에 수수료 정책이 등록되지 않았습니다. 일정은 등록할 수 있습니다. 정산 전 상품 조건을 확인해주세요.</p>}
@@ -358,7 +370,7 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
         <label><span>링크 닫는 시간</span><input type="time" value={form.linkCloseTime} onChange={(event) => setForm({ ...form, linkCloseTime: event.target.value })} /><small>선택 입력</small></label>
         <label><span>정산 예정일 · 종료 +21일</span><input type="date" value={form.settlementDueDate} onChange={(event) => setForm({ ...form, settlementDueDate: event.target.value, settlementDueDateOverridden: true })} /><small className="date-weekday">{formatDateWithWeekday(form.settlementDueDate)}</small><button className="text-button" onClick={() => setForm({ ...form, settlementDueDate: calculateSettlementDueDate(form.endDate), settlementDueDateOverridden: false })}>자동 날짜로 재설정</button></label>
         <label className={visibleErrors.mdId ? 'campaign-field--error' : ''} id="campaign-field-md"><span>담당 MD (선택)</span><select aria-invalid={Boolean(visibleErrors.mdId)} value={form.mdId} onChange={(event) => setForm({ ...form, mdId: event.target.value })}>{mds.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select>{visibleErrors.mdId && <small className="field-error">{visibleErrors.mdId}</small>}</label>
-        <label className={visibleErrors.managerId ? 'campaign-field--error' : ''} id="campaign-field-manager"><span>담당 매니저 *</span><select aria-invalid={Boolean(visibleErrors.managerId)} value={form.managerId} onChange={(event) => setForm({ ...form, managerId: event.target.value })}><option value="">선택</option>{managers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select>{visibleErrors.managerId && <small className="field-error">{visibleErrors.managerId}</small>}</label>
+        <label className={visibleErrors.managerId ? 'campaign-field--error' : ''} id="campaign-field-manager"><span>담당 매니저 *</span><select aria-invalid={Boolean(visibleErrors.managerId)} value={form.managerId} onChange={(event) => setForm({ ...form, managerId: event.target.value })}><option value="">선택</option>{form.managerId && !managers.some(user => user.id === form.managerId) && <option value={form.managerId}>{managerDirectoryService.name(form.managerId) || form.managerId} · 기존 담당자</option>}{managers.map((user) => <option key={user.id} value={user.id}>{managerDirectoryService.label(user)}</option>)}</select>{visibleErrors.managerId && <small className="field-error">{visibleErrors.managerId}</small>}</label>
         <label className="span-2"><span>주요 메모</span><textarea rows={3} value={form.memo} onChange={(event) => setForm({ ...form, memo: event.target.value })} /></label>
       </div></section>
 
@@ -375,6 +387,7 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
       <FinalReview form={form} name={campaignName} snapshots={snapshots} missing={missing} summary={eventSummary} />
     </div>
     <footer className="campaign-create-modal__actions campaign-create-sticky-actions"><div><strong>필수값 누락 {missing.length}개 · {saveState}</strong><span>마지막 임시저장 {lastSavedAt ? new Date(lastSavedAt).toLocaleString('ko-KR') : '없음'}</span></div><button className="secondary-button" onClick={handleClose}>취소</button><button className="secondary-button" onClick={saveDraft}>임시저장</button><button className="secondary-button" onClick={() => scrollTo('campaign-section-review')}>최종 확인으로 이동</button>{missing.length > 0 && <button className="secondary-button" onClick={() => { const next = validate(); setErrors(next); scrollToFirstInvalidField(next) }}>오류 위치로 이동</button>}<button className="primary-button" onClick={submit}>일정 등록</button></footer>
+    {quickSellerOpen && <QuickSellerModal name={sellerQuery} managerId={form.managerId} managers={managers} onClose={() => setQuickSellerOpen(false)} onSaved={seller => { setSellerRevision(revision => revision + 1); selectSeller(seller.id); setQuickSellerOpen(false); setNotice('셀러가 현재 일정에 선택되었습니다.') }} />}
     {exitConfirmOpen && <div className="nested-modal-backdrop"><section className="helper-modal"><h3>저장하지 않은 변경사항이 있습니다.</h3><p>작성 내용을 임시저장하고 나가거나, 저장하지 않고 나갈 수 있습니다.</p><div className="button-row"><button className="secondary-button" onClick={() => setExitConfirmOpen(false)}>계속 작성</button><button className="secondary-button danger-text" onClick={() => { window.history.replaceState({}, '', '/'); onClose() }}>저장하지 않고 나가기</button><button className="primary-button" onClick={() => { saveDraft(); window.history.replaceState({}, '', '/'); onClose() }}>임시저장 후 나가기</button></div></section></div>}
     {helper && <HelperModal kind={helper} input={helperInput} preview={helperPreview} onInput={setHelperInput} onClose={() => setHelper(null)} onPreview={async () => setHelperPreview(helper === 'notion' ? (await mockNotionCampaignImportProvider.preview({ provider: 'notion', pageUrlOrId: helperInput })).draft : await mockAiCampaignDraftService.createDraft(helperInput))} onApply={applyHelper} />}
   </section></div>
@@ -415,7 +428,7 @@ function FinalReview({ form, name, snapshots, missing, summary }: { form: Draft;
       <Summary label="정산 예정일" value={`${formatDateWithWeekday(form.settlementDueDate)} · ${form.settlementDueDateOverridden ? '수동' : '자동'}`} />
       <Summary label="발표자 선정일" value={form.events.some((event) => event.eventType === 'purchase_complete') ? `${formatDateWithWeekday(form.winnerAnnouncementDate)} · ${form.winnerAnnouncementDateOverride ? '수동' : '자동'}` : '구매 완료 이벤트 없음'} />
       <Summary label="담당 MD" value={appUsers.find((user) => user.id === form.mdId)?.name ?? '-'} />
-      <Summary label="담당 매니저" value={appUsers.find((user) => user.id === form.managerId)?.name ?? '-'} />
+      <Summary label="담당 매니저" value={managerDirectoryService.name(form.managerId) || '-'} />
       <Summary label="판매 링크 유형" value={`${getSalesChannelTypeLabel(form.salesChannelType)} · ${form.salesChannelSource === 'product_default' ? '상품 정보에서 자동 적용' : '직접 선택'}`} />
     </div>
     <h4>정산 참고 조건</h4><ProposalCards form={form} snapshots={snapshots} />
