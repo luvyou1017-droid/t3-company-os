@@ -346,7 +346,7 @@ export const campaignService = {
     storageService.setItem(STORAGE_KEYS.notifications, [...notifications, ...currentNotifications])
     return notifications
   },
-  createCampaign(input: CampaignCreateInput) {
+  createCampaign(input: CampaignCreateInput, options: { prepareOnly?: boolean } = {}) {
     const errors = this.validateCampaign(input)
     if (Object.keys(errors).length > 0) {
       return { campaign: undefined, errors }
@@ -420,6 +420,12 @@ export const campaignService = {
       return { campaign: undefined, errors: { campaignName: 'Campaign Code가 중복되었습니다. 다시 시도해주세요.' } }
     }
 
+    if (options.prepareOnly) return { campaign, errors: {} }
+    return this.completeCreatedCampaign(campaign)
+  },
+  completeCreatedCampaign(campaign: Campaign) {
+    // Publish locally only after the durable server write succeeds.
+    if (this.getCampaignById(campaign.id)) return { campaign: this.getCampaignById(campaign.id)!, errors: {} }
     this.saveCampaigns([campaign, ...this.getCampaigns()])
     const checklistItems = this.createDefaultChecklist(campaign)
     this.saveChecklistItems([...checklistItems, ...this.getChecklistItems()])

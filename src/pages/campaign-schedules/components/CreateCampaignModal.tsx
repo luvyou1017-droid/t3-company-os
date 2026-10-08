@@ -1,3 +1,4 @@
+import { persistRegisteredCampaign } from '../../../shared/services/campaignRegistrationService'
 import { QuickSellerModal } from '../../../shared/components/QuickSellerModal'
 import { SellerHistoryNotice } from '../../../shared/components/SellerHistoryNotice'
 import { managerDirectoryService } from '../../../shared/services/managerDirectoryService'
@@ -77,6 +78,9 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
   const [sellerExtraPgDirect, setSellerExtraPgDirect] = useState(![0, 1, 2, 3, 4, 5].includes(form.sellerExtraPgRate))
   const [productQuery, setProductQuery] = useState('')
   const [notice, setNotice] = useState('')
+  const [registering, setRegistering] = useState(false)
+  const registeringRef = useRef(false)
+  const pendingRegistration = useRef<{ input: string; campaign: Campaign } | null>(null)
   const [helper, setHelper] = useState<'notion' | 'ai' | null>(null)
   const [helperInput, setHelperInput] = useState('')
   const [helperPreview, setHelperPreview] = useState<AiCampaignDraft | null>(null)
@@ -261,6 +265,7 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
     scrollToFirstInvalidCampaignField(nextErrors, keys)
   }
   const handleClose = () => {
+    if (registeringRef.current) return
     if (JSON.stringify(form) !== savedSerialized.current) {
       setExitConfirmOpen(true)
       return
@@ -291,7 +296,8 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
     }))
     setHelper(null); setHelperPreview(null)
   }
-  const submit = () => {
+  const submit = async () => {
+    if (registeringRef.current) return
     if (form.products.some((selection) => { const item = campaignProductCatalogService.listProducts().find((product) => product.id === selection.productId); return item?.supplyAudience === 'vendor' && (form.supplyAudience !== 'vendor' || item.settlementVendorName !== form.settlementVendorName?.trim()) })) { setNotice('선택한 전용 상품의 정산 벤더와 공구의 벤더가 다릅니다. 상품 또는 벤더명을 확인해주세요.'); return }
     if (form.supplyAudience === 'vendor' && !form.settlementVendorName?.trim()) { setNotice('벤더 공급을 선택하면 정산 벤더명을 입력해주세요.'); return }
     const nextErrors = validate()
@@ -323,10 +329,19 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
       winnerAnnouncementDateOverride: form.events.some((event) => event.eventType === 'purchase_complete') ? form.winnerAnnouncementDateOverride : undefined,
       notionImportMetadata: form.notionImportMetadata, aiDraftMetadata: form.aiDraftMetadata,
     }
-    const result = campaignService.createCampaign(input)
-    if (!result.campaign) { setNotice(Object.values(result.errors).join(' · ')); return }
-    campaignDraftService.completeDraftAfterCampaignCreated(draftId, Boolean(result.campaign))
-    onCreated(result.campaign)
+    const serialized = JSON.stringify(input)
+    const prepared = pendingRegistration.current?.input === serialized ? { campaign: pendingRegistration.current.campaign, errors: {} } : campaignService.createCampaign(input, { prepareOnly: true })
+    if (!prepared.campaign) { setNotice(Object.values(prepared.errors).join(' · ')); return }
+    pendingRegistration.current = { input: serialized, campaign: prepared.campaign }
+    registeringRef.current = true; setRegistering(true)
+    try {
+      const result = await persistRegisteredCampaign(prepared.campaign)
+      campaignDraftService.completeDraftAfterCampaignCreated(draftId, true)
+      pendingRegistration.current = null
+      onCreated(result.campaign)
+    } catch (reason) {
+      setNotice(`서버 일정 저장을 완료하지 못했습니다. 입력값은 유지됩니다. ${reason instanceof Error ? reason.message : '연결과 권한을 확인해주세요.'}`)
+    } finally { registeringRef.current = false; setRegistering(false) }
   }
 
   if (screen === 'select') return <div className="campaign-create-backdrop"><section aria-modal="true" className="campaign-create-modal campaign-draft-picker" role="dialog">
@@ -389,7 +404,7 @@ export function CreateCampaignModal({ onClose, onCreated }: Props) {
 
       <FinalReview form={form} name={campaignName} snapshots={snapshots} missing={missing} summary={eventSummary} />
     </div>
-    <footer className="campaign-create-modal__actions campaign-create-sticky-actions"><div><strong>필수값 누락 {missing.length}개 · {saveState}</strong><span>마지막 임시저장 {lastSavedAt ? new Date(lastSavedAt).toLocaleString('ko-KR') : '없음'}</span></div><button className="secondary-button" onClick={handleClose}>취소</button><button className="secondary-button" onClick={saveDraft}>임시저장</button><button className="secondary-button" onClick={() => scrollTo('campaign-section-review')}>최종 확인으로 이동</button>{missing.length > 0 && <button className="secondary-button" onClick={() => { const next = validate(); setErrors(next); scrollToFirstInvalidField(next) }}>오류 위치로 이동</button>}<button className="primary-button" onClick={submit}>일정 등록</button></footer>
+    <footer className="campaign-create-modal__actions campaign-create-sticky-actions"><div><strong>필수값 누락 {missing.length}개 · {saveState}</strong><span>마지막 임시저장 {lastSavedAt ? new Date(lastSavedAt).toLocaleString('ko-KR') : '없음'}</span></div><button className="secondary-button" onClick={handleClose}>취소</button><button className="secondary-button" onClick={saveDraft}>임시저장</button><button className="secondary-button" onClick={() => scrollTo('campaign-section-review')}>최종 확인으로 이동</button>{missing.length > 0 && <button className="secondary-button" onClick={() => { const next = validate(); setErrors(next); scrollToFirstInvalidField(next) }}>오류 위치로 이동</button>}<button className="primary-button" disabled={registering} onClick={() => void submit()}>{registering ? '서버 저장 확인 중…' : '일정 등록'}</button></footer>
     {quickSellerOpen && <QuickSellerModal name={sellerQuery} managerId={form.managerId} managers={managers} initialSeller={quickSellerOpen === 'edit' ? selectedSeller : undefined} businessId={form.sellerBusinessId} onClose={() => setQuickSellerOpen(null)} onSaved={seller => { setSellerRevision(revision => revision + 1); selectSeller(seller.id); setQuickSellerOpen(null); setNotice('셀러가 현재 일정에 선택되었습니다.') }} />}
     {exitConfirmOpen && <div className="nested-modal-backdrop"><section className="helper-modal"><h3>저장하지 않은 변경사항이 있습니다.</h3><p>작성 내용을 임시저장하고 나가거나, 저장하지 않고 나갈 수 있습니다.</p><div className="button-row"><button className="secondary-button" onClick={() => setExitConfirmOpen(false)}>계속 작성</button><button className="secondary-button danger-text" onClick={() => { window.history.replaceState({}, '', '/'); onClose() }}>저장하지 않고 나가기</button><button className="primary-button" onClick={() => { saveDraft(); window.history.replaceState({}, '', '/'); onClose() }}>임시저장 후 나가기</button></div></section></div>}
     {helper && <HelperModal kind={helper} input={helperInput} preview={helperPreview} onInput={setHelperInput} onClose={() => setHelper(null)} onPreview={async () => setHelperPreview(helper === 'notion' ? (await mockNotionCampaignImportProvider.preview({ provider: 'notion', pageUrlOrId: helperInput })).draft : await mockAiCampaignDraftService.createDraft(helperInput))} onApply={applyHelper} />}

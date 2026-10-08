@@ -1,3 +1,4 @@
+import { mergeRegisteredCampaigns, persistRegisteredCampaign } from '../../shared/services/campaignRegistrationService'
 import { settlementService } from '../../shared/services/settlementService'
 import { salesDataService } from '../../shared/services/salesDataService'
 import { campaignSettlementStage } from '../../shared/utils/campaignSettlementStage'
@@ -146,6 +147,15 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
   const [selectedSchedule, setSelectedSchedule] = useState<CampaignSchedule | null>(null)
   const [creating, setCreating] = useState(() => window.location.pathname === '/campaigns/new')
   const [notice, setNotice] = useState('')
+  const [unpersistedCampaigns, setUnpersistedCampaigns] = useState<Campaign[]>([])
+  const [persistingId, setPersistingId] = useState('')
+  const recoverRegistration = async (campaign: Campaign) => {
+    if (persistingId) return
+    setPersistingId(campaign.id)
+    try { await persistRegisteredCampaign(campaign); setUnpersistedCampaigns(current => current.filter(item => item.id !== campaign.id)); setNotice('기존 일정 ID를 유지해 서버 저장을 확인했습니다.') }
+    catch (reason) { setNotice(reason instanceof Error ? reason.message : '서버에 저장하지 못했습니다.') }
+    finally { setPersistingId('') }
+  }
   const [showTrash, setShowTrash] = useState(false)
   const [restoring, setRestoring] = useState('')
   const permanentlyDelete = async (campaign: Campaign) => {
@@ -201,7 +211,9 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
     repository.list()
       .then(async (items) => {
         if (!active) return
-        const sharedCampaigns = items.sort((a, b) => b.startDate.localeCompare(a.startDate))
+        const merged = mergeRegisteredCampaigns(items, campaignService.getCampaigns())
+        setUnpersistedCampaigns(merged.unpersisted.filter(item => !item.deletedAt))
+        const sharedCampaigns = merged.campaigns.sort((a, b) => b.startDate.localeCompare(a.startDate))
         campaignService.saveCampaigns(sharedCampaigns)
         setCampaigns(sharedCampaigns)
       })
@@ -228,8 +240,8 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
 
     return campaignSchedules.filter((schedule) => {
       const status = getCampaignStatus(schedule)
-      const searchable = [schedule.campaignName, schedule.sellerName, schedule.brandName, schedule.productName].join(' ').toLowerCase()
-      const matchesSearch = searchTerms.every(term => searchable.includes(term))
+      const searchable = [schedule.campaignName, schedule.sellerName, schedule.brandName, schedule.productName].join(' ').normalize('NFKC').toLowerCase().replace(/[\s@]/g, '')
+      const matchesSearch = searchTerms.every(term => searchable.includes(term.normalize('NFKC').replace(/[\s@]/g, '')))
 
       return (
         matchesViewTab(schedule, activeTab) &&
@@ -251,6 +263,8 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
   const handleCreated = (campaign: Campaign) => {
     setCampaigns(campaignService.getCampaigns())
     setCreating(false)
+    setActiveTab('전체'); setFilters({ ...initialFilters })
+    storageService.setItem(STORAGE_KEYS.campaignListState, { activeTab: '전체', filters: initialFilters, scrollY: 0 })
     setNotice('새 공동구매 일정이 등록되었습니다.')
     onOpenDetail(campaign.id)
   }
@@ -258,6 +272,7 @@ export function CampaignSchedulePage({ onOpenDetail }: CampaignSchedulePageProps
   return (
     <section className="campaign-schedule-page">
       <CampaignSummary schedules={campaignSchedules} onCreateClick={handleCreateClick} />
+      {unpersistedCampaigns.length > 0 && <details className="campaign-policy-warning"><summary>이 기기에만 저장된 일정 {unpersistedCampaigns.length}건 · 서버 저장 확인 필요</summary><p>기존 등록 내용은 유지했습니다. 아래 일정이 맞는지 확인한 뒤 개별 저장해주세요.</p><ul>{unpersistedCampaigns.map(campaign => <li key={campaign.id}>{campaign.campaignName} · {campaign.startDate} <button className="secondary-button" disabled={Boolean(persistingId)} onClick={() => void recoverRegistration(campaign)}>{persistingId === campaign.id ? '서버 저장 확인 중…' : '이 일정 서버 저장'}</button></li>)}</ul></details>}
 
       {notice && (
         <div className="inline-notice" role="status">

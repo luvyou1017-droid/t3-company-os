@@ -1,3 +1,4 @@
+import { mergeRegisteredCampaigns } from '../../shared/services/campaignRegistrationService'
 import { isCompletedSalesImport } from '../../shared/utils/settlementArchive'
 import { getTodayInSeoul, getDaysBetweenCalendarDates } from '../../features/campaignSchedules/scheduleStatus'
 import { SampleCampaignLinks } from './SampleCampaignLinks'
@@ -137,8 +138,9 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
   const [imports, setImports] = useState(() => salesDataService.getSalesDataImports())
   const [rows, setRows] = useState(() => salesDataService.getSalesDataRows())
   const [quick, setQuick] = useState<SalesQuickFilter>('전체')
-  const [listView, setListView] = useState<'pending' | 'completed'>('pending')
+  const [listView, setListView] = useState<'pending' | 'scheduled' | 'completed'>('pending')
   const [search, setSearch] = useState('')
+  const [campaignLoadError, setCampaignLoadError] = useState('')
   const [month, setMonth] = useState('')
   const [oldestFirst, setOldestFirst] = useState(true)
   const [expandedErrorImportId, setExpandedErrorImportId] = useState<string | null>(null)
@@ -170,11 +172,13 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
     let active = true
     new SupabaseCampaignRepository().list().then((campaigns) => {
       if (!active) return
-      campaignService.saveCampaigns(campaigns)
-      salesDataService.syncCampaigns(campaigns)
+      const merged = mergeRegisteredCampaigns(campaigns, campaignService.getCampaigns())
+      campaignService.saveCampaigns(merged.campaigns)
+      salesDataService.syncCampaigns(merged.campaigns)
+      if (merged.unpersisted.some(item => !item.deletedAt)) setCampaignLoadError('이 기기에만 저장된 일정이 있습니다. 공구일정에서 개별 서버 저장을 확인해주세요.')
       setImports(reconcileSettlementStatuses())
       setRows(salesDataService.getSalesDataRows())
-    })
+    }).catch(reason => { if (active) setCampaignLoadError(reason instanceof Error ? reason.message : '일정을 불러오지 못했습니다.') })
     return () => { active = false }
   }, [])
 
@@ -183,13 +187,15 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
     setRows(salesDataService.getSalesDataRows())
   }
 
-  const endedImports = useMemo(() => imports.filter(item => !salesDataService.isHiddenDeletedPlaceholder(item)).filter(isCampaignEnded), [imports])
+  const visibleImports = useMemo(() => imports.filter(item => !salesDataService.isHiddenDeletedPlaceholder(item)), [imports])
+  const endedImports = useMemo(() => visibleImports.filter(isCampaignEnded), [visibleImports])
+  const scheduledImports = useMemo(() => visibleImports.filter(item => !isCampaignEnded(item)), [visibleImports])
   const completedIds = useMemo(() => {
     const settlements = storageService.getItem<Settlement[]>(STORAGE_KEYS.settlements, [])
     return new Set(endedImports.filter(item => isCompletedSalesImport(item, settlements)).map(item => item.id))
   }, [endedImports])
-  const scopedImports = useMemo(() => endedImports.filter(item => completedIds.has(item.id) === (listView === 'completed')), [endedImports, completedIds, listView])
-  const selectedImport = endedImports.find((item) => item.id === selectedImportId) ?? null
+  const scopedImports = useMemo(() => listView === 'scheduled' ? scheduledImports : endedImports.filter(item => completedIds.has(item.id) === (listView === 'completed')), [endedImports, scheduledImports, completedIds, listView])
+  const selectedImport = visibleImports.find((item) => item.id === selectedImportId) ?? null
   useEffect(() => {
     if (!initialEditRequested || !selectedImport) return
     queueMicrotask(() => {
@@ -233,6 +239,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
   return (
     <section className="campaign-schedule-page sales-data-page">
       {!selectedImport && <>
+      {campaignLoadError && <p role="alert">공구일정 불러오기 실패: {campaignLoadError}</p>}
       <section className="schedule-summary">
         <div className="schedule-summary__title">
           <div>
@@ -240,9 +247,9 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
             <h2>판매 데이터</h2>
           </div>
         </div>
-        <p className="schedule-summary__scope">{listView === 'completed' ? '최종 정산 완료된 판매데이터' : '판매 종료 후 처리할 판매데이터'} · {scopedImports.length}건</p>
+        <p className="schedule-summary__scope">{listView === 'completed' ? '최종 정산 완료된 판매데이터' : listView === 'scheduled' ? '예정·진행 공구의 판매데이터' : '판매 종료 후 처리할 판매데이터'} · {scopedImports.length}건</p>
         <nav className="action-row" aria-label="판매데이터 목록 구분">
-          {([['pending', `처리할 건 (${endedImports.length - completedIds.size})`], ['completed', `완료 내역 (${completedIds.size})`]] as const).map(([id,label]) => <button className={listView === id ? 'primary-button' : 'secondary-button'} type="button" aria-pressed={listView === id} key={id} onClick={() => { setListView(id); setQuick('전체'); setMonth(''); setSearch('') }}>{label}</button>)}
+          {([['pending', `처리할 건 (${endedImports.length - completedIds.size})`], ['scheduled', `예정·진행 (${scheduledImports.length})`], ['completed', `완료 내역 (${completedIds.size})`]] as const).map(([id,label]) => <button className={listView === id ? 'primary-button' : 'secondary-button'} type="button" aria-pressed={listView === id} key={id} onClick={() => { setListView(id); setQuick('전체'); setMonth(''); setSearch('') }}>{label}</button>)}
         </nav>
         <div className="schedule-summary__grid">
           {quickFilters.map((filter) => (
@@ -258,8 +265,8 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
       <section className="panel">
         <div className="panel__header">
           <div>
-            <h2>{listView === 'completed' ? '완료 내역' : '처리할 판매데이터'}</h2>
-            <p>{listView === 'completed' ? '완료된 판매데이터와 정산 기록을 검색해서 확인할 수 있습니다.' : '판매가 종료되고 정산이 아직 완료되지 않은 건만 표시합니다.'}</p>
+            <h2>{listView === 'completed' ? '완료 내역' : listView === 'scheduled' ? '예정·진행 공구' : '처리할 판매데이터'}</h2>
+            <p>{listView === 'completed' ? '완료된 판매데이터와 정산 기록을 검색해서 확인할 수 있습니다.' : listView === 'scheduled' ? '새로 등록한 예정·진행 공구를 검색하고 판매데이터를 준비할 수 있습니다.' : '판매가 종료되고 정산이 아직 완료되지 않은 건만 표시합니다.'}</p>
           </div>
           <strong className="result-count">{filteredImports.length}건</strong>
         </div>
