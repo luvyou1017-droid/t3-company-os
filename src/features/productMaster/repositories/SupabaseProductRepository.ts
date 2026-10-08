@@ -26,9 +26,15 @@ export class SupabaseProductRepository implements ProductRepository {
     }
   }
   async listProducts() {
-    const { data, error } = await this.client.from('products').select('*').order('updated_at', { ascending: false })
-    if (error) throw error
-    return (data ?? []).filter((row) => {
+    const rows: Record<string, unknown>[] = []
+    const pageSize = 500
+    for (let start = 0; ; start += pageSize) {
+      const { data, error } = await this.client.from('products').select('*').order('updated_at', { ascending: false }).order('id').range(start, start + pageSize - 1)
+      if (error) throw error
+      rows.push(...(data ?? []))
+      if (!data || data.length < pageSize) break
+    }
+    return rows.filter((row) => {
       const metadata = row.metadata as Record<string, unknown> | null
       return Boolean(metadata?.productName && metadata?.brandId)
     }).map((row) => this.fromRow(row))

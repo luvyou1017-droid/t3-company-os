@@ -41,7 +41,7 @@ export type CampaignCreateInput = {
   startDate: string
   endDate: string
   linkOwner: CampaignLinkOwnerInput
-  businessType: CampaignBusinessTypeInput | CampaignCreationBusinessType
+  businessType: CampaignBusinessTypeInput | CampaignCreationBusinessType | ''
   totalCommissionRate: number
   sellerCommissionRate: number
   settlementDueDate?: string
@@ -81,7 +81,7 @@ const businessTypeLabels: Record<CampaignBusinessTypeInput, BusinessType> = {
 function toLegacyBusinessType(value: CampaignCreateInput['businessType']): BusinessType {
   if (value === 'general_business') return '법인사업자'
   if (value === 'simplified_business' || value === 'freelancer') return '개인사업자'
-  return businessTypeLabels[value]
+  return value ? businessTypeLabels[value] : '미정'
 }
 
 function linkOwnerFromSalesChannel(value?: Campaign['salesChannelType']): LinkOwner {
@@ -406,7 +406,7 @@ export const campaignService = {
         try { return captureProposalSnapshots([selection]) } catch { return [] }
       }),
       campaignEvents: input.campaignEvents,
-      creationBusinessType: input.businessType === 'corporation' || input.businessType === 'sole_proprietor' ? 'general_business' : input.businessType,
+      creationBusinessType: input.businessType === 'corporation' || input.businessType === 'sole_proprietor' ? 'general_business' : input.businessType || undefined,
       settlementDueDateOverridden: input.settlementDueDateOverridden,
       linkOpenTime: input.linkOpenTime,
       linkCloseTime: input.linkCloseTime,
