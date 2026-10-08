@@ -11,13 +11,17 @@ import { supplierDocumentAmounts, supplierOffsetSummary } from '../../../shared/
 import { companySettlementProfile as company } from '../../../shared/data/companySettlementProfile'
 import { formatCurrency as money } from '../../../shared/utils/salesData'
 
-export function SupplierRequestModal({ source, rows, campaign, deductions, onClose, createPng, payment, preserveLegacy = false, onSavePayment }: {
+export function SupplierRequestModal({ source, rows, campaign, deductions, onClose, createPng, payment, preserveLegacy = false, onSavePayment, onSaveCollectionOffset }: {
   payment?: SupplierPayment; preserveLegacy?: boolean; onSavePayment?: (payment: SupplierPayment) => Promise<void>;
+  onSaveCollectionOffset?: (value: { amount: number; receivedAmount: number; memo: string }) => Promise<void>;
   createPng: (target: RefObject<HTMLDivElement | null>) => Promise<Blob>; source: SalesDataImport; rows: SalesDataRow[]; campaign?: Campaign; deductions: SettlementDeduction[]; onClose: () => void
 }) {
   const exportRef = useRef<HTMLDivElement>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const [offsetAmount, setOffsetAmount] = useState(source.supplierCollectionOffset?.amount ?? 0)
+  const [receivedAmount, setReceivedAmount] = useState<number | ''>(source.supplierCollectionOffset?.receivedAmount ?? '')
+  const [offsetMemo, setOffsetMemo] = useState(source.supplierCollectionOffset?.memo ?? '')
   const dialog = useRef<HTMLDialogElement>(null)
   const [products, setProducts] = useState<ProductMaster[]>([])
   useEffect(() => { const element = dialog.current; element?.showModal(); return () => element?.close() }, [])
@@ -37,8 +41,20 @@ export function SupplierRequestModal({ source, rows, campaign, deductions, onClo
   const currency = (value: number | undefined) => value === undefined || !Number.isFinite(value) ? '확인 필요' : money(value)
   // Existing deductions have no supplier direction or already-included marker.
   // Showing them as references avoids inventing a sign or deducting twice.
-  const ambiguous = (payment ? [] : deductions).filter(item => item.amount !== 0)
+  const explicitOffset = base.supplierCollects && Boolean(source.supplierCollectionOffset) && !offset.needsReview
+  const ambiguous = (payment ? [] : deductions).filter(item => item.amount !== 0 && !(explicitOffset && (item.applyLocation === 'seller_payment' || item.applyLocation === 'net_company_commission_credit')))
   const finalAmount = ambiguous.length ? undefined : offset.finalAmount
+  const saveCollectionOffset = async () => {
+    if (!onSaveCollectionOffset || busy) return
+    if (base.amount === undefined || !Number.isFinite(offsetAmount) || offsetAmount < 0 || offsetAmount > base.amount || receivedAmount === '' || receivedAmount !== base.amount - offsetAmount || !offsetMemo.trim()) {
+      setNotice('기본 수수료 − 공급사 상계금액 = 실제 입금액인지 확인하고 상계 근거를 입력해주세요.')
+      return
+    }
+    setBusy(true); setNotice('')
+    try { await onSaveCollectionOffset({ amount: offsetAmount, receivedAmount, memo: offsetMemo.trim() }); setNotice('공급사 상계와 실제 입금액을 저장했습니다.') }
+    catch (error) { setNotice(error instanceof Error ? error.message : '상계 내역을 저장하지 못했습니다.') }
+    finally { setBusy(false) }
+  }
   const exportImage = async (copy: boolean) => {
     if (busy) return
     setBusy(true); setNotice('')
@@ -61,6 +77,7 @@ export function SupplierRequestModal({ source, rows, campaign, deductions, onClo
     <div className="button-row"><button type="button" className="primary-button" disabled={busy} onClick={() => void exportImage(true)}>이미지 복사</button><button type="button" className="secondary-button" disabled={busy} onClick={() => void exportImage(false)}>PNG 저장</button></div>
     {notice && <p role="status">{notice}</p>}
     {onSavePayment && !base.supplierCollects && <SupplierPaymentEditor rows={rows} products={products} value={payment} onSave={onSavePayment} />}
+    {base.supplierCollects && onSaveCollectionOffset && <section className="supplier-offset-editor"><h3>공급사 입금 상계 확인</h3><p>셀러 차감액과 공급사 상계액은 별도 금액입니다. 공급사와 확인한 실제 입금 내역만 기록해주세요.</p><label>공급사 상계금액<input type="number" min="0" value={offsetAmount} onChange={event => setOffsetAmount(Number(event.target.value))} /></label><label>실제 입금액<input type="number" min="0" value={receivedAmount} onChange={event => setReceivedAmount(event.target.value === '' ? '' : Number(event.target.value))} /></label><label>상계 근거<input value={offsetMemo} onChange={event => setOffsetMemo(event.target.value)} placeholder="예: 샘플 회사 실제원가 상계" /></label><button type="button" disabled={busy} onClick={() => void saveCollectionOffset()}>확인한 공급사 입금액 저장</button></section>}
     {!base.supplierCollects && !preserveLegacy && base.supply === undefined && <p role="alert">회사 실제 공급가 확인 필요</p>}
     <div ref={exportRef} className="supplier-external-document" style={{padding: 24, background: 'white'}}>
     <h2>공급사 정산서</h2>
