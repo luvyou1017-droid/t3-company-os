@@ -1,4 +1,5 @@
 import { mergeRegisteredCampaigns } from '../../shared/services/campaignRegistrationService'
+import { ManualSalesCompletion } from './ManualSalesCompletion'
 import { isCompletedSalesImport } from '../../shared/utils/settlementArchive'
 import { getTodayInSeoul, getDaysBetweenCalendarDates } from '../../features/campaignSchedules/scheduleStatus'
 import { SampleCampaignLinks } from './SampleCampaignLinks'
@@ -197,7 +198,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
   const scopedImports = useMemo(() => listView === 'scheduled' ? scheduledImports : endedImports.filter(item => completedIds.has(item.id) === (listView === 'completed')), [endedImports, scheduledImports, completedIds, listView])
   const selectedImport = visibleImports.find((item) => item.id === selectedImportId) ?? null
   useEffect(() => {
-    if (!initialEditRequested || !selectedImport) return
+    if (!initialEditRequested || !selectedImport || selectedImport.manualCompletion) return
     queueMicrotask(() => {
       setManualTarget(selectedImport)
       onInitialEditOpened?.()
@@ -297,8 +298,8 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
                       <td>{salesImport.salesStartDate || '-'} ~ {salesImport.salesEndDate || '-'}<span>{!(salesImport.salesEndDate || campaign?.endDate) ? '종료일 확인 필요' : `종료 후 ${Math.max(0, getDaysBetweenCalendarDates(salesImport.salesEndDate || campaign!.endDate!, getTodayInSeoul()))}일`}</span></td>
                       <td>{net.netQuantity.toLocaleString('ko-KR')}</td>
                       <td>{salesImport.reviewStatus === '오류 확인 필요' ? <button className="text-button" onClick={(event) => { event.stopPropagation(); setExpandedErrorImportId((current) => current === salesImport.id ? null : salesImport.id) }} type="button"><StatusBadge label={salesImport.reviewStatus} tone={reviewTone[salesImport.reviewStatus]} /></button> : <StatusBadge label={salesImport.reviewStatus} tone={reviewTone[salesImport.reviewStatus]} />}</td>
-                      <td><StatusBadge label={salesImport.settlementStatus} tone={settlementTone[salesImport.settlementStatus]} /></td>
-                      <td><button className="text-button" type="button" onClick={event => { event.stopPropagation(); openImport(salesImport.id) }}>상세</button></td>
+                      <td><StatusBadge label={salesImport.manualCompletion ? '수동 완료' : salesImport.settlementStatus} tone={settlementTone[salesImport.settlementStatus]} />{salesImport.manualCompletion && <span>기록 매출 {formatCurrency(salesImport.manualCompletion.grossSales)}</span>}</td>
+                      <td><button className="text-button" type="button" onClick={event => { event.stopPropagation(); openImport(salesImport.id) }}>상세</button><ManualSalesCompletion item={salesImport} name={campaign?.campaignName ?? salesImport.campaignId} onCompleted={sync} /></td>
                     </tr>{expandedErrorImportId === salesImport.id && <tr><td colSpan={8}><div className="inline-notice settlement-warning"><strong>확인할 오류</strong>{messages.length ? <ul>{messages.map((message) => <li key={message}>{message}</li>)}</ul> : <p>현재 계산 오류는 없습니다. 검수 상태를 다시 저장해주세요.</p>}<button className="secondary-button" onClick={() => openImport(salesImport.id)} type="button">판매데이터 상세 열기</button></div></td></tr>}</Fragment>
                   )
                 })}
@@ -317,8 +318,8 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
                     <div><dt>공급 구분</dt><dd>{getSupplyDisplay(salesImport).label}</dd></div><div><dt>정산 대상</dt><dd>{getSupplyDisplay(salesImport).recipient}{getSupplyDisplay(salesImport).mismatch && ' · 공구 공급 조건 확인 필요'}</dd></div>
                     <div><dt>브랜드·상품</dt><dd>{campaign?.brandName} · {campaign?.productName}</dd></div>
                     <div><dt>순판매수량</dt><dd>{net.netQuantity.toLocaleString('ko-KR')}개</dd></div>
-                    <div><dt>순매출</dt><dd>{formatCurrency(net.netSales)}</dd></div>
-                    <div><dt>정산 상태</dt><dd>{salesImport.settlementStatus}</dd></div>
+                    <div><dt>{salesImport.manualCompletion ? '기록 매출' : '순매출'}</dt><dd>{formatCurrency(salesImport.manualCompletion?.grossSales ?? net.netSales)}</dd></div>
+                    <div><dt>정산 상태</dt><dd>{salesImport.manualCompletion ? '수동 완료' : salesImport.settlementStatus}</dd></div>
                     {salesImport.reviewStatus === '오류 확인 필요' && <div><dt>오류 원인·항목</dt><dd>{mobileErrors.slice(0, 2).join(' / ') || '상세에서 검수 상태를 다시 확인해주세요.'}</dd></div>}
                   </dl>
                 </button>
@@ -490,7 +491,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
   const salesAmountMatches = Math.abs(salesAmountDifference) < 1
   const linkedSettlement = settlementService.getSettlements().find((item) => item.salesDataImportId === salesImport.id)
   const settlementCreated = Boolean(createdSettlementId) || salesImport.settlementStatus === '정산 생성됨' || salesImport.settlementStatus === '정산 완료'
-  const directEditLocked = Boolean(linkedSettlement && settlementService.isSettlementConfirmed(linkedSettlement))
+  const directEditLocked = Boolean(salesImport.manualCompletion || linkedSettlement && settlementService.isSettlementConfirmed(linkedSettlement))
   const saveOtherAggregate = async () => {
     if (directEditLocked || linkedSettlement) { setOtherSaveMessage('기존 정산이 있으면 기타 묶음을 수정할 수 없습니다.'); return }
     if (campaignChannel(campaign, salesImport) !== 'supplier_link') { setOtherSaveMessage('기타 총매출 입력은 공급사 링크 공구에서 사용할 수 있습니다.'); return }
@@ -879,6 +880,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           <button className="secondary-button" type="button" onClick={() => openCampaignDetail(salesImport.campaignId)}>공구 연결 정보 확인</button>
         </div>
 
+        {salesImport.manualCompletion ? <div className="settlement-success-notice" role="status"><strong>수동 완료 · 외부 정산 완료</strong><span>기록 매출 {formatCurrency(salesImport.manualCompletion.grossSales)} · {salesImport.manualCompletion.completedByName} · {salesImport.manualCompletion.completedAt.slice(0, 10)} · 사이트 정산 계산 생략</span></div> : <ManualSalesCompletion item={salesImport} name={campaign?.campaignName ?? salesImport.campaignId} onCompleted={onSync} />}
         {campaign && <SampleCampaignLinks key={campaign.id} campaign={campaign} locked={directEditLocked || campaign.status === 'settled' || !!campaign.deletedAt} disabled={uploading || creatingSettlement} />}
 
         <section
@@ -1117,11 +1119,11 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
 
         <div className="preview-drawer__actions">
           {settlementError && <div className="inline-notice settlement-warning settlement-action-error"><strong>정산 생성 실패</strong><span>{settlementError}</span></div>}
-          {settlementCreated && <div className="settlement-success-notice" role="status">
+          {settlementCreated && !salesImport.manualCompletion && <div className="settlement-success-notice" role="status">
             <div><strong>✅ 정산 확정 완료</strong><span>정산서가 생성되었습니다. 정산 관리에서 이어서 확인할 수 있습니다.</span></div>
             <a className="secondary-button" href={createdSettlementId ? `/settlements/${encodeURIComponent(createdSettlementId)}` : '/settlements'}>정산서 확인</a>
           </div>}
-          <button className={`primary-button settlement-create-button${settlementCreated ? ' is-complete' : ''}`} disabled={settlementCreated || creatingSettlement} onClick={() => void confirmAndCreateSettlement()} type="button">{creatingSettlement ? '정산 확정 중…' : settlementCreated ? '✅ 정산 확정 완료' : '판매 데이터 확정 · 정산 생성'}</button>
+          <button className={`primary-button settlement-create-button${settlementCreated ? ' is-complete' : ''}`} disabled={settlementCreated || creatingSettlement || directEditLocked} onClick={() => void confirmAndCreateSettlement()} type="button">{salesImport.manualCompletion ? '수동 완료 · 정산 생성 생략' : creatingSettlement ? '정산 확정 중…' : settlementCreated ? '✅ 정산 확정 완료' : '판매 데이터 확정 · 정산 생성'}</button>
           <button className="secondary-button" onClick={() => openCampaignDetail(salesImport.campaignId, 'sales')} type="button">공동구매 상세 보기</button>
         </div>
       </section>
@@ -1354,6 +1356,7 @@ function ManualSalesDataModal({ salesImport, rows, onClose, onSave }: { salesImp
     setSaving(true)
     setSaveError('')
     try {
+      if (salesDataService.getSalesDataImportById(salesImport.id)?.manualCompletion) throw new Error('수동 완료된 건입니다. 기존 자료는 변경하지 않았습니다.')
       if (!confirm) {
         sessionStorage.setItem(`manual-settlement-draft:${salesImport.id}`, JSON.stringify({ supplyAudience, vendorName, draftRows, rateDraft, manualChannel, manualAuthor, reportEnabled, reportedAmount, quantityBasis, sourceMessage, offsetAmount, shippingDetails, shippingDetailsTouched }))
         setSaveError('임시 저장 완료 · 이 브라우저 탭에 수정안을 보관했습니다. 정산 금액에는 아직 반영되지 않았습니다.')

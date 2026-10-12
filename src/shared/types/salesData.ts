@@ -45,6 +45,7 @@ export type SalesDataImport = {
   uploadedAt: string
   reviewStatus: SalesReviewStatus
   settlementStatus: SalesSettlementStatus
+  manualCompletion?: { grossSales: number; completedAt: string; completedBy: string; completedByName: string; reason: string; previousSettlementStatus: SalesSettlementStatus }
   confirmedAt?: string
   confirmedBy?: string
   totalQuantity: number

@@ -594,6 +594,7 @@ export const settlementService = {
     return next
   },
   async prepareSettlementFromSalesData(salesDataImportId: string, initialStatus: SettlementStatus = 'draft') {
+    if (salesDataService.getSalesDataImportById(salesDataImportId)?.manualCompletion) return undefined
     if (!this.getSettlements().some(item => item.salesDataImportId === salesDataImportId)) {
       campaignProductCatalogService.registerProductMasters(await productService.listProducts())
     }
@@ -601,6 +602,7 @@ export const settlementService = {
   },
   createSettlementFromSalesData(salesDataImportId: string, initialStatus: SettlementStatus = 'draft') {
     const salesImport = salesDataService.getSalesDataImportById(salesDataImportId)
+    if (salesImport?.manualCompletion) return undefined
     const existing = this.getSettlements().find((item) => item.salesDataImportId === salesDataImportId)
     if (existing) {
       if (salesImport && salesImport.settlementStatus !== '정산 완료') salesDataService.markSettlementReady(salesDataImportId)
