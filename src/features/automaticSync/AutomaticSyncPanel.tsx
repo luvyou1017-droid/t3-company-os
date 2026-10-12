@@ -40,10 +40,10 @@ export function AutomaticSyncPanel() {
   }
   useEffect(() => { if (allowed) void Promise.resolve().then(refresh) }, [allowed])
   if (!allowed) return null
-  async function run() {
+  async function run(full = false) {
     setBusy('run'); setError(''); setMessage(''); setApplyResult(null); setFilter(null); setSelected([])
     try {
-      await automaticSyncService.run('campaign')
+      await automaticSyncService.run('campaign', full)
       setMessage('Notion 일정 조회 및 후보 분류가 완료됐습니다. 일정은 저장되지 않았습니다.')
       try {
         const [jobs, linked] = await Promise.all([automaticSyncService.status(), notionScheduleStates()])
@@ -106,13 +106,13 @@ export function AutomaticSyncPanel() {
     finally { setBusy(null) }
   }
   return <section className="auto-sync-panel">
-    <div className="auto-sync-heading"><div><h2>Notion 일정 동기화</h2><p>2026년 8월 1일 이후 시작 일정만 조회 → 기존 일정 비교 → 후보 검토. 수동 실행과 월요일 09:00(한국시간) 자동 실행은 같은 서버 로직을 사용합니다.</p></div><button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void refresh()}>{busy === 'status' ? '현황 확인 중…' : '현황 새로고침'}</button><button className="primary-button" disabled={Boolean(busy) || job?.configured === false} onClick={() => void run()}>{busy === 'run' ? '동기화 중…' : 'Notion 일정 동기화'}</button></div>
+    <div className="auto-sync-heading"><div><h2>Notion 일정 동기화</h2><p>마지막 성공 이후 Notion에서 등록·수정된 일정만 조회합니다. 미반영 후보는 유지되며, 확인 후 선택 반영합니다. 대상은 2026년 8월 1일 이후 시작 일정입니다.</p></div><button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void refresh()}>{busy === 'status' ? '현황 확인 중…' : '현황 새로고침'}</button><button className="primary-button" disabled={Boolean(busy) || job?.configured === false} onClick={() => void run()}>{busy === 'run' ? '동기화 중…' : '변경분 동기화'}</button><button type="button" className="secondary-button" disabled={Boolean(busy) || job?.configured === false} onClick={() => void run(true)}>전체 다시 비교</button></div>
     {error && <p role="alert" className="auto-sync-error">{error}</p>}
     {message && <p role="status">{message}</p>}
     {job?.configuration_error && <p role="alert">{job.configuration_error}</p>}
     {lastRun && !latest && <p role="status">이전 실행 기록은 8월 이후 범위가 적용되기 전 자료입니다. 새 범위로 다시 동기화하면 분류 결과가 표시됩니다.</p>}
     <dl><dt>최근 실행일시</dt><dd>{date(latest?.started_at)}</dd><dt>실행 방식</dt><dd>{latest ? latest.trigger === 'manual' ? '수동' : '자동' : '기록 없음'}</dd><dt>마지막 결과</dt><dd>{latest ? { running: '진행 중', succeeded: '성공', failed: '실패' }[latest.status] : '기록 없음'}{latest?.error && ` · ${latest.error}`}</dd><dt>마지막 성공</dt><dd>{date(job?.last_success_at)}</dd><dt>다음 실행 예정</dt><dd>{job?.scheduled && job.configured ? date(job.next_run) : '자동 실행 미확인'}</dd></dl>
-    {latest && <><p>Notion 조회: {latest.counts.checked ?? 0}건 · 기존 일치: {count('기존')}건 · 기존 변경 있음: {count('조건변경')}건 · 변경 반영 완료: {appliedCount}건 · 신규 일정: {count('신규')}건 · 확인 필요: {count('확인필요')}건 · 등록 제외: {count('등록제외')}건 · 등록 완료: {registeredCount}건</p>
+    {latest && <><p>이번 Notion 조회: {latest.counts.checked ?? 0}건 · 기존 일치: {count('기존')}건 · 기존 변경 있음: {count('조건변경')}건 · 변경 반영 완료: {appliedCount}건 · 신규 일정: {count('신규')}건 · 확인 필요: {count('확인필요')}건 · 등록 제외: {count('등록제외')}건 · 등록 완료: {registeredCount}건</p>
       <p>실제 반영 대상: 변경 {count('조건변경')}건 · 신규 {count('신규')}건. 조회만으로는 일정이 저장되지 않습니다.</p>
       <div className="notion-import-actions"><button type="button" disabled={!count('신규')} onClick={() => { setFilter('신규'); setSelected([]) }}>신규 {count('신규')}건</button><button type="button" disabled={!count('조건변경')} onClick={() => { setFilter('조건변경'); setSelected([]) }}>변경 {count('조건변경')}건</button><button type="button" disabled={!count('확인필요')} onClick={() => { setFilter('확인필요'); setSelected([]) }}>확인 필요 {count('확인필요')}건</button><button type="button" disabled={!count('등록제외')} onClick={() => { setFilter('등록제외'); setSelected([]) }}>등록 제외 {count('등록제외')}건</button>{filter && <button type="button" onClick={() => { setFilter(null); setSelected([]) }}>전체 보기</button>}</div>
       <div className="notion-import-actions"><button type="button" disabled={Boolean(busy) || !selectedChanges.some(change => change.state === '신규')} onClick={() => void applySelected('신규')}>선택 신규 일정 등록</button><button type="button" disabled={Boolean(busy) || !selectedChanges.some(change => change.state === '조건변경')} onClick={() => void applySelected('조건변경')}>선택 변경 일정 반영</button><button type="button" disabled={Boolean(busy) || !selectedChanges.some(change => change.state === '확인필요')} onClick={() => setExcludeConfirm(true)}>선택 일정 등록 안 함</button>{busy === 'apply' && <span role="status">안전 조건 확인 및 반영 중…</span>}{busy === 'exclude' && <span role="status">제외 이력 저장 중…</span>}</div>

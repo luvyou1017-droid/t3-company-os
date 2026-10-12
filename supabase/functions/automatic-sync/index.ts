@@ -52,7 +52,8 @@ function summarizeChanges(changes: Change[], checked: number) {
 function notionWindow(cursor: string | undefined, until: string) {
   return {
     and: [
-      ...(cursor ? [{ timestamp: 'last_edited_time', last_edited_time: { after: cursor } }] : []),
+      // Overlap one minute to cover Notion timestamp precision; merge by page ID.
+      ...(cursor ? [{ timestamp: 'last_edited_time', last_edited_time: { on_or_after: new Date(Date.parse(cursor) - 60000).toISOString() } }] : []),
       { timestamp: 'last_edited_time', last_edited_time: { on_or_before: until } },
     ],
   }
@@ -93,6 +94,15 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
   const { data: exclusions, error: exclusionError } = await db.from('notion_schedule_exclusions').select('notion_page_id,source_signature')
   if (exclusionError) throw exclusionError
   const excluded = new Map((exclusions ?? []).map((item: any) => [String(item.notion_page_id).replace(/-/g, ''), item.source_signature]))
+  let previous: Change[] = []
+  if (cursor) {
+    const { data: run, error: runError } = await db.from('automatic_sync_runs').select('changes').eq('kind', 'campaign').eq('status', 'succeeded').order('started_at', { ascending: false }).limit(1).maybeSingle()
+    if (runError) throw runError
+    // A missing baseline requires a full comparison, never silently losing candidates.
+    if (!run) cursor = undefined
+    else previous = (run.changes ?? []).filter((change: Change) => change.state !== '기존')
+  }
+  const refreshed = new Set<string>()
   let next: string | undefined
   const changes: Change[] = []
   const normalized = (value: unknown) => String(value ?? '').normalize('NFKC').toLowerCase().replace(/[\s×xX()·_\-]/g, '')
@@ -128,13 +138,12 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
         },
         body: JSON.stringify({
           page_size: 100,
-          // Both manual and Monday runs compare the complete source. Incremental cursors
-          // cannot report unchanged schedules or a full four-way dry run.
-          filter: notionWindow(undefined, until),
+          filter: notionWindow(cursor, until),
           ...(next ? { start_cursor: next } : {}),
         }),
       },
     )
+    for (const item of page.results ?? []) refreshed.add(String(item.id).replace(/-/g, ''))
 
     // Resolve relation titles with a bounded batch; the Notion relation UUID is
     // never a T3 seller/manager/product UUID.
@@ -262,7 +271,8 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
   } while (next)
 
   checkDeadline()
-  return { changes, checked: changes.length }
+  const retained = previous.filter(change => !refreshed.has(change.id.replace(/-/g, '')))
+  return { changes: [...retained, ...changes], checked: changes.length }
 }
 
 Deno.serve(async (request) => {
@@ -378,7 +388,7 @@ Deno.serve(async (request) => {
     try {
       const missing = configuration('campaign')
       if (missing.length) throw new Error(`연결 설정 누락: ${missing.join(', ')}`)
-      const result = await campaigns(admin, claimed.cursor, claimed.run.started_at)
+      const result = await campaigns(admin, !isScheduled && body.full === true ? undefined : claimed.cursor, claimed.run.started_at)
       changes = result.changes
       checked = result.checked
     } catch (error) {
