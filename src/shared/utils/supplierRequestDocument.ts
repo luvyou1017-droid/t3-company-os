@@ -32,6 +32,13 @@ export function supplierDocumentAmounts(source: SalesDataImport, rows: SalesData
 }
 
 export function supplierOffsetSummary(source: SalesDataImport, base: number | undefined, supplierCollects: boolean) {
+  const receipt = source.supplierCollectionOffset
+  if (receipt) {
+    const valid = supplierCollects && base !== undefined && Number.isFinite(base)
+      && Number.isFinite(receipt.amount) && receipt.amount >= 0 && receipt.amount <= base
+      && Number.isFinite(receipt.receivedAmount) && receipt.receivedAmount === base - receipt.amount
+    return { offset: receipt.amount, finalAmount: valid ? receipt.receivedAmount : undefined, needsReview: !valid }
+  }
   const manual = source.manualSettlement
   const offset = manual?.reportedOffsetAmount
   if (offset === undefined || offset === 0) return { offset: 0, finalAmount: base, needsReview: false }
