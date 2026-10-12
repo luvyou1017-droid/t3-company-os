@@ -15,6 +15,8 @@ try {
   const prepared = campaigns.createCampaign(input, { prepareOnly: true })
   assert.ok(prepared.campaign)
   assert.deepEqual([...state], before)
+  await assert.rejects(persistRegisteredCampaign(prepared.campaign), /서버 연결 설정/)
+  assert.deepEqual([...state], before)
   await assert.rejects(persistRegisteredCampaign(prepared.campaign, { upsert: async () => { throw Error('server unavailable') } }), /server unavailable/)
   assert.deepEqual([...state], before)
   await assert.rejects(persistRegisteredCampaign(prepared.campaign, { upsert: async c => ({ ...c, id: 'wrong-id' }) }), /저장 결과/)

@@ -12,7 +12,7 @@ export function mergeRegisteredCampaigns(server: Campaign[], local: Campaign[]) 
 }
 
 export async function persistRegisteredCampaign(campaign: Campaign, repository?: Pick<DataRepository<Campaign>, 'upsert'>) {
-  if (!repository && getDataProviderMode() !== 'supabase') return campaignService.completeCreatedCampaign(campaign)
+  if (!repository && getDataProviderMode() !== 'supabase') throw new Error('서버 연결 설정이 없어 일정을 등록하지 않았습니다. 기기에만 저장한 내용을 등록 완료로 처리하지 않습니다.')
   const saved = await (repository ?? createCampaignRepository()).upsert(campaign)
   if (!saved || saved.id !== campaign.id) throw new Error('일정 저장 결과를 확인하지 못했습니다. 다시 등록하지 말고 저장된 일정 ID를 확인해주세요.')
   return campaignService.completeCreatedCampaign(saved)
