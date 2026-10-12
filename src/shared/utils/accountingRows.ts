@@ -1,3 +1,4 @@
+import { koreanPaymentDate } from './paymentDate'
 import type { WithholdingTaxItem } from '../types/withholdingTax'
 import type { PaymentRequest } from '../types/sellerSettlement'
 
@@ -20,15 +21,20 @@ export function accountingRows(items: WithholdingTaxItem[], requests: PaymentReq
     const base = request.withholdingBaseAmount ?? item?.withholdingBaseAmount
     const typeConflict = request.businessType !== 'freelancer'
     const needsReview = !Number.isFinite(incomeTax) || !Number.isFinite(localTax) || !Number.isFinite(base)
-    return [{ id: item?.id ?? request.id, month: item?.paymentMonth || (request.dueDate || request.requestedAt).slice(0,7),
+    const completed = ['payment_completed','remittance_confirmed'].includes(request.status)
+    const paidAt = completed ? koreanPaymentDate(request.actualPaymentDate || item?.paymentDate || request.completedAt || '') : ''
+    const preserved = !!item && ['uploaded','reported','paid'].includes(item.status)
+    const month = completed ? (preserved ? item.paymentMonth : paidAt.slice(0,7)) : ''
+    const dateConflict = completed && (!paidAt || (preserved && month !== paidAt.slice(0,7)))
+    return [{ id: item?.id ?? request.id, month,
       name: request.recipientName, owner: request.recipientType === 'seller' ? '셀러' : '매니저',
       gross: request.grossSettlementAmount, base, incomeTax, localTax,
-      net: request.actualPaidAmount ?? request.finalPaymentAmount, paidAt: request.completedAt ?? item?.paymentDate ?? '',
-      reportStatus: typeConflict ? '확인 필요 · 사업자 유형과 증빙 불일치' : needsReview ? '확인 필요 · 저장된 세금 상세 없음' : item?.status ?? 'ready', paymentStatus: request.status }]
+      net: request.actualPaidAmount ?? request.finalPaymentAmount, paidAt,
+      reportStatus: dateConflict ? '확인 필요 · 실제 지급월과 기존 신고월 확인' : typeConflict ? '확인 필요 · 사업자 유형과 증빙 불일치' : needsReview ? '확인 필요 · 저장된 세금 상세 없음' : item?.status ?? 'ready', paymentStatus: request.status }]
   })
 }
 export function accountingExportRows(rows: AccountingRow[]) {
-  return rows.map(row => ({ 귀속월: row.month, 이름: row.name, 지급대상: row.owner, 지급총액: row.gross,
+  return rows.map(row => ({ 지급월: row.month, 이름: row.name, 지급대상: row.owner, 지급총액: row.gross,
     부가세제외기준금액: row.base ?? '확인 필요', 소득세: row.incomeTax ?? '확인 필요', 지방소득세: row.localTax ?? '확인 필요', 실지급액: row.net, 지급일: row.paidAt,
     신고상태: row.reportStatus, 지급상태: row.paymentStatus }))
 }

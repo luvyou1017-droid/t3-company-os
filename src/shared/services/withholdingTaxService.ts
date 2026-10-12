@@ -1,3 +1,4 @@
+import { koreanPaymentDate } from '../utils/paymentDate'
 import type { EvidenceOwnerType } from '../types/paymentEvidence'
 import type { WithholdingTaxItem, WithholdingTaxStatus } from '../types/withholdingTax'
 import type { SellerBusinessType } from '../types/sellerSettlement'
@@ -53,7 +54,8 @@ export const withholdingTaxService = {
       ownerType: input.ownerType,
       ownerId: input.ownerId,
       ownerName: input.ownerName,
-      paymentMonth: input.paymentMonth ?? settlement.paymentDueDate.slice(0, 7),
+      scheduledPaymentMonth: exact?.scheduledPaymentMonth ?? input.paymentMonth ?? settlement.paymentDueDate.slice(0, 7),
+      paymentMonth: input.paymentDate ? koreanPaymentDate(input.paymentDate).slice(0,7) : exact?.paymentMonth ?? '',
       paymentDate: input.paymentDate ?? exact?.paymentDate,
       ...calculation,
       sourceVersion: input.sourceVersion,
@@ -100,6 +102,14 @@ export const withholdingTaxService = {
       })
     })
     return withholdingTaxService.getItems()
+  },
+  recordPaymentDate(request: import('../types/sellerSettlement').PaymentRequest) {
+    if (!request.actualPaymentDate || !request.withholdingTaxItemId) return
+    const item = this.getItems().find(candidate => candidate.id === request.withholdingTaxItemId && candidate.paymentRequestId === request.id && candidate.settlementId === request.settlementId && candidate.sourceVersion === request.sourceVersion && candidate.ownerType === request.recipientType && candidate.ownerId === request.recipientId && candidate.status !== 'canceled')
+    if (!item || ['uploaded','reported','paid'].includes(item.status)) return
+    if (item.paymentDate === request.actualPaymentDate && item.paymentMonth === request.actualPaymentDate.slice(0,7)) return item
+    return save({ ...item, scheduledPaymentMonth: item.scheduledPaymentMonth || item.paymentMonth,
+      paymentDate: request.actualPaymentDate, paymentMonth: request.actualPaymentDate.slice(0,7), updatedAt: now(), updatedBy: request.completedBy || item.updatedBy })
   },
   updateStatus(id: string, status: WithholdingTaxStatus, updatedBy = '허수정') {
     const item = this.getItems().find((candidate) => candidate.id === id)

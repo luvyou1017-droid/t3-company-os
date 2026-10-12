@@ -1,3 +1,4 @@
+import { koreanPaymentDate, validatePaymentDate } from '../utils/paymentDate'
 import type { PaymentDocumentCheckStatus, PaymentRequest, PaymentRequestStatus } from '../types/sellerSettlement'
 import { validateSellerSettlement } from '../utils/sellerSettlement'
 import type { EvidenceOwnerType } from '../types/paymentEvidence'
@@ -378,23 +379,27 @@ export const paymentRequestService = {
   },
   requestApproval(id: string) { return transition(id, 'approval_pending') },
   approvePaymentRequest(id: string, approvedBy = '대표 김승인') { return transition(id, 'approved', { approvedBy, approvedAt: now() }) },
-  markPaymentCompleted(id: string, completedBy = '허수정') {
+  markPaymentCompleted(id: string, completedBy = '허수정', paymentDate = koreanPaymentDate()) {
     const current = this.getPaymentRequestById(id)
     if (!current || current.status !== 'approved') throw new Error('대표 승인 완료 후에만 지급 완료 처리할 수 있습니다.')
-    const request = transition(id, 'payment_completed', { completedBy, completedAt: now(), actualPaidAmount: current.finalPaymentAmount })
+    const actualPaymentDate = validatePaymentDate(paymentDate)
+    const request = transition(id, 'payment_completed', { actualPaymentDate, completedBy, completedAt: now(), actualPaidAmount: current.finalPaymentAmount })
+    withholdingTaxService.recordPaymentDate(request)
     if (request.recipientType === 'seller') settlementService.markSellerPaymentCompleted(request.settlementId)
     else settlementService.markManagerPaymentCompleted(request.settlementId)
     return request
   },
-  markPaymentBatchCompleted(ids: string[], completedBy = '허수정') {
+  markPaymentBatchCompleted(ids: string[], completedBy = '허수정', paymentDate = koreanPaymentDate()) {
     const uniqueIds = [...new Set(ids)]
     if (!uniqueIds.length) throw new Error('입금 완료 처리할 지급건을 선택해주세요.')
     const requests = uniqueIds.map((id) => this.getPaymentRequestById(id))
     if (requests.some((request) => !request || request.status !== 'approved')) throw new Error('대표 승인 완료된 지급건만 입금 완료 처리할 수 있습니다.')
+    const actualPaymentDate = validatePaymentDate(paymentDate)
     const completedAt = now()
     const payoutBatchId = `payout-batch-${crypto.randomUUID()}`
     return requests.map((request) => {
-      const next = save({ ...request!, status: 'payment_completed', completedBy, completedAt, actualPaidAmount: request!.finalPaymentAmount, payoutBatchId })
+      const next = save({ ...request!, status: 'payment_completed', actualPaymentDate, completedBy, completedAt, actualPaidAmount: request!.finalPaymentAmount, payoutBatchId })
+      withholdingTaxService.recordPaymentDate(next)
       if (next.recipientType === 'seller') settlementService.markSellerPaymentCompleted(next.settlementId)
       else settlementService.markManagerPaymentCompleted(next.settlementId)
       return next

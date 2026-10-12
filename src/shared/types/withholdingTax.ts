@@ -10,6 +10,7 @@ export interface WithholdingTaxItem {
   ownerType: WithholdingOwnerType
   ownerId: string
   ownerName: string
+  scheduledPaymentMonth?: string
   paymentMonth: string
   paymentDate?: string
   grossSettlementAmount: number

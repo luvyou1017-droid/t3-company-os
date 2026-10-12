@@ -138,6 +138,7 @@ export type PaymentRequest = {
   approvedBy?: string
   approvedAt?: string
   completedBy?: string
+  actualPaymentDate?: string
   completedAt?: string
   actualPaidAmount?: number
   payoutBatchId?: string

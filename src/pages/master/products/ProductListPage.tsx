@@ -1,3 +1,4 @@
+import { matchesBusinessSearch } from '../../../shared/utils/statementIdentity'
 import { useEffect, useMemo, useState } from 'react'
 import { productService } from '../../../features/productMaster/services/productService'
 import type { ProductMaster } from '../../../features/productMaster/types'
@@ -70,8 +71,8 @@ export function ProductListPage({ onOpen, permission }: { onOpen: (id?: string) 
 
   const brands = useMemo(() => [...new Set(products.map((product) => product.brandName))].sort((a, b) => a.localeCompare(b, 'ko')), [products])
   const filtered = useMemo(() => products.filter((product) => {
-    const text = `${product.brandName} ${product.productName} ${product.vendorName ?? ''} ${product.settlementVendorName ?? ''}`.toLowerCase()
-    return (viewMode === 'admin' || (!product.sampleOnly && product.skus.some(sku => !sku.sampleOnly))) && ((viewMode === 'admin' && includeInactive) || (product.lifecycleStatus ?? (product.active ? 'active' : 'inactive')) === 'active') && (!missingRatesOnly || hasMissingRate(product)) && (!query || text.includes(query.toLowerCase())) && (!brand || product.brandName === brand)
+    const names = [product.brandName,product.productName,product.vendorName,product.settlementVendorName,...product.skus.flatMap(sku=>[sku.productName,sku.optionName,sku.skuCode])]
+    return (viewMode === 'admin' || (!product.sampleOnly && product.skus.some(sku => !sku.sampleOnly))) && ((viewMode === 'admin' && includeInactive) || (product.lifecycleStatus ?? (product.active ? 'active' : 'inactive')) === 'active') && (!missingRatesOnly || hasMissingRate(product)) && matchesBusinessSearch(query,names) && (!brand || product.brandName === brand)
   }).sort((a, b) => a.brandName.localeCompare(b.brandName, 'ko') || a.productName.localeCompare(b.productName, 'ko')), [products, query, brand, includeInactive, missingRatesOnly, viewMode])
   const grouped = useMemo(() => {
     const map = new Map<string, ProductMaster[]>()
