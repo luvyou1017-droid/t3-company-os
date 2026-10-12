@@ -64,12 +64,21 @@ function configuration(kind: SyncKind) {
 }
 
 async function fetchJson(url: string, init?: RequestInit) {
-  const result = await fetch(url, { ...init, signal: AbortSignal.timeout(30000) })
+  const result = await fetch(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(30000) })
   if (!result.ok) throw new Error(`원본 서비스 응답 오류: ${result.status}`)
   return result.json()
 }
 
 async function campaigns(db: any, cursor: string | undefined, until: string) {
+  // Finish state recording before the gateway's 150-second idle timeout.
+  const deadline = Date.now() + 110000
+  const checkDeadline = () => { if (Date.now() >= deadline) throw new Error('노션 조회가 제한시간에 도달했습니다. 일부 결과를 확정하거나 동기화 기준시각을 이동하지 않았습니다.') }
+  const fetchSource = async (url: string, init?: RequestInit) => {
+    checkDeadline()
+    const result = await fetchJson(url, { ...init, signal: AbortSignal.timeout(Math.min(30000, Math.max(1, deadline - Date.now()))) })
+    checkDeadline()
+    return result
+  }
   const map = JSON.parse(env('NOTION_CAMPAIGN_FIELD_MAP')!)
   if (!map.title || !map.period) throw new Error('공구명/공구기간 노션 필드 매핑 확인 필요')
 
@@ -90,7 +99,7 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
   const textProperty = (property: any) => (property?.title ?? property?.rich_text ?? []).map((value: any) => value.plain_text ?? value.text?.content ?? '').join('') || property?.select?.name || property?.formula?.string || ''
   const notionTitle = async (id?: string) => {
     if (!id) return ''
-    const page = await fetchJson(`https://api.notion.com/v1/pages/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${env('NOTION_API_TOKEN')}`, 'Notion-Version': '2025-09-03' } })
+    const page = await fetchSource(`https://api.notion.com/v1/pages/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${env('NOTION_API_TOKEN')}`, 'Notion-Version': '2025-09-03' } })
     // Related pages contain rich-text notes and private shipping details.
     // Only the actual Notion title property is a matching key.
     const title = Object.values(page.properties ?? {}).find((value: any) => value?.type === 'title')
@@ -107,7 +116,8 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
   }
 
   do {
-    const page = await fetchJson(
+    checkDeadline()
+    const page = await fetchSource(
       `https://api.notion.com/v1/data_sources/${encodeURIComponent(env('NOTION_CAMPAIGN_DATA_SOURCE_ID')!)}/query`,
       {
         method: 'POST',
@@ -120,7 +130,7 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
           page_size: 100,
           // Both manual and Monday runs compare the complete source. Incremental cursors
           // cannot report unchanged schedules or a full four-way dry run.
-          filter: notionWindow(undefined, until),
+          filter: { and: [...notionWindow(undefined, until).and, { property: map.period, date: { on_or_after: '2026-08-01' } }] },
           ...(next ? { start_cursor: next } : {}),
         }),
       },
@@ -128,18 +138,25 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
 
     // Resolve relation titles with a bounded batch; the Notion relation UUID is
     // never a T3 seller/manager/product UUID.
-    const ids = [...new Set((page.results ?? []).flatMap((item: any) => {
+    const scopedPages = (page.results ?? []).filter((item: any) => {
+      const p = item.properties ?? {}
+      const period = p[map.period]?.date ?? Object.values(p).find((property: any) => property?.date?.start)?.date
+      return period?.start && period.start.slice(0, 10) >= '2026-08-01'
+    })
+    const ids = [...new Set(scopedPages.flatMap((item: any) => {
       const p = item.properties ?? {}
       return [p[map.seller ?? '셀러명'] ?? p['셀러명'], p[map.manager ?? '담당매니저'] ?? p['담당매니저'], p[map.product ?? '제품'] ?? p['제품']]
         .filter((value: any) => value?.relation?.length === 1).map((value: any) => value.relation[0].id)
     }))].filter((id): id is string => typeof id === 'string' && !titleCache.has(id))
     for (let offset = 0; offset < ids.length; offset += 2) {
+      checkDeadline()
       await Promise.all(ids.slice(offset, offset + 2).map(async id => {
         try { titleCache.set(id, await notionTitle(id)) } catch { titleCache.set(id, '') }
       }))
       if (offset + 2 < ids.length) await new Promise(resolve => setTimeout(resolve, 700))
     }
-    for (const item of page.results ?? []) {
+    for (const item of scopedPages) {
+      checkDeadline()
       const properties = item.properties ?? {}
       const name = (properties[map.title]?.title ?? [])
         .map((text: any) => text.plain_text ?? text.text?.content ?? '')
@@ -192,7 +209,7 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
       if ((!match || differences.length || possible || cancelled) && (!managerName || !productName || !landingPage)) {
         try {
           await new Promise(resolve => setTimeout(resolve, 350))
-          const detail = await fetchJson(`https://api.notion.com/v1/pages/${encodeURIComponent(item.id)}`, { headers: { Authorization: `Bearer ${env('NOTION_API_TOKEN')}`, 'Notion-Version': '2025-09-03' } })
+          const detail = await fetchSource(`https://api.notion.com/v1/pages/${encodeURIComponent(item.id)}`, { headers: { Authorization: `Bearer ${env('NOTION_API_TOKEN')}`, 'Notion-Version': '2025-09-03' } })
           detailProperties = detail.properties ?? {}
           managerProperty = managerProperty?.relation?.length ? managerProperty : detailProperties[map.manager ?? '담당매니저'] ?? detailProperties['담당매니저']
           managerName ||= await relationTitle(managerProperty)
@@ -241,6 +258,7 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
     next = page.has_more ? page.next_cursor : undefined
   } while (next)
 
+  checkDeadline()
   return { changes, checked: changes.length }
 }
 

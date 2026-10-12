@@ -18,7 +18,7 @@ try{
  const edge=await readFile('supabase/functions/automatic-sync/index.ts','utf8')
  const compiled=ts.transpileModule(edge,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext},reportDiagnostics:true})
  assert.equal(compiled.diagnostics?.filter(d=>d.category===ts.DiagnosticCategory.Error).length??0,0)
- assert.match(edge,/admin.auth.getUser/);assert.match(edge,/\['ceo','admin'\]/)
+ assert.match(edge,/admin.auth.getUser/);assert.match(edge,/\['ceo',\s*'admin'\]/)
  assert.doesNotMatch(edge,/from\('(?:products|campaigns|settlements)'\)\.(?:update|upsert|delete|insert)/)
  const sql=await readFile('docs/AUTOMATIC_SYNC.sql','utf8')
  assert.match(sql,/cursor=case when p_error is null then p_cursor else cursor end/)
