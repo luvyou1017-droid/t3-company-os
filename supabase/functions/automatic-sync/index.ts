@@ -130,7 +130,7 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
           page_size: 100,
           // Both manual and Monday runs compare the complete source. Incremental cursors
           // cannot report unchanged schedules or a full four-way dry run.
-          filter: { and: [...notionWindow(undefined, until).and, { property: map.period, date: { on_or_after: '2026-08-01' } }] },
+          filter: notionWindow(undefined, until),
           ...(next ? { start_cursor: next } : {}),
         }),
       },
@@ -150,10 +150,13 @@ async function campaigns(db: any, cursor: string | undefined, until: string) {
     }))].filter((id): id is string => typeof id === 'string' && !titleCache.has(id))
     for (let offset = 0; offset < ids.length; offset += 2) {
       checkDeadline()
+      const batchStartedAt = Date.now()
       await Promise.all(ids.slice(offset, offset + 2).map(async id => {
         try { titleCache.set(id, await notionTitle(id)) } catch { titleCache.set(id, '') }
       }))
-      if (offset + 2 < ids.length) await new Promise(resolve => setTimeout(resolve, 700))
+      // Space request starts; network latency already contributes to spacing.
+      const pause = Math.max(0, 700 - (Date.now() - batchStartedAt))
+      if (offset + 2 < ids.length && pause) await new Promise(resolve => setTimeout(resolve, pause))
     }
     for (const item of scopedPages) {
       checkDeadline()
