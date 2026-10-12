@@ -10,6 +10,7 @@ import { cloudSyncService } from '../../shared/services/cloudSyncService'
 import { STORAGE_KEYS } from '../../shared/services/storageService'
 import { supabase } from '../../shared/lib/supabase'
 import { mergeNotionCampaign, scheduleRequiredErrors } from '../../shared/utils/campaignReadiness'
+import { toDatabaseUuid } from '../../shared/utils/databaseId'
 
 const key = (value?: string) => (value ?? '').normalize('NFKC').replace(/^[^\p{L}\p{N}]+/u, '').trim().replace(/\s+/g, ' ').toLowerCase()
 const pageId = (id?: string) => (id ?? '').replace(/-/g, '').toLowerCase()
@@ -18,6 +19,7 @@ const unique = <T,>(items: T[]) => items.length === 1 ? items[0] : undefined
 // Sync runs are immutable snapshots. Read the actual schedule links before
 // presenting their candidates as still waiting to be registered.
 export type NotionScheduleState = { id: string; name: string; startDate: string; endDate: string; managerName: string }
+export const separateSourceKey = (change: Change) => `${pageId(change.id)}:${JSON.stringify([change.source?.title, change.source?.startDate, change.source?.endDate])}`
 export async function notionScheduleStates() {
   if (!supabase) throw new Error('운영 DB 연결을 확인해주세요.')
   const schedules = new Map<string, NotionScheduleState>()
@@ -26,8 +28,11 @@ export async function notionScheduleStates() {
     const { data, error } = await supabase.from('campaigns').select('id,campaign_name,start_date,end_date,manager_name,metadata').range(offset, offset + pageSize - 1)
     if (error) throw error
     for (const row of data ?? []) {
+      if ((row.metadata as Campaign)?.deletedAt) continue
       const sourceId = (row.metadata as Campaign | null)?.notionImportMetadata?.sourceId
       if (sourceId) schedules.set(pageId(sourceId), { id: (row.metadata as Campaign).id || row.id, name: row.campaign_name, startDate: row.start_date, endDate: row.end_date, managerName: row.manager_name })
+      const separate = (row.metadata as Campaign | null)?.notionSeparateSource
+      if (separate) schedules.set(separate.signature, { id: (row.metadata as Campaign).id || row.id, name: row.campaign_name, startDate: row.start_date, endDate: row.end_date, managerName: row.manager_name })
     }
     if ((data?.length ?? 0) < pageSize) break
   }
@@ -45,13 +50,14 @@ export async function candidateContext() {
 }
 export type CandidateContext = Awaited<ReturnType<typeof candidateContext>>
 
-export function prepareCandidate(change: Change, context: CandidateContext, selectedId?: string) {
+export function prepareCandidate(change: Change, context: CandidateContext, selectedId?: string, separate = false) {
   const source = change.source
   if (!source) throw new Error('원본 일정 상세가 없습니다. 다시 동기화해주세요.')
-  const matches = context.campaigns.filter(c => pageId(c.notionImportMetadata?.sourceId) === pageId(change.id))
+  if (separate && context.campaigns.some(c => c.campaignName === source.title && c.startDate === source.startDate && c.endDate === source.endDate)) throw new Error('같은 일정명·판매기간의 등록 이력이 있습니다. 별개의 공구인지 먼저 확인해주세요.')
+  const matches = separate ? [] : context.campaigns.filter(c => pageId(c.notionImportMetadata?.sourceId) === pageId(change.id))
   if (matches.length > 1) throw new Error('중복된 Notion 연결입니다.')
-  const linked = matches[0] ?? context.campaigns.find(c => c.id === (selectedId || change.scheduleId))
-  if (change.state === '조건변경' && (!linked || linked.id !== change.scheduleId)) throw new Error('기존 일정 연결을 확인해주세요.')
+  const linked = separate ? undefined : matches[0] ?? context.campaigns.find(c => c.id === (selectedId || change.scheduleId))
+  if (!separate && change.state === '조건변경' && (!linked || linked.id !== change.scheduleId)) throw new Error('기존 일정 연결을 확인해주세요.')
   if (linked?.deletedAt || linked?.status === 'settled') throw new Error('삭제/확정 일정은 변경할 수 없습니다.')
   if (linked?.notionImportMetadata?.sourceId && pageId(linked.notionImportMetadata.sourceId) !== pageId(change.id)) throw new Error('다른 Notion 일정과 연결된 일정입니다.')
   const seller = unique(context.sellers.filter(s => key(s.name) === key(source.sellerName) && key(source.sellerName)))
@@ -62,7 +68,7 @@ export function prepareCandidate(change: Change, context: CandidateContext, sele
   const managerConflict = Boolean(linked?.managerName && source.managerName && key(linked.managerName) !== key(source.managerName))
   const original = { sourceId: change.id, title: source.title, startDate: source.startDate, endDate: source.endDate,
     sellerId: seller?.id ?? '', sellerName: seller?.name ?? source.sellerName,
-    settlementVendorName: seller ? '' : source.sellerName,
+    settlementVendorName: !seller && source.supplyAudience === 'vendor' ? source.sellerName : '',
     managerId: manager?.id ?? '', managerName: manager?.name ?? source.managerName,
     productId: product?.id ?? '', productName: product?.productName ?? source.productName ?? '',
     landingPage: (['공급사', '와이즈(스룩)', '와이즈(네이버)', '셀러'].includes(source.landingPage ?? '') ? source.landingPage : undefined) as '공급사' | '와이즈(스룩)' | '와이즈(네이버)' | '셀러' | undefined,
@@ -72,16 +78,23 @@ export function prepareCandidate(change: Change, context: CandidateContext, sele
   const next: Campaign = { ...draft, campaignName: source.title, notionImportMetadata: { provider: 'notion', sourceId: change.id, importedAt: new Date().toISOString() },
     startDate: source.startDate, endDate: source.endDate,
     sellerId: linked?.sellerId || seller?.id || '', sellerName: linked?.sellerName || seller?.name || source.sellerName,
-    settlementVendorName: linked?.settlementVendorName || (!seller && !linked?.sellerId ? source.sellerName : ''),
+    sellerLinkPending: !linked?.sellerId && !seller && source.supplyAudience !== 'vendor',
+    settlementVendorName: linked?.settlementVendorName || (!seller && !linked?.sellerId && source.supplyAudience === 'vendor' ? source.sellerName : ''),
     managerId: linked?.managerId || manager?.id || '', managerName: linked?.managerName || manager?.name || source.managerName,
     supplyAudience: linked?.supplyAudience ?? source.supplyAudience ?? 'seller',
     salesChannelType: linked?.salesChannelType ?? imported.salesChannelType,
     landingPageType: linked?.landingPageType ?? imported.landingPageType,
     linkOwner: linked?.linkOwner ?? imported.linkOwner }
   if (linked) next.id = linked.id
+  if (separate) {
+    next.id = toDatabaseUuid(`notion-separate:${separateSourceKey(change)}`)
+    next.campaignCode = `NT-NEW-${next.id}`
+    next.notionImportMetadata = undefined
+    next.notionSeparateSource = { pageId: change.id, signature: separateSourceKey(change), registeredAt: new Date().toISOString() }
+  }
   if (!linked && product) Object.assign(next, { productId: product.id, productName: product.productName, brandId: product.brandId, brandName: product.brandName, supplierId: product.vendorId, supplierName: product.vendorName })
   const resolved = {
-    seller: !sellerConflict && Boolean(seller || linked?.sellerId || next.settlementVendorName?.trim()), manager: !managerConflict && Boolean(manager || linked?.managerId), product: Boolean(product || linked?.productId),
+    seller: !sellerConflict && Boolean(seller || linked?.sellerId || next.sellerLinkPending && next.sellerName?.trim() || next.settlementVendorName?.trim()), manager: !managerConflict && Boolean(manager || linked?.managerId), product: Boolean(product || linked?.productId),
     dates: Boolean(source.startDate && source.endDate), audience: Boolean(linked?.supplyAudience || source.supplyAudience || !source.landingPage || original.landingPage),
   }
   const errors = scheduleRequiredErrors(next)
@@ -92,7 +105,14 @@ export function prepareCandidate(change: Change, context: CandidateContext, sele
 export async function saveCandidate(change: Change, candidate: Campaign) {
   const errors = scheduleRequiredErrors(candidate)
   if (errors.length) throw new Error(errors.join(' · '))
-  const result = await new SupabaseCampaignRepository().upsertNotionSnapshot([candidate])
+  const repository = new SupabaseCampaignRepository()
+  if (candidate.notionSeparateSource) {
+    const saved = await repository.registerSeparateNotionSchedule(candidate)
+    campaignService.completeCreatedCampaign(saved)
+    await cloudSyncService.syncKeys([STORAGE_KEYS.campaigns])
+    return
+  }
+  const result = await repository.upsertNotionSnapshot([candidate])
   if (result.failed) throw new Error(result.errors.join(' · '))
   const saved = result.campaigns?.[0] ?? candidate
   const current = campaignService.getCampaigns()

@@ -16,6 +16,8 @@ export type Campaign = {
   campaignName: string
   sellerId: string
   sellerName: string
+  sellerLinkPending?: boolean
+  notionSeparateSource?: { pageId: string; signature: string; registeredAt: string }
   sellerBusinessId?: string
   sellerBusinessName?: string
   supplierId?: string

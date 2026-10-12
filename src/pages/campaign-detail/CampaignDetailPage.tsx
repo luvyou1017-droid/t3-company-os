@@ -1,6 +1,7 @@
 import { applyScheduleDisplayFields, scheduleDisplayFields, type ScheduleDisplayFields } from '../../shared/utils/campaignScheduleFields'
 import { cloudSyncService } from '../../shared/services/cloudSyncService'
 import { STORAGE_KEYS } from '../../shared/services/storageService'
+import { CampaignSellerLink } from '../../shared/components/CampaignSellerLink'
 import { useState } from 'react'
 import { campaignService } from '../../shared/services/campaignService'
 import { csService } from '../../shared/services/csService'
@@ -216,6 +217,7 @@ export function CampaignDetailPage({ scheduleId, initialTab = 'overview', onBack
       <div className="workspace-title-row"><div><div className="title-with-status"><h1>{campaign.campaignName || '이름 없는 Campaign'}</h1><span className={`status-badge ${status === '최종 완료' ? 'done' : status === '정산 중' ? 'settlement' : status === '진행 중' ? 'progress' : 'waiting'}`}>{status}</span></div><p>{campaign.sellerName || '-'} · {campaign.brandName || '-'} · {campaign.productName || '-'}</p></div><div className="hero-actions">{canDelete && <button className="danger-button" disabled={deleting} onClick={() => void deleteCampaign()} type="button">{deleting ? '삭제 중…' : '일정 삭제'}</button>}{canDelete && <button className="secondary-button" onClick={openScheduleEditor} type="button">일정 수정</button>}<button className="secondary-button" disabled={!campaign.contact?.startsWith('http')} onClick={() => campaign.contact && window.open(campaign.contact, '_blank', 'noopener,noreferrer')} type="button">관련 링크 열기</button><button className="primary-action" onClick={openPrimaryAction} type="button">{primary}</button></div></div>
       {scheduleNotice && <p className="success-text" role="status">{scheduleNotice}</p>}
       {deleteError && <p className="campaign-delete-error" role="alert">{deleteError}</p>}
+      {campaign.sellerLinkPending && (canDelete ? <CampaignSellerLink campaign={campaign} blocked={Boolean(campaign.deletedAt || campaign.status === 'settled' || data.settlement && (settlementService.isSettlementConfirmed(data.settlement) || [data.settlement.sellerPaymentRequestStatus, data.settlement.managerPaymentRequestStatus].some(value => value && activePaymentRequestStatuses.includes(value))))} onSaved={refresh} /> : <p>셀러 연결 필요 · 관리자에게 연결을 요청해주세요.</p>)}
       <dl className="hero-meta"><div><dt>담당 매니저</dt><dd>{campaign.managerName || '-'}</dd></div><div><dt>MD</dt><dd>{campaign.mdName || '-'}</dd></div><div><dt>판매 기간</dt><dd>{campaign.startDate || '-'} ~ {campaign.endDate || '-'}</dd></div><div><dt>링크 주체</dt><dd>{campaign.linkOwner || '-'}</dd></div><div><dt>사업자 유형</dt><dd>{campaign.businessType || '-'}</dd></div><div><dt>정산 예정일</dt><dd>{campaign.settlementDueDate || '미등록'}</dd></div><div><dt>링크 오픈 시간</dt><dd>{campaign.linkOpenTime || '미등록'}</dd></div><div><dt>링크 마감 시간</dt><dd>{campaign.linkCloseTime || '미등록'}</dd></div><div><dt>당첨자 발표일</dt><dd>{campaign.winnerAnnouncementDate || '미등록'}</dd></div><div><dt>메모</dt><dd>{campaign.memo || '-'}</dd></div><div><dt>마지막 수정</dt><dd>{campaign.updatedAt?.slice(0, 10) || '-'}</dd></div></dl>
     </header>
 

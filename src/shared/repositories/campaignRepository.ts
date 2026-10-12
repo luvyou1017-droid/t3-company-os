@@ -33,6 +33,28 @@ export class SupabaseCampaignRepository extends SupabaseRepository<Campaign> {
     if (error) throw error
     return data?.length ?? 0
   }
+  async registerSeparateNotionSchedule(item: Campaign) {
+    if (!item.notionSeparateSource || item.notionImportMetadata?.sourceId) throw new Error('별도 신규 일정의 원본 참조를 확인해주세요.')
+    const errors = scheduleRequiredErrors(item)
+    if (errors.length) throw new Error(errors.join(' · '))
+    const previous = await this.getById(item.id)
+    if (previous) {
+      if (previous.notionSeparateSource?.signature !== item.notionSeparateSource.signature || previous.deletedAt || previous.status === 'settled') throw new Error('기존 등록 이력 확인 필요 · 덮어쓰지 않았습니다.')
+      return previous
+    }
+    const { data, error } = await this.client.from(this.table).insert(this.toRow(item)).select().single()
+    if (error) throw error
+    return this.fromRow(data)
+  }
+  async linkPendingSeller(id: string, seller: { id: string; name: string }) {
+    const current = await this.getById(id)
+    if (!seller.id || !seller.name.trim() || !current?.sellerLinkPending || current.sellerId || current.deletedAt || current.status === 'settled') throw new Error('셀러 연결 대상 또는 기존 연결을 다시 확인해주세요.')
+    const next = { ...current, sellerId: seller.id, sellerName: seller.name, sellerLinkPending: false, updatedAt: new Date().toISOString() }
+    const { data, error } = await this.client.from(this.table).update({ seller_id: toDatabaseUuid(seller.id), seller_name: seller.name, metadata: this.metadata(next), updated_at: next.updatedAt }).eq('id', toDatabaseUuid(id)).is('seller_id', null).eq('updated_at', current.updatedAt).select().maybeSingle()
+    if (error) throw error
+    if (!data) throw new Error('일정이 다른 곳에서 수정되었습니다. 새로고침 후 다시 연결해주세요.')
+    return this.fromRow(data)
+  }
   async upsertNotionSnapshot(items: Campaign[]) {
     if (!items.length) return { succeeded: 0, failed: 0, errors: [] }
     const { data: existing, error } = await this.client.from(this.table).select('id, metadata')

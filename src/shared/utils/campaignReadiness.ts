@@ -5,10 +5,10 @@ import type { SalesDataRow } from '../types/salesData'
 import type { SalesDataImport } from '../types/salesData'
 import { getCampaignSalesChannel } from './campaignSalesChannel'
 
-export function scheduleRequiredErrors(c: Pick<Campaign, 'campaignName' | 'sellerId' | 'sellerName' | 'settlementVendorName' | 'managerId' | 'startDate' | 'endDate' | 'supplyAudience'>) {
+export function scheduleRequiredErrors(c: Pick<Campaign, 'campaignName' | 'sellerId' | 'sellerName' | 'sellerLinkPending' | 'settlementVendorName' | 'managerId' | 'startDate' | 'endDate' | 'supplyAudience'>) {
   const errors: string[] = []
   if (!c.campaignName?.trim()) errors.push('일정명 필요')
-  if (!(c.sellerId && c.sellerName?.trim()) && !c.settlementVendorName?.trim()) errors.push('셀러 또는 요청 대상 확인 필요')
+  if (!(c.sellerId && c.sellerName?.trim()) && !(c.sellerLinkPending && c.sellerName?.trim()) && !c.settlementVendorName?.trim()) errors.push('셀러 또는 요청 대상 확인 필요')
   if (!c.managerId) errors.push('담당 매니저 필요')
   for (const [label, value] of [['시작일', c.startDate], ['종료일', c.endDate]]) {
     if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) errors.push(`${label} 확인 필요`)
@@ -30,12 +30,13 @@ export function campaignReadiness(c: Campaign, products: ProductMaster[] = []) {
   const productLinked = selections.length > 0 && selections.every(linkedId) && resolved.every(Boolean)
   const supplierLinked = linkedId(campaignSupplierId(c)) || (resolved.length > 0 && resolved.every(p => linkedId(p?.vendorId)))
   const termErrors = settlementReadinessErrors(c, products)
-  const tasks = [!productLinked && '상품 연결 필요', !supplierLinked && '공급처 미연결', termErrors.length > 0 && '정산조건 확인 필요'].filter(Boolean) as string[]
+  const tasks = [c.sellerLinkPending && '셀러 연결 필요', !productLinked && '상품 연결 필요', !supplierLinked && '공급처 미연결', termErrors.length > 0 && '정산조건 확인 필요'].filter(Boolean) as string[]
   return { productLinked, supplierLinked, tasks, label: tasks.length ? tasks.join(' · ') : '정산 준비 완료' }
 }
 export function settlementReadinessErrors(c: Campaign | undefined, products: ProductMaster[], rows?: SalesDataRow[], source?: Pick<SalesDataImport, 'settlementTerms' | 'supplyAudience' | 'commissionSyncUnmatchedRows' | 'commissionSyncIssues' | 'otherSalesAggregate'>) {
   if (!c) return ['공구일정 연결 필요']
   const errors: string[] = []
+  if (c.sellerLinkPending) errors.push('셀러 Master 연결 필요')
   const campaignChannel = getCampaignSalesChannel(c)
   const termsChannel = source?.settlementTerms?.salesChannelType
   const channel = termsChannel ?? campaignChannel
@@ -72,6 +73,7 @@ export function mergeNotionCampaign(existing: Campaign | undefined, incoming: Ca
   if (existing.deletedAt || existing.status === 'settled') return existing
   return { ...existing, campaignName: incoming.campaignName, sellerId: existing.sellerId || incoming.sellerId,
     sellerName: existing.sellerName || incoming.sellerName, startDate: incoming.startDate, endDate: incoming.endDate,
+    sellerLinkPending: existing.sellerId || incoming.sellerId ? false : incoming.sellerLinkPending ?? existing.sellerLinkPending,
     managerId: incoming.managerId, managerName: incoming.managerName,
     supplyAudience: existing.supplyAudience ?? incoming.supplyAudience,
     supplierId: linkedId(existing.supplierId) ? existing.supplierId : incoming.supplierId,
