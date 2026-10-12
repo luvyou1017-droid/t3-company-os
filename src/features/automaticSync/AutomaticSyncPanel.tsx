@@ -58,7 +58,7 @@ export function AutomaticSyncPanel() {
       } catch { /* keep last result */ }
     } finally { setBusy(null) }
   }
-  const isRegistered = (change: Change) => change.state === '신규' && schedules.has(sourceId(change.id)) || schedules.has(separateSourceKey(change))
+  const isRegistered = (change: Change) => ((change.state === '신규' || change.state === '확인필요' && !change.scheduleId) && schedules.has(sourceId(change.id))) || schedules.has(separateSourceKey(change))
   const isApplied = (change: Change) => matchesLive(change, schedules)
   const count = (state: Change['state']) => latest?.changes.filter(change => change.entity === '일정' && change.state === state && !isRegistered(change) && !isApplied(change)).length ?? 0
   const registeredCount = latest?.changes.filter(change => change.entity === '일정' && isRegistered(change)).length ?? 0
