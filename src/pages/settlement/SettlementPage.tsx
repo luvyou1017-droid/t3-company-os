@@ -2083,6 +2083,7 @@ function PaymentRequestStatusModal({ accountConfirmed, campaign, completed, onCl
       <tr><th>증빙 상태</th><td>{evidenceComplete ? '완료' : '미완료'}</td></tr>
       <tr><th>계좌 상태</th><td>{accountConfirmed ? '확인 완료' : '미등록'}</td></tr>
       <tr><th>대표 승인</th><td>{approval}</td></tr>
+      {request?.status === 'rejected' && <tr><th>반려 사유</th><td>{request.memo?.trim() || '반려 사유가 기록되지 않았습니다. 정산 담당자에게 확인해주세요.'}</td></tr>}
     </tbody></table>
     <p className={request?.status === 'rejected' ? 'payment-request-error' : 'settlement-readiness-modal__success'}>{request?.status === 'rejected' ? '지급 요청이 반려되었습니다. 증빙과 요청 내용을 수정한 뒤 다시 요청해주세요.' : '현재 추가로 처리할 작업이 없습니다.'}</p>
     <div className="modal-actions"><button className="primary-button" onClick={onClose} type="button">확인</button></div>

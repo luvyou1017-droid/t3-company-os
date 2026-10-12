@@ -1,3 +1,4 @@
+import { getSalesDisplayPeriod } from '../../shared/utils/salesDisplayPeriod'
 import { mergeRegisteredCampaigns } from '../../shared/services/campaignRegistrationService'
 import { ManualSalesCompletion } from './ManualSalesCompletion'
 import { isCompletedSalesImport } from '../../shared/utils/settlementArchive'
@@ -102,6 +103,10 @@ function matchesQuick(salesImport: SalesDataImport, quick: SalesQuickFilter) {
   if (quick === '검수 대기') return salesImport.reviewStatus === '업로드 완료' || salesImport.reviewStatus === '검수 중'
   if (quick === '정산 대기') return salesImport.settlementStatus === '정산 가능'
   return salesImport.reviewStatus === quick
+}
+
+function displayPeriod(salesImport: SalesDataImport) {
+  return getSalesDisplayPeriod(salesImport, getImportCampaign(salesImport))
 }
 
 function isCampaignEnded(salesImport: SalesDataImport) {
@@ -222,9 +227,9 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
     '정산 대기': scopedImports.filter((item) => item.settlementStatus === '정산 가능').length,
   }), [scopedImports])
 
-  const months = [...new Set(scopedImports.map(item => (item.salesEndDate || getImportCampaign(item)?.endDate || '').slice(0, 7)).filter(Boolean))].sort().reverse()
+  const months = [...new Set(scopedImports.map(item => (displayPeriod(item).endDate || '').slice(0, 7)).filter(Boolean))].sort().reverse()
   const filteredImports = useMemo(() => scopedImports
-    .filter(item => !month || (item.salesEndDate || getImportCampaign(item)?.endDate || '').startsWith(month))
+    .filter(item => !month || (displayPeriod(item).endDate || '').startsWith(month))
     .filter((item) => matchesQuick(item, quick))
     .filter((item) => {
       const campaign = getImportCampaign(item)
@@ -232,8 +237,8 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
       return text.includes(search.toLowerCase().replace(/\s/g, ''))
     })
     .sort((a, b) => {
-      const aDate = a.salesEndDate || getImportCampaign(a)?.endDate || '9999-12-31'
-      const bDate = b.salesEndDate || getImportCampaign(b)?.endDate || '9999-12-31'
+      const aDate = displayPeriod(a).endDate || '9999-12-31'
+      const bDate = displayPeriod(b).endDate || '9999-12-31'
       return (oldestFirst ? 1 : -1) * aDate.localeCompare(bDate) || (a.salesEndDate || '').localeCompare(b.salesEndDate || '') || a.campaignId.localeCompare(b.campaignId)
     }), [scopedImports, quick, search, month, oldestFirst])
 
@@ -295,7 +300,7 @@ export function SalesDataPage({ initialImportId, initialEditRequested = false, o
                       <td><strong>{campaign?.campaignName ?? salesImport.campaignId}</strong><span>{campaign?.campaignCode}</span><span>{getSupplyDisplay(salesImport).label} · 정산 대상: {getSupplyDisplay(salesImport).recipient}</span>{getSupplyDisplay(salesImport).mismatch && <span>공구 공급 조건과 불일치 · 확인 필요</span>}</td>
                       <td>{salesSourceLabel(salesImport)}</td>
                       <td>{campaign?.brandName ?? '-'}<span>{campaign?.productName ?? '-'}</span></td>
-                      <td>{salesImport.salesStartDate || '-'} ~ {salesImport.salesEndDate || '-'}<span>{!(salesImport.salesEndDate || campaign?.endDate) ? '종료일 확인 필요' : `종료 후 ${Math.max(0, getDaysBetweenCalendarDates(salesImport.salesEndDate || campaign!.endDate!, getTodayInSeoul()))}일`}</span></td>
+                      <td>{displayPeriod(salesImport).startDate || '-'} ~ {displayPeriod(salesImport).endDate || '-'}<span>{!(displayPeriod(salesImport).endDate) ? '종료일 확인 필요' : `종료 후 ${Math.max(0, getDaysBetweenCalendarDates(displayPeriod(salesImport).endDate!, getTodayInSeoul()))}일`}</span></td>
                       <td>{net.netQuantity.toLocaleString('ko-KR')}</td>
                       <td>{salesImport.reviewStatus === '오류 확인 필요' ? <button className="text-button" onClick={(event) => { event.stopPropagation(); setExpandedErrorImportId((current) => current === salesImport.id ? null : salesImport.id) }} type="button"><StatusBadge label={salesImport.reviewStatus} tone={reviewTone[salesImport.reviewStatus]} /></button> : <StatusBadge label={salesImport.reviewStatus} tone={reviewTone[salesImport.reviewStatus]} />}</td>
                       <td><StatusBadge label={salesImport.manualCompletion ? '수동 완료' : salesImport.settlementStatus} tone={settlementTone[salesImport.settlementStatus]} />{salesImport.manualCompletion && <span>기록 매출 {formatCurrency(salesImport.manualCompletion.grossSales)}</span>}</td>
@@ -860,7 +865,7 @@ function SalesDataDrawer({ salesImport, rows, onClose, onManualInput, onSync }: 
           <div><dt>판매 셀러</dt><dd>{campaign?.sellerName || '-'}</dd></div>
           <div><dt>브랜드</dt><dd>{campaign?.brandName}</dd></div>
           <div><dt>상품</dt><dd>{campaign?.productName}</dd></div>
-          <div><dt>판매 기간</dt><dd>{salesImport.salesStartDate || '-'} ~ {salesImport.salesEndDate || '-'}</dd></div>
+          <div><dt>판매 기간</dt><dd>{displayPeriod(salesImport).startDate || '-'} ~ {displayPeriod(salesImport).endDate || '-'}</dd></div>
           <div><dt>담당 매니저</dt><dd>{campaign?.managerName}</dd></div>
           <div><dt>MD</dt><dd>{campaign?.mdName}</dd></div>
           <div><dt>판매 링크</dt><dd><LandingPageBadge landingPageType={campaignChannel(campaign, salesImport)} linkOwner={campaign?.linkOwner} /></dd></div>
