@@ -1150,6 +1150,11 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const copySellerMessage = async () => {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('이 브라우저에서 문구 복사를 지원하지 않습니다.')
+      if (sellerCollectsPayment) {
+        const report = salesImport && calculateVendorDocument(salesRows, salesImport, campaign)
+        const sellerAdjustment = vendorSupply ? 0 : settlement.currentCalculation.sellerDeductionTotal - sellerAdditionalPayments(settlement.currentCalculation.deductions, settlement.currentCalculation.adjustmentCalculationVersion)
+        if (report?.finalAmount === undefined || !Number.isFinite(report.finalAmount + sellerAdjustment) || report.finalAmount + sellerAdjustment <= 0) throw new Error('입금 요청액을 먼저 확인해주세요.')
+      }
       // Do not await Storage/network before clipboard: browser activation expires.
       const copiedAt = new Date()
       await navigator.clipboard.writeText(buildSellerMessage(currentMessageShare(), copiedAt))
@@ -2018,7 +2023,7 @@ function SellerSettlementDocument({ rows, sellerDocumentRef, settlement }: { row
 function SettlementDocumentActions({ receivableDocument = false, vendorDocument = false, hasRequest, statusNotice, warnings, onCopyImage, onCopyMessage, onInfo, onPreview, onRequestPayment, onSaveImage, paymentDisabled }: { receivableDocument?: boolean; vendorDocument?: boolean; hasRequest: boolean; statusNotice: PayoutStatusNotice; warnings: PaymentWarningAction[]; onCopyImage: () => void; onCopyMessage: () => void; onInfo: () => void; onPreview: () => void; onRequestPayment: () => void; onSaveImage: () => void; paymentDisabled: boolean }) {
   return (
     <div className="document-action-bar no-print">
-      <div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview} type="button">확대 보기</button><button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button><button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button><CompanyBusinessInfoCopy /><button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button><button className="secondary-button" onClick={onInfo} type="button">{vendorDocument ? '벤더 정보 등록·수정' : '셀러 정보 확인하기'}</button>{!receivableDocument && (!vendorDocument || hasRequest) && <button className={`${hasRequest ? 'payment-edit-button' : 'primary-button'} document-payment-action`} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '셀러 지급요청 수정하기' : '셀러 지급 요청'}</button>}</div>
+      <div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview} type="button">확대 보기</button><button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button><button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button><CompanyBusinessInfoCopy /><button className="secondary-button" onClick={onCopyMessage} type="button">{receivableDocument ? '입금 요청 문구 복사' : '전달 문구 복사'}</button><button className="secondary-button" onClick={onInfo} type="button">{vendorDocument ? '벤더 정보 등록·수정' : '셀러 정보 확인하기'}</button>{!receivableDocument && (!vendorDocument || hasRequest) && <button className={`${hasRequest ? 'payment-edit-button' : 'primary-button'} document-payment-action`} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '셀러 지급요청 수정하기' : '셀러 지급 요청'}</button>}</div>
       <div className={`document-status-region ${statusNotice.tone === 'unconfirmed' ? 'is-unconfirmed' : ''}`}><PayoutStatusBanner notice={statusNotice} /><PaymentBlockReasons ownerLabel="셀러" warnings={vendorDocument || receivableDocument ? [] : warnings} /></div>
     </div>
   )
