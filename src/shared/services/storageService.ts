@@ -44,6 +44,20 @@ const LEGACY_KEYS: Partial<Record<(typeof STORAGE_KEYS)[keyof typeof STORAGE_KEY
 
 export type StorageUpdateOrigin = 'local' | 'cloud'
 
+let stagedValues: Map<string, unknown> | undefined
+let stagedWrites: Map<string, unknown> | undefined
+/** Run existing synchronous rules without local writes or cloud-sync events. */
+export function captureStorageWrites<T>(seed: Map<string, unknown>, action: () => T) {
+  if (stagedValues) throw new Error('저장 미리보기가 이미 진행 중입니다.')
+  stagedValues = new Map(seed)
+  stagedWrites = new Map()
+  try {
+    const result = action()
+    if (result && typeof (result as { then?: unknown }).then === 'function') throw new Error('저장 미리보기는 동기 작업만 지원합니다.')
+    return { result, writes: new Map(stagedWrites) }
+  } finally { stagedValues = undefined; stagedWrites = undefined }
+}
+
 function notifyStorageUpdated(key: string, origin: StorageUpdateOrigin = 'local') {
   if (typeof window === 'undefined') return
   queueMicrotask(() => window.dispatchEvent(new CustomEvent('t3-storage-updated', { detail: { key, origin } })))
@@ -51,6 +65,7 @@ function notifyStorageUpdated(key: string, origin: StorageUpdateOrigin = 'local'
 
 export const storageService = {
   getItem<T>(key: string, fallback: T): T {
+    if (stagedValues) return JSON.parse(JSON.stringify(stagedValues.get(key) ?? fallback)) as T
     if (typeof localStorage === 'undefined') return fallback
     const value = localStorage.getItem(key) ?? (LEGACY_KEYS[key as keyof typeof LEGACY_KEYS] ? localStorage.getItem(LEGACY_KEYS[key as keyof typeof LEGACY_KEYS] ?? '') : null)
     if (!value) return fallback
@@ -62,6 +77,10 @@ export const storageService = {
     }
   },
   setItem<T>(key: string, value: T) {
+    if (stagedValues && stagedWrites) {
+      const copy: unknown = JSON.parse(JSON.stringify(value))
+      stagedValues.set(key, copy); stagedWrites.set(key, copy); return
+    }
     if (typeof localStorage === 'undefined') return
     localStorage.setItem(key, JSON.stringify(value))
     notifyStorageUpdated(key)
