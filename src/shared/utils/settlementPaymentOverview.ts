@@ -1,17 +1,22 @@
 import type { Settlement } from '../types/settlement'
 import type { PaymentRequest } from '../types/sellerSettlement'
 import type { Campaign } from '../types/campaign'
+import type { SalesDataImport } from '../types/salesData'
 import { isCompanyDirectManager } from './managerPayment'
 const paid = new Set(['payment_completed','remittance_confirmed'])
 const active = new Set(['evidence_pending','request_ready','approval_pending','approved','sent','on_hold'])
-export function settlementPaymentOverview(settlements:Settlement[],requests:PaymentRequest[],campaigns:Map<string,Campaign>) {
+export function settlementPaymentOverview(settlements:Settlement[],requests:PaymentRequest[],campaigns:Map<string,Campaign>,salesById:Map<string,SalesDataImport>=new Map()) {
  const byId = new Map<string,PaymentRequest>()
  for(const request of requests){const old=byId.get(request.id);if(!old || !paid.has(old.status))byId.set(request.id,request)}
  const unique = [...byId.values()]
  const recipients = settlements.filter(item=>!['completed','canceled'].includes(item.status)).flatMap(settlement=> {
   const campaign=campaigns.get(settlement.campaignId)
+  const sales=salesById.get(settlement.salesDataImportId)
+  const channel=sales?.settlementTerms?.salesChannelType ?? campaign?.salesChannelType ?? (new Set(campaign?.proposalSnapshots?.map(item=>item.actualSalesChannel)).size === 1 ? campaign?.proposalSnapshots?.[0]?.actualSalesChannel : undefined)
+  const vendorSupply=(sales?.supplyAudience ?? campaign?.supplyAudience)==='vendor'
   return (['seller','manager'] as const).flatMap(ownerType=> {
-   if(ownerType==='manager' && (campaign?.supplyAudience==='vendor' || isCompanyDirectManager(campaign?.managerId,campaign?.managerName)))return []
+   if(ownerType==='seller' && (vendorSupply || channel==='seller_checkout'))return []
+   if(ownerType==='manager' && (vendorSupply || isCompanyDirectManager(campaign?.managerId,campaign?.managerName)))return []
    const matching=unique.filter(request=>request.settlementId===settlement.id && request.recipientType===ownerType)
    if((ownerType==='seller'?settlement.sellerPaymentCompleted:settlement.managerPaymentCompleted) || matching.some(request=>paid.has(request.status)))return []
    const pending=matching.filter(request=>active.has(request.status)).sort((a,b)=>(b.requestedAt || '').localeCompare(a.requestedAt || ''))[0]
