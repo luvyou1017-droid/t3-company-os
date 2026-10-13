@@ -1,3 +1,4 @@
+import { settlementPaymentOverview } from '../../shared/utils/settlementPaymentOverview'
 import { StatementIdentityRows, waitForStatementIdentity } from './components/StatementIdentityRows'
 import { matchesBusinessSearch } from '../../shared/utils/statementIdentity'
 import { adjustmentLabel, namedAdjustmentRows } from '../../shared/utils/settlementAdjustmentLabels'
@@ -167,7 +168,7 @@ type SettlementCalendarItem = {
 function buildSettlementCalendarItems(settlements: Settlement[], campaigns: Map<string, Campaign>, sales: Map<string, SalesDataImport>): SettlementCalendarItem[] {
   const settlementById = new Map(settlements.map((settlement) => [settlement.id, settlement]))
   const today = koreaToday()
-  return paymentRequestService.getOperationalPaymentRequests().filter((request) => request.status !== 'draft' && request.status !== 'canceled').flatMap((request) => {
+  return paymentRequestService.getOperationalPaymentRequests().filter((request) => !['draft','canceled','rejected'].includes(request.status)).flatMap((request) => {
     const settlement = settlementById.get(request.settlementId)
     if (!settlement) return []
     const campaign = campaigns.get(settlement.campaignId)
@@ -183,14 +184,7 @@ function buildSettlementCalendarItems(settlements: Settlement[], campaigns: Map<
 }
 
 function calculateUnrequestedAmount(settlements: Settlement[]) {
-  const requests = paymentRequestService.getOperationalPaymentRequests().filter((request) => request.status !== 'canceled')
-  return settlements.filter((settlement) => settlement.status !== 'completed' && settlement.status !== 'canceled').reduce((sum, settlement) => {
-    const sellerRequested = requests.some((request) => request.settlementId === settlement.id && request.recipientType === 'seller')
-    const managerRequested = requests.some((request) => request.settlementId === settlement.id && request.recipientType === 'manager')
-    const sellerAmount = settlement.sellerPaymentCompleted || sellerRequested ? 0 : Math.max(settlement.currentCalculation.finalSellerPaymentAmount, 0)
-    const managerAmount = settlement.managerPaymentCompleted || managerRequested ? 0 : Math.max(settlement.currentCalculation.finalPaymentAmount, 0)
-    return sum + sellerAmount + managerAmount
-  }, 0)
+  return settlementPaymentOverview(settlements,paymentRequestService.getOperationalPaymentRequests(),new Map(campaignService.getCampaigns().map(campaign=>[campaign.id,campaign]))).unrequestedAmount
 }
 
 function SettlementCalendar({ items, totalUnrequested, unpricedCount, onOpenDetail }: { items: SettlementCalendarItem[]; totalUnrequested: number; unpricedCount: number; onOpenDetail: (settlementId: string) => void }) {
@@ -332,9 +326,11 @@ function ManagerPerformance({ settlements, onOpenDetail }: { settlements: Settle
 
 export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: string) => void }) {
   const [settlements, setSettlements] = useState(() => settlementService.getSettlements())
-  const [view, setView] = useState<'list' | 'archive' | 'managers' | 'calendar' | 'references'>('list')
-  const changeView = (next: 'list' | 'archive' | 'managers' | 'calendar' | 'references') => {
+  const [view, setView] = useState<'list' | 'unrequested' | 'archive' | 'managers' | 'calendar' | 'references'>('list')
+  const [kpiFilter,setKpiFilter] = useState('')
+  const changeView = (next: 'list' | 'unrequested' | 'archive' | 'managers' | 'calendar' | 'references') => {
     setView(next)
+    setKpiFilter('')
     sessionStorage.setItem('settlement-view', next)
     sessionStorage.removeItem('settlement-list-scroll')
   }
@@ -386,11 +382,17 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
   const archivedCount = settlements.filter(item => isArchivedSettlement(item)).length
   const rowNamesByImport = new Map<string, string[]>()
   for (const row of salesDataService.getSalesDataRows()) rowNamesByImport.set(row.salesDataImportId, [...(rowNamesByImport.get(row.salesDataImportId) ?? []), row.productName || '', row.optionName])
+  const overview = settlementPaymentOverview(settlements,paymentRequestService.getOperationalPaymentRequests(),campaignsById)
   const filtered = settlements.filter(item => {
     if (isArchivedSettlement(item) !== (view === 'archive')) return false
+    if(view==='unrequested' && !overview.unrequestedIds.has(item.id))return false
     const campaign = campaignsById.get(item.campaignId)
+    if(kpiFilter==='지급신청 승인 대기' && !overview.recipients.some(row=>row.settlementId===item.id && row.request?.status==='approval_pending'))return false
+    if(kpiFilter==='승인 완료 · 지급 대기' && !overview.recipients.some(row=>row.settlementId===item.id && ['approved','sent'].includes(row.request?.status || '')))return false
+    if(kpiFilter==='확정 전 작성 중' && (item.status!=='draft' || settlementService.isSettlementConfirmed(item)))return false
+    if(kpiFilter==='수정·재신청 필요' && item.status!=='revision_required' && !overview.unrequested.some(row=>row.settlementId===item.id && row.rejected))return false
     const pendingApproval = item.sellerPaymentRequestStatus === 'approval_pending' || item.managerPaymentRequestStatus === 'approval_pending'
-    const statusMatch = view === 'archive' || quick === 'all' || (quick === 'approval_pending' ? pendingApproval || item.status === quick : item.status === quick)
+    const statusMatch = view === 'archive' || view === 'unrequested' || quick === 'all' || (quick === 'approval_pending' ? pendingApproval || item.status === quick : item.status === quick)
     const query = listFilters.query
     const names = [campaign?.campaignName, campaign?.sellerName, campaign?.brandName, campaign?.productName, campaign?.round, campaign?.managerName, ...(rowNamesByImport.get(item.salesDataImportId) ?? [])]
     const end = campaign?.endDate || ''
@@ -403,18 +405,16 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
 
   const kpis = [
     ['정산 생성 대기', eligibleSales.length],
-    ['작성 중', settlements.filter((item) => item.status === 'draft').length],
+    ['확정 전 작성 중', settlements.filter((item) => item.status === 'draft' && !settlementService.isSettlementConfirmed(item)).length],
     ['검토 대기', settlements.filter((item) => item.status === 'review_pending').length],
-    ['수정 필요', settlements.filter((item) => item.status === 'revision_required').length],
-    ['대표 승인 대기', settlements.filter((item) => item.status === 'approval_pending' || item.sellerPaymentRequestStatus === 'approval_pending' || item.managerPaymentRequestStatus === 'approval_pending').length],
-    ['지급 준비', settlements.filter((item) => item.status === 'payment_ready').length],
+    ['수정·재신청 필요', new Set([...settlements.filter(item=>item.status==='revision_required').map(item=>item.id),...overview.unrequested.filter(row=>row.rejected).map(row=>row.settlementId)]).size],
+    ['지급신청 승인 대기', overview.approvalPending],
+    ['승인 완료 · 지급 대기', overview.paymentReady],
   ] as const
 
   const weekEnd = addCalendarDays(koreaToday(), 6)
   const dueThisWeek = calendarItems.filter((item) => item.dueDate >= koreaToday() && item.dueDate <= weekEnd).reduce((total, item) => total + item.remainingAmount, 0)
-  const sellerDue = settlements.filter((item) => item.status !== 'completed').reduce((total, item) => total + item.currentCalculation.finalSellerPaymentAmount, 0)
-  const managerDue = settlements.filter((item) => item.status !== 'completed').reduce((total, item) => total + item.currentCalculation.finalPaymentAmount, 0)
-  const evidenceMissing = settlements.filter((item) => item.evidenceStatus !== 'confirmed').length
+  const {sellerDue,managerDue,evidenceMissing} = overview
   const calculationErrors = settlements.filter((item) => !validateSettlement(item).valid).length
 
   const createFirstReadySettlement = async () => {
@@ -440,27 +440,29 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
           {view === 'list' && <button className="primary-button" disabled={!eligibleSales.length} onClick={createFirstReadySettlement} type="button">정산 생성</button>}
         </div>
         <nav className="settlement-view-tabs" aria-label="정산 관리 화면 선택">
-          {([['list', '처리할 정산'], ['archive', `완료 내역 (${archivedCount})`], ['managers', '매니저별 KPI'], ['calendar', '정산 달력'], ['references', '매출 레퍼런스']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={view === id} className={view === id ? 'is-active' : ''} onClick={() => changeView(id)}>{label}</button>)}
+          {([['list', '처리할 정산'], ['unrequested', `지급신청 미신청 (${overview.unrequestedIds.size})`], ['archive', `완료 내역 (${archivedCount})`], ['managers', '매니저별 KPI'], ['calendar', '정산 달력'], ['references', '매출 레퍼런스']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={view === id} className={view === id ? 'is-active' : ''} onClick={() => changeView(id)}>{label}</button>)}
         </nav>
-        {view === 'list' && <>
+        {(view === 'list' || view === 'unrequested') && <>
         <div className="settlement-kpi-grid">
           {kpis.map(([label, value]) => (
             <button className="summary-count-card" key={label} onClick={() => {
-              const target = settlements.find((item) => statusLabel(item.status) === label.replace('작성 중', '작성 중'))
-              setQuick(label === '대표 승인 대기' ? 'approval_pending' : target?.status ?? 'all')
+              setKpiFilter(label)
+              setQuick(label==='검토 대기' ? 'review_pending' : 'all')
+              setView('list')
             }} type="button">
               <span>{label}</span>
-              <strong>{value}</strong>
+              <strong>{value}</strong><small>{['지급신청 승인 대기','승인 완료 · 지급 대기'].includes(label)?'지급 대상 기준':'정산서 기준'}</small>
             </button>
           ))}
         </div>
         <div className="settlement-money-kpis">
           <Metric label="이번 주 지급 예정액" value={money(dueThisWeek)} />
-          <Metric label="셀러 지급 예정액" value={money(sellerDue)} />
-          <Metric label="매니저 지급 예정액" value={money(managerDue)} />
-          <Metric label="증빙 미확인 건수" value={`${evidenceMissing}건`} />
+          <Metric label="셀러 미지급 예정액" value={money(sellerDue)} />
+          <Metric label="매니저 미지급 예정액" value={money(managerDue)} />
+          <Metric label="지급요청 증빙 미확인" value={`${evidenceMissing}건`} />
           <Metric label="계산 오류 건수" value={`${calculationErrors}건`} tone={calculationErrors ? 'danger' : 'complete'} />
         </div>
+        <p className="inline-notice">미지급 예정액은 신청 전 예상액과 신청 후 대기액을 합산하며, 지급 완료된 셀러·매니저 금액은 제외합니다. 미신청 {money(overview.unrequestedAmount)} · {overview.unrequested.length}개 지급 대상. 증빙 미확인은 활성 지급요청만 집계합니다.</p>
         </>}
       </section>
 
@@ -472,11 +474,11 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
 
       {view === 'managers' && <div className="settlement-view"><ManagerPerformance settlements={settlements} onOpenDetail={onOpenDetail} /></div>}
 
-      {(view === 'list' || view === 'archive') && <section className="panel settlement-view">
+      {(view === 'list' || view === 'unrequested' || view === 'archive') && <section className="panel settlement-view">
         <div className="panel__header">
           <div>
-            <h2>{view === 'archive' ? '완료 내역' : '처리할 정산'}</h2>
-            <p>{view === 'archive' ? '최종 정산 완료된 건입니다. 검색으로 과거 기록과 정산서를 확인할 수 있습니다.' : '아직 최종 완료되지 않은 정산만 표시합니다. 완료된 건은 완료 내역에서 확인해주세요.'}</p>
+            <h2>{view === 'archive' ? '완료 내역' : view==='unrequested' ? '지급신청 미신청' : '처리할 정산'}</h2>
+            <p>{view === 'unrequested' ? '아직 지급신청이 없는 대상만 표시합니다. 확정 전 작성 중, 확정 후 미신청, 취소·반려 후 재신청을 구분해 확인해주세요.' : view === 'archive' ? '최종 정산 완료된 건입니다. 검색으로 과거 기록과 정산서를 확인할 수 있습니다.' : '아직 최종 완료되지 않은 정산만 표시합니다. 완료된 건은 완료 내역에서 확인해주세요.'}</p>
           </div>
           <strong className="result-count">{filtered.length}건</strong>
         </div>
@@ -493,7 +495,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
             <table className="schedule-table settlement-table">
               <thead>
                 <tr>
-                  <th>공동구매</th><th>셀러</th><th>브랜드</th><th>판매 기간</th><th>정산 버전</th><th>총매출</th><th>총수수료</th><th>벤더 수수료</th><th>차감 합계</th><th>최종 배분 대상 금액</th><th>매니저 지급액</th><th>회사 귀속액</th><th>셀러 지급액</th><th>증빙 상태</th><th>정산 상태</th><th>정산 담당자</th><th>지급 예정일</th>
+                  <th>공동구매 / 공구기간</th><th>총매출</th><th>총수수료</th><th>벤더 수수료</th><th>차감 합계</th><th>최종 배분 대상 금액</th><th>매니저 지급액</th><th>회사 귀속액</th><th>셀러 지급액</th><th>증빙 상태</th><th>정산 상태</th><th>정산 담당자</th><th>지급 예정일</th>
                 </tr>
               </thead>
               <tbody>
@@ -502,11 +504,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
                   const salesImport = salesById.get(settlement.salesDataImportId)
                   return (
                     <tr key={settlement.id}>
-                      <td><button className="settlement-name-link" onClick={() => { sessionStorage.setItem('settlement-list-scroll', String(window.scrollY)); onOpenDetail(settlement.id) }} type="button"><strong>{campaign?.campaignName ?? settlement.campaignId}</strong><span>{campaign?.campaignCode}</span></button></td>
-                      <td>{campaign?.sellerName ?? '-'}</td>
-                      <td>{campaign?.brandName ?? '-'}</td>
-                      <td>{formatKoreanDate(salesImport?.salesStartDate)} ~ {formatKoreanDate(salesImport?.salesEndDate)}</td>
-                      <td>v{settlement.settlementVersion}</td>
+                      <td><button className="settlement-name-link" onClick={() => { sessionStorage.setItem('settlement-list-scroll', String(window.scrollY)); onOpenDetail(settlement.id) }} type="button"><strong>{campaign?.campaignName ?? settlement.campaignId}</strong><span>{formatKoreanDate(campaign?.startDate || salesImport?.salesStartDate)} ~ {formatKoreanDate(campaign?.endDate || salesImport?.salesEndDate)}</span></button>{view==='unrequested' && <small>{overview.unrequested.filter(row=>row.settlementId===settlement.id).map(row=>`${row.ownerType==='seller'?'셀러':'매니저'} ${row.rejected?'반려·재신청':settlementService.isSettlementConfirmed(settlement)?'확정 후 미신청':'확정 전 작성 중'}`).join(' · ')}</small>}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.grossSales)}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.grossCommission)}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.vendorCommission)}</td>
@@ -595,7 +593,7 @@ function SellerBusinessEditor({
     {isFreelancer ? <>
       <label className="form-field"><span>실명</span><input autoComplete="name" onChange={(event) => setDraft((value) => ({ ...value, realName: event.target.value }))} value={draft.realName} /></label>
       <label className="form-field"><span>주민등록번호</span><ResidentRegistrationNumberInput onChange={(residentNumber) => setDraft((value) => ({ ...value, residentNumber }))} value={draft.residentNumber} /></label>
-      <p>주민등록번호는 현재 로컬 저장소에 저장되지 않으며, 이 화면을 닫으면 폐기됩니다. 운영 연결 시 보안 서버에서 암호화·권한 기반으로 처리합니다.</p>
+      <p>주민번호는 대표·관리자·정산 담당자 권한으로 암호화 서버에 저장합니다. 브라우저 저장소와 정산 Snapshot에는 저장하지 않습니다.</p>
     </> : <>
       <label className="form-field"><span>사업자명</span><input autoFocus onChange={(event) => setDraft((value) => ({ ...value, businessName: event.target.value }))} placeholder="등록된 사업자명을 입력하세요" value={draft.businessName} /></label>
       <p>셀러명과 사업자명은 별도 정보로 저장됩니다. 증빙 유형은 사업자 유형에 따라 자동 결정됩니다.</p>
@@ -651,6 +649,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const managerDocumentRef = useRef<HTMLDivElement | null>(null)
   const companyDocumentRef = useRef<HTMLDivElement | null>(null)
   const sellerExcelInputRef = useRef<HTMLInputElement | null>(null)
+  useEffect(()=>{if(!['ceo','admin','settlement_cs'].includes(companyProfile.role))return;const current=settlementService.getSettlementById(settlementId);const owner=current?getCampaign(current):undefined;if(!owner)return;let active=true;void sensitiveIdentityService.refresh([{ownerType:'seller',ownerId:owner.sellerId},{ownerType:'manager',ownerId:owner.managerId}]).then(()=>{if(active)setMasterRevision(value=>value+1)}).catch(()=>{});return()=>{active=false}},[settlementId,companyProfile.role])
   useEffect(() => {
     const current = settlementService.getSettlementById(settlementId)
     if (!current || settlementService.isSettlementConfirmed(current) || current.currentCalculation.adjustmentCalculationVersion === 2) return
@@ -965,7 +964,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     try {
       await sellerMasterService.loadSellers(true)
       const currentSellerProfile = sellerMasterService.getSellerById(campaign.sellerId) ?? sellerProfile
-      if (isFreelancer && draft.residentNumber) sensitiveIdentityService.stage('seller', campaign.sellerId, draft.residentNumber)
+      if (isFreelancer && draft.residentNumber) await sensitiveIdentityService.save('seller', campaign.sellerId, draft.residentNumber, draft.realName)
       const savedProfile = await sellerMasterService.saveSellerProfile({
         id: campaign.sellerId,
         name: campaign.sellerName,
@@ -1023,13 +1022,14 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     const isFreelancer = managerBusinessTypeDraft === 'freelancer'
     if (target === 'business' && isFreelancer && (!managerRealNameDraft.trim() || (!sensitiveIdentityService.has('manager', campaign.managerId) && managerResidentNumberDraft.replace(/[^0-9]/g, '').length !== 13))) return
     if (target === 'business' && !isFreelancer && !managerBusinessNameDraft.trim()) return
-    if (target === 'business' && isFreelancer && managerResidentNumberDraft) sensitiveIdentityService.stage('manager', campaign.managerId, managerResidentNumberDraft)
     try {
+      if (target === 'business' && isFreelancer && managerResidentNumberDraft) await sensitiveIdentityService.save('manager', campaign.managerId, managerResidentNumberDraft, managerRealNameDraft)
       managerPaymentService.saveProfile({ id: campaign.managerId, name: campaign.managerName, realName: isFreelancer ? managerRealNameDraft.trim() : managerProfile?.realName, businessName: isFreelancer ? undefined : managerBusinessNameDraft.trim() || undefined, businessType: managerBusinessTypeDraft, bankName: managerAccountDraft.bankName.trim(), accountNumber: managerAccountDraft.accountNumber.trim(), accountHolder: managerAccountDraft.accountHolder.trim(), taxRegistrationNumber: managerProfile?.taxRegistrationNumber })
       await cloudSyncService.syncKeys([STORAGE_KEYS.managerMasters])
       settlementService.updateEvidence(settlement.id, settlement.evidenceStatus, settlement.taxEvidenceConfirmed, true)
       setSettlement(settlementService.getSettlementById(settlement.id) ?? null)
       setMasterRevision((value) => value + 1)
+      setManagerResidentNumberDraft('')
       setReadinessModal('manager-info')
       showClipboardToast('매니저 정보가 공용 DB에 저장되었습니다.')
     } catch (error) {
@@ -1500,9 +1500,9 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
           {readinessModal === 'business' && <SellerBusinessEditor hasStoredResidentNumber={sensitiveIdentityService.has('seller', campaign.sellerId)} initialBusinessName={sellerProfile?.businessName ?? ''} initialBusinessType={effectiveSellerBusinessType ?? 'general_business'} initialRealName={sellerProfile?.realName ?? (effectiveSellerBusinessType === 'freelancer' ? campaign.sellerName : '')} onSave={saveSellerBusinessType} sellerName={campaign.sellerName} />}
           {readinessModal === 'account' && <SellerAccountEditor initial={accountDraft} onSave={saveSellerAccount} />}
           {readinessModal === 'vendor-info' && salesImport && <VendorPartnerDetails key={salesImport.id} source={salesImport} canEdit={canEditCurrentSettlement} onSaved={() => { setMasterRevision(value => value + 1); refreshRevisionState(); setReadinessModal(null) }} />}
-          {readinessModal === 'seller-info' && <><h2>셀러 정보 확인하기</h2><dl className="settlement-readiness-summary"><div><dt>셀러명</dt><dd>{campaign.sellerName}</dd></div>{effectiveSellerBusinessType === 'freelancer' ? <><div><dt>실명</dt><dd>{sellerProfile?.realName || campaign.sellerName}</dd></div><div><dt>주민등록번호</dt><dd>{sensitiveIdentityService.getMasked('seller', campaign.sellerId) || '보안 서버 연동 필요'}</dd></div></> : <div><dt>사업자명</dt><dd>{sellerProfile?.businessName || '미등록'}</dd></div>}<div><dt>사업자 유형</dt><dd>{effectiveSellerBusinessType ? businessTypeLabels[effectiveSellerBusinessType] : '미등록'}</dd></div><div><dt>은행명</dt><dd>{sellerProfile?.bankName || '미등록'}</dd></div><div><dt>계좌번호</dt><dd>{sellerProfile?.accountNumber || '미등록'}</dd></div><div><dt>예금주명</dt><dd>{sellerProfile?.accountHolder || '미등록'}</dd></div></dl><div className="modal-actions"><button className="secondary-button" onClick={openSellerBusinessType} type="button">사업자 정보 수정</button><button className="secondary-button" onClick={openSellerAccount} type="button">계좌 수정</button><button className="primary-button" onClick={() => setReadinessModal(null)} type="button">확인</button></div></>}
-          {readinessModal === 'manager-info' && <><h2>매니저 정보 확인하기</h2><CampaignManagerEditor campaign={campaign} allowed={canEditCurrentSettlement && !settlementConfirmed && !settlement.settlementConfirmedAt && !settlement.settlementConfirmedVersion && !sellerPaymentRequest && !managerPaymentRequest && !settlement.sellerPaymentCompleted && !settlement.managerPaymentCompleted} onSaved={() => setMasterRevision(value => value + 1)} /><dl className="settlement-readiness-summary"><div><dt>매니저명</dt><dd>{campaign.managerName}</dd></div>{managerBusinessType === 'freelancer' ? <><div><dt>실명</dt><dd>{managerProfile?.realName || campaign.managerName}</dd></div><div><dt>주민등록번호</dt><dd>{sensitiveIdentityService.getMasked('manager', campaign.managerId) || '보안 서버 연동 필요'}</dd></div></> : <div><dt>사업자명</dt><dd>{managerProfile?.businessName || '미등록'}</dd></div>}<div><dt>사업자 유형</dt><dd>{businessTypeLabels[managerBusinessType]}</dd></div><div><dt>은행명</dt><dd>{managerProfile?.bankName || '미등록'}</dd></div><div><dt>계좌번호</dt><dd>{managerProfile?.accountNumber || '미등록'}</dd></div><div><dt>예금주명</dt><dd>{managerProfile?.accountHolder || '미등록'}</dd></div></dl><div className="modal-actions"><button className="secondary-button" onClick={openManagerBusinessEdit} type="button">사업자 정보 수정</button><button className="secondary-button" onClick={openManagerAccountEdit} type="button">계좌 수정</button><button className="primary-button" onClick={() => setReadinessModal(null)} type="button">확인</button></div></>}
-          {readinessModal === 'manager-business-edit' && <><h2>매니저 사업자 정보 수정</h2><label className="form-field"><span>매니저명</span><input disabled value={campaign.managerName} /></label><label className="form-field"><span>사업자 유형</span><select onChange={(event) => setManagerBusinessTypeDraft(event.target.value as SellerBusinessType)} value={managerBusinessTypeDraft}><option value="corporation">법인</option><option value="general_business">일반 개인사업자</option><option value="simplified_business">간이사업자</option><option value="freelancer">개인 프리랜서</option></select></label>{managerBusinessTypeDraft === 'freelancer' ? <><label className="form-field"><span>실명</span><input autoComplete="name" onChange={(event) => setManagerRealNameDraft(event.target.value)} value={managerRealNameDraft} /></label><label className="form-field"><span>주민등록번호</span><ResidentRegistrationNumberInput onChange={setManagerResidentNumberDraft} value={managerResidentNumberDraft} /></label><p>주민등록번호는 현재 로컬 저장소에 저장되지 않으며, 운영 연결 시 보안 서버에서 처리합니다.</p></> : <label className="form-field"><span>사업자명</span><input onChange={(event) => setManagerBusinessNameDraft(event.target.value)} value={managerBusinessNameDraft} /></label>}<div className="modal-actions"><button className="secondary-button" onClick={() => setReadinessModal('manager-info')} type="button">취소</button><button className="primary-button" disabled={managerBusinessTypeDraft === 'freelancer' ? !managerRealNameDraft.trim() || (!sensitiveIdentityService.has('manager', campaign.managerId) && managerResidentNumberDraft.replace(/\D/g, '').length !== 13) : !managerBusinessNameDraft.trim()} onClick={() => saveManagerProfileDraft('business')} type="button">저장</button></div></>}
+          {readinessModal === 'seller-info' && <><h2>셀러 정보 확인하기</h2><dl className="settlement-readiness-summary"><div><dt>셀러명</dt><dd>{campaign.sellerName}</dd></div>{effectiveSellerBusinessType === 'freelancer' ? <><div><dt>실명</dt><dd>{sellerProfile?.realName || campaign.sellerName}</dd></div><div><dt>주민등록번호</dt><dd>{sensitiveIdentityService.getMasked('seller', campaign.sellerId) || '주민번호 미등록 · 원천세 화면에서 등록 가능'}</dd></div></> : <div><dt>사업자명</dt><dd>{sellerProfile?.businessName || '미등록'}</dd></div>}<div><dt>사업자 유형</dt><dd>{effectiveSellerBusinessType ? businessTypeLabels[effectiveSellerBusinessType] : '미등록'}</dd></div><div><dt>은행명</dt><dd>{sellerProfile?.bankName || '미등록'}</dd></div><div><dt>계좌번호</dt><dd>{sellerProfile?.accountNumber || '미등록'}</dd></div><div><dt>예금주명</dt><dd>{sellerProfile?.accountHolder || '미등록'}</dd></div></dl><div className="modal-actions"><button className="secondary-button" onClick={openSellerBusinessType} type="button">사업자 정보 수정</button><button className="secondary-button" onClick={openSellerAccount} type="button">계좌 수정</button><button className="primary-button" onClick={() => setReadinessModal(null)} type="button">확인</button></div></>}
+          {readinessModal === 'manager-info' && <><h2>매니저 정보 확인하기</h2><CampaignManagerEditor campaign={campaign} allowed={canEditCurrentSettlement && !settlementConfirmed && !settlement.settlementConfirmedAt && !settlement.settlementConfirmedVersion && !sellerPaymentRequest && !managerPaymentRequest && !settlement.sellerPaymentCompleted && !settlement.managerPaymentCompleted} onSaved={() => setMasterRevision(value => value + 1)} /><dl className="settlement-readiness-summary"><div><dt>매니저명</dt><dd>{campaign.managerName}</dd></div>{managerBusinessType === 'freelancer' ? <><div><dt>실명</dt><dd>{managerProfile?.realName || campaign.managerName}</dd></div><div><dt>주민등록번호</dt><dd>{sensitiveIdentityService.getMasked('manager', campaign.managerId) || '주민번호 미등록 · 원천세 화면에서 등록 가능'}</dd></div></> : <div><dt>사업자명</dt><dd>{managerProfile?.businessName || '미등록'}</dd></div>}<div><dt>사업자 유형</dt><dd>{businessTypeLabels[managerBusinessType]}</dd></div><div><dt>은행명</dt><dd>{managerProfile?.bankName || '미등록'}</dd></div><div><dt>계좌번호</dt><dd>{managerProfile?.accountNumber || '미등록'}</dd></div><div><dt>예금주명</dt><dd>{managerProfile?.accountHolder || '미등록'}</dd></div></dl><div className="modal-actions"><button className="secondary-button" onClick={openManagerBusinessEdit} type="button">사업자 정보 수정</button><button className="secondary-button" onClick={openManagerAccountEdit} type="button">계좌 수정</button><button className="primary-button" onClick={() => setReadinessModal(null)} type="button">확인</button></div></>}
+          {readinessModal === 'manager-business-edit' && <><h2>매니저 사업자 정보 수정</h2><label className="form-field"><span>매니저명</span><input disabled value={campaign.managerName} /></label><label className="form-field"><span>사업자 유형</span><select onChange={(event) => setManagerBusinessTypeDraft(event.target.value as SellerBusinessType)} value={managerBusinessTypeDraft}><option value="corporation">법인</option><option value="general_business">일반 개인사업자</option><option value="simplified_business">간이사업자</option><option value="freelancer">개인 프리랜서</option></select></label>{managerBusinessTypeDraft === 'freelancer' ? <><label className="form-field"><span>실명</span><input autoComplete="name" onChange={(event) => setManagerRealNameDraft(event.target.value)} value={managerRealNameDraft} /></label><label className="form-field"><span>주민등록번호</span><ResidentRegistrationNumberInput onChange={setManagerResidentNumberDraft} value={managerResidentNumberDraft} /></label><p>주민번호는 대표·관리자·정산 담당자 권한으로 암호화 서버에 저장합니다. 원천세 화면에서도 등록할 수 있습니다.</p></> : <label className="form-field"><span>사업자명</span><input onChange={(event) => setManagerBusinessNameDraft(event.target.value)} value={managerBusinessNameDraft} /></label>}<div className="modal-actions"><button className="secondary-button" onClick={() => setReadinessModal('manager-info')} type="button">취소</button><button className="primary-button" disabled={managerBusinessTypeDraft === 'freelancer' ? !managerRealNameDraft.trim() || (!sensitiveIdentityService.has('manager', campaign.managerId) && managerResidentNumberDraft.replace(/\D/g, '').length !== 13) : !managerBusinessNameDraft.trim()} onClick={() => saveManagerProfileDraft('business')} type="button">저장</button></div></>}
           {readinessModal === 'manager-account-edit' && <ManagerAccountEditor key={campaign.managerId} initial={{ bankName: managerProfile?.bankName ?? '', accountNumber: managerProfile?.accountNumber ?? '', accountHolder: managerProfile?.accountHolder ?? '' }} onCancel={() => setReadinessModal('manager-info')} onSave={async value => {
             await managerAccountService.save(campaign.managerId, value)
             setMasterRevision(revision => revision + 1)

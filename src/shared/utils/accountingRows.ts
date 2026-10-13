@@ -3,6 +3,7 @@ import type { WithholdingTaxItem } from '../types/withholdingTax'
 import type { PaymentRequest } from '../types/sellerSettlement'
 
 export type AccountingRow = {
+  ownerType?: 'seller'|'manager'; ownerId?: string; paymentRequestId?: string;
   id: string; month: string; name: string; owner: string; gross: number;
   base?: number; incomeTax?: number; localTax?: number; net: number; paidAt: string;
   reportStatus: string; paymentStatus: string;
@@ -26,7 +27,7 @@ export function accountingRows(items: WithholdingTaxItem[], requests: PaymentReq
     const preserved = !!item && ['uploaded','reported','paid'].includes(item.status)
     const month = completed ? (preserved ? item.paymentMonth : paidAt.slice(0,7)) : ''
     const dateConflict = completed && (!paidAt || (preserved && month !== paidAt.slice(0,7)))
-    return [{ id: item?.id ?? request.id, month,
+    return [{ ownerType: request.recipientType, ownerId: request.recipientId, paymentRequestId: request.id, id: item?.id ?? request.id, month,
       name: request.recipientName, owner: request.recipientType === 'seller' ? '셀러' : '매니저',
       gross: request.grossSettlementAmount, base, incomeTax, localTax,
       net: request.actualPaidAmount ?? request.finalPaymentAmount, paidAt,

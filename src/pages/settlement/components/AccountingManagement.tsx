@@ -1,3 +1,6 @@
+import { taxIdentityService, type TaxIdentityStatus, type TaxIdentityTarget } from '../../../shared/services/taxIdentityService'
+import { taxIdentityExportRows } from '../../../shared/utils/taxIdentityExport'
+import { ResidentRegistrationNumberInput } from '../../../shared/components/ResidentRegistrationNumberInput'
 import { useEffect, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { useCompanyAuth } from '../../../features/auth/AuthGate'
@@ -18,6 +21,14 @@ export function AccountingManagement() {
   const [busy,setBusy] = useState(false)
   const [error,setError] = useState('')
   const [,refresh] = useState(0)
+  const [identities,setIdentities] = useState<TaxIdentityStatus[]>([])
+  const [identityReady,setIdentityReady] = useState(false)
+  const [editing,setEditing] = useState<TaxIdentityTarget|null>(null)
+  const [realName,setRealName] = useState('')
+  const [number,setNumber] = useState('')
+  const allRows = accountingRows(withholdingTaxService.getItems(),paymentRequestService.getOperationalPaymentRequests())
+  const targetKey = JSON.stringify([...new Map(allRows.filter(row=>row.ownerId && row.ownerType).map(row=>[`${row.ownerType}:${row.ownerId}`,{ownerType:row.ownerType,ownerId:row.ownerId}])).values()])
+  useEffect(()=>{let active=true;setIdentityReady(false);setIdentities([]);if(allowed)void taxIdentityService.status(JSON.parse(targetKey)).then(data=>{if(active){setIdentities(data);setIdentityReady(true)}}).catch(()=>{if(active)setError('주민번호 등록 상태를 확인하지 못했습니다. 보안 저장소 연결·권한을 확인해주세요.')});return()=>{active=false}},[targetKey,allowed])
   useEffect(() => {
     const update = () => refresh(value => value + 1)
     window.addEventListener('t3-storage-updated',update)
@@ -29,16 +40,22 @@ export function AccountingManagement() {
     return ()=>{active=false}
   },[month,allowed])
   if (!allowed) return <p>대표·관리자·정산 담당자만 이용할 수 있습니다.</p>
-  const allRows = accountingRows(withholdingTaxService.getItems(),paymentRequestService.getOperationalPaymentRequests())
   const pending = allRows.filter(row => !row.month)
   const live = allRows.filter(row=>row.month===month)
   const otherMonths = [...new Set(allRows.map(row => row.month).filter(value => value && value !== month))].sort().reverse()
   const needsReview = live.some(row => row.base === undefined || row.incomeTax === undefined || row.localTax === undefined || row.reportStatus.includes('확인 필요'))
   const locked = record && record.status !== 'open'
-  const rows = locked ? record.rows : live
+  const rows = (locked ? record.rows : live).map(row=> {const current=allRows.find(item=>item.id===row.id);return {...row,ownerType:row.ownerType || current?.ownerType,ownerId:row.ownerId || current?.ownerId,paymentRequestId:row.paymentRequestId || current?.paymentRequestId}})
   const displayRows = rows.map(row=>({...row,reportStatus:record?.status==='reported'||record?.status==='paid'?'신고완료':reports[row.reportStatus] ?? row.reportStatus,paymentStatus:payments[row.paymentStatus] ?? row.paymentStatus}))
+  const statusFor = (row:typeof allRows[number]) => identities.find(item=>item.ownerType===row.ownerType && item.ownerId===row.ownerId)
+  const identityMissing = rows.some(row=>!statusFor(row)?.masked || !row.paymentRequestId)
+  const editIdentity = (row:typeof allRows[number]) => {if(!row.ownerId || !row.ownerType)return;setEditing({ownerId:row.ownerId,ownerType:row.ownerType});setRealName('');setNumber('');setError('')}
+  const saveIdentity = async () => {if(!editing||busy)return;setBusy(true);setError('');try {const old=identities.find(item=>item.ownerType===editing.ownerType && item.ownerId===editing.ownerId);const saved=await taxIdentityService.save(editing,realName,number,old?.updatedAt ?? null);setIdentities(items=>[saved,...items.filter(item=>item.ownerType!==saved.ownerType || item.ownerId!==saved.ownerId)]);setEditing(null);setRealName('');setNumber('')}catch(e){setError(e instanceof Error?e.message:'보안 저장 실패')}finally{setBusy(false)}}
+  const submissionDownload = async () => {if(busy)return;setBusy(true);setError('');try {if(identityMissing)throw new Error('주민번호 미등록 건을 먼저 등록해주세요.');const data=await taxIdentityService.export(rows.map(row=>row.paymentRequestId!));const workbook=XLSX.utils.book_new();XLSX.utils.book_append_sheet(workbook,XLSX.utils.json_to_sheet(taxIdentityExportRows(displayRows,data)),'원천세');XLSX.writeFile(workbook,`원천세_제출용_${month}.xlsx`)}catch(e){setError(e instanceof Error?e.message:'제출용 내보내기 실패')}finally{setBusy(false)}}
+  const identityCell = (row:typeof allRows[number]) => <>{!identityReady?'등록 확인 중':statusFor(row)?.masked || '주민번호 미등록'} <button type="button" className="text-button" disabled={busy||!identityReady||!row.ownerId||!row.ownerType} onClick={()=>editIdentity(row)}>{statusFor(row)?.masked?'수정':'등록'}</button></>
   const change = async (action: string) => {
     if(busy || !ready) return
+    if(action==='reported' && (!identityReady || identityMissing)){setError('실명·주민번호 등록 후 신고완료 처리해주세요.');return}
     setBusy(true);setError('')
     try {setRecord(await accountingWorkflowService.close(month,live,record?.updated_at ?? null,action))}
     catch(e){setError(e instanceof Error?e.message:'저장 실패')}
@@ -46,15 +63,18 @@ export function AccountingManagement() {
   }
   const download = () => {
     const workbook=XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook,XLSX.utils.json_to_sheet(accountingExportRows(displayRows)),'원천세')
+    XLSX.utils.book_append_sheet(workbook,XLSX.utils.json_to_sheet(accountingExportRows(displayRows).map((row,index)=>({...row,주민등록번호:statusFor(displayRows[index])?.masked || '미등록'}))),'원천세')
     XLSX.writeFile(workbook,`원천세_${month}.xlsx`)
   }
-  return <section className="detail-card"><h2>원천세 관리</h2><div className="action-row"><label>지급월 <input type="month" value={month} disabled={busy} onChange={e=>{if(e.target.value)setMonth(e.target.value)}} /></label><strong>{ready ? monthly[record?.status ?? 'open'] : '마감 상태 확인 필요'}</strong><button type="button" className="secondary-button" onClick={download} disabled={!ready || !rows.length}>Excel 다운로드</button><button type="button" className="primary-button" disabled={busy||!ready||Boolean(locked)||!rows.length||needsReview} onClick={()=>void change('close')}>월 마감</button>{record?.status==='closed' && <button type="button" className="secondary-button" disabled={busy} onClick={()=>void change('reported')}>신고완료</button>}{record?.status==='reported' && <button type="button" className="secondary-button" disabled={busy} onClick={()=>void change('paid')}>지급완료</button>}{locked && ['ceo','admin'].includes(profile.role) && <button type="button" className="danger-button" disabled={busy} onClick={()=>{if(window.confirm('월 마감본을 보존하고 재검토 상태로 전환할까요?'))void change('reopen')}}>관리자 마감 해제</button>}</div>
+  return <section className="detail-card"><h2>원천세 관리</h2><div className="action-row"><label>지급월 <input type="month" value={month} disabled={busy} onChange={e=>{if(e.target.value)setMonth(e.target.value)}} /></label><strong>{ready ? monthly[record?.status ?? 'open'] : '마감 상태 확인 필요'}</strong><button type="button" className="secondary-button" onClick={download} disabled={busy||!ready || !rows.length}>검토용 Excel</button><button type="button" className="secondary-button" onClick={()=>void submissionDownload()} disabled={busy||!ready||!identityReady||!rows.length||identityMissing}>제출용 Excel · 주민번호 포함</button><button type="button" className="primary-button" disabled={busy||!ready||Boolean(locked)||!rows.length||needsReview} onClick={()=>void change('close')}>월 마감</button>{record?.status==='closed' && <button type="button" className="secondary-button" disabled={busy} onClick={()=>void change('reported')}>신고완료</button>}{record?.status==='reported' && <button type="button" className="secondary-button" disabled={busy} onClick={()=>void change('paid')}>지급완료</button>}{locked && ['ceo','admin'].includes(profile.role) && <button type="button" className="danger-button" disabled={busy} onClick={()=>{if(window.confirm('월 마감본을 보존하고 재검토 상태로 전환할까요?'))void change('reopen')}}>관리자 마감 해제</button>}</div>
   <p>실제 지급일(한국시간) 기준으로 월별 집계합니다. 지급 예정 건은 월 마감·Excel 합계에서 제외합니다. 이미 자료 전달·신고·마감한 내역은 보존하며 지급월 불일치는 확인이 필요합니다.</p>
-  {pending.length > 0 && <details><summary>미지급·지급일 확인 대기 {pending.length}건 (월 집계 제외)</summary>{pending.map(row => <p key={row.id}>{row.name} · {row.owner} · {row.net.toLocaleString()}원 · {row.paidAt ? '지급월 확인 필요' : '실제 지급일 미확정'}</p>)}</details>}
+  <p>주민번호는 암호화 보관하며 목록·검토용 Excel에는 마스킹합니다. 제출용 Excel에는 실명과 전체 번호가 포함되고 내보내기 이력이 기록됩니다.</p>
+  {identityReady && identityMissing && <p role="alert">주민번호 미등록 또는 수령인 ID 확인이 필요한 건이 있습니다. 제출용 다운로드 전에 등록해주세요.</p>}
+  {editing && <section role="dialog" aria-modal="true" aria-label="원천세 주민번호 보안 등록" className="workspace-card"><h3>원천세 실명·주민번호 보안 등록</h3><p>{allRows.find(row=>row.ownerId===editing.ownerId && row.ownerType===editing.ownerType)?.name} · {editing.ownerType==='seller'?'셀러':'매니저'} ID에 연결합니다. 실명은 세금 신고 대상자 이름을 입력해주세요.</p><label>실명<input autoComplete="off" disabled={busy} value={realName} onChange={event=>setRealName(event.target.value)} /></label><label>주민등록번호<ResidentRegistrationNumberInput value={number} onChange={setNumber} /></label><button type="button" disabled={busy} onClick={()=>{setEditing(null);setRealName('');setNumber('')}}>닫기</button><button type="button" disabled={busy||!realName.trim()||number.replace(/\D/g,'').length!==13} onClick={()=>void saveIdentity()}>암호화 저장</button></section>}
+  {pending.length > 0 && <details><summary>미지급·지급일 확인 대기 {pending.length}건 (월 집계 제외)</summary>{pending.map(row => <p key={row.id}>{row.name} · {row.owner} · {row.net.toLocaleString()}원 · {row.paidAt ? '지급월 확인 필요' : '실제 지급일 미확정'} · {identityCell(row)}</p>)}</details>}
   {otherMonths.length > 0 && <p>다른 지급월에도 지급신청 내역이 있습니다: {otherMonths.map(value => <button type="button" className="text-button" disabled={busy} key={value} onClick={() => setMonth(value)}>{value} ({allRows.filter(row => row.month === value).length}건)</button>)}</p>}
   {locked && <p>마감 당시 금액·지급상태를 고정 표시합니다. 이후 신청·지급 변경은 마감본에 자동 반영되지 않습니다.</p>}
   {locked && JSON.stringify(live)!==JSON.stringify(record.rows) && <p role="alert">마감 후 원본에 변경이 있습니다. 관리자 재검토가 필요합니다.</p>}
   {error && <p role="alert">{error}</p>}
-  {!ready ? <p>서버 마감 상태를 확인하기 전에는 목록·내보내기·마감을 사용할 수 없습니다.</p> : <div style={{overflowX:'auto'}}><table className="seller-document__table"><thead><tr>{['지급월','이름','지급 대상','지급 총액','부가세 제외 기준금액','소득세','지방소득세','실지급액','지급일','신고 상태','지급 상태'].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{displayRows.map(row=><tr key={row.id}><td>{row.month}</td><td>{row.name}</td><td>{row.owner}</td><td>{row.gross.toLocaleString()}원</td><td>{row.base === undefined ? '확인 필요' : `${row.base.toLocaleString()}원`}</td><td>{row.incomeTax === undefined ? '확인 필요' : `${row.incomeTax.toLocaleString()}원`}</td><td>{row.localTax === undefined ? '확인 필요' : `${row.localTax.toLocaleString()}원`}</td><td>{row.net.toLocaleString()}원</td><td>{row.paidAt?new Date(row.paidAt).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'}):'미지급'}</td><td>{row.reportStatus}</td><td>{row.paymentStatus}</td></tr>)}</tbody></table>{!rows.length&&<p>해당 월에 실제 지급된 프리랜서 원천세 항목이 없습니다.</p>}</div>}</section>
+  {!ready ? <p>서버 마감 상태를 확인하기 전에는 목록·내보내기·마감을 사용할 수 없습니다.</p> : <div style={{overflowX:'auto'}}><table className="seller-document__table"><thead><tr>{['지급월','이름','주민등록번호','지급 대상','지급 총액','부가세 제외 기준금액','소득세','지방소득세','실지급액','지급일','신고 상태','지급 상태'].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{displayRows.map(row=><tr key={row.id}><td>{row.month}</td><td>{row.name}</td><td>{identityCell(row)}</td><td>{row.owner}</td><td>{row.gross.toLocaleString()}원</td><td>{row.base === undefined ? '확인 필요' : `${row.base.toLocaleString()}원`}</td><td>{row.incomeTax === undefined ? '확인 필요' : `${row.incomeTax.toLocaleString()}원`}</td><td>{row.localTax === undefined ? '확인 필요' : `${row.localTax.toLocaleString()}원`}</td><td>{row.net.toLocaleString()}원</td><td>{row.paidAt?new Date(row.paidAt).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'}):'미지급'}</td><td>{row.reportStatus}</td><td>{row.paymentStatus}</td></tr>)}</tbody></table>{!rows.length&&<p>해당 월에 실제 지급된 프리랜서 원천세 항목이 없습니다.</p>}</div>}</section>
 }
