@@ -1,3 +1,4 @@
+import { groupSkuConditions, skuConditionLabel, skuConditionProductLabel } from './skuConditionLabel'
 import { matchFlavorPack, parseFlavorPack } from '../../shared/utils/flavorPackMatching'
 import { skuDetailDisplay } from './skuDetailDisplay'
 import { useUploadDraft } from '../../shared/utils/useUploadDraft'
@@ -31,18 +32,7 @@ export function UploadConditionsReview({ rows, conditions, preferredProductIds =
   const vendorChoices = allConditions.filter((item) => vendorName && item.supplyLabel === `${vendorName} 공급`)
   const feeLabel = supplyAudience === 'vendor' ? '벤더 수수료율' : '셀러 수수료율'
   const rateValue = (rate?: number) => rate === undefined ? '' : Number(rate.toFixed(2))
-  const conditionLabel = (item: SettlementSkuCondition) => {
-    if (item.skuOptionName?.trim()) return `${item.skuOptionName} | ${item.sellerCommissionRate === undefined ? '수수료 확인 필요' : `${rateValue(item.sellerCommissionRate)}%`}`
-    const productName = item.productName.replace(/^\[[^\]]+\]\s*/, '').trim()
-    const optionName = item.optionName.trim()
-    // Vendor proposal rows already include the actual product and configuration.
-    // Keep the proposal bundle title out of the selectable item name.
-    const proposalBundle = item.supplyLabel !== '셀러공급' && /\(\d{8}\)$/.test(productName)
-    const name = proposalBundle || optionName.includes(productName)
-      ? optionName || productName
-      : !optionName || productName === optionName ? productName : `${productName} · ${optionName}`
-    return `[${item.supplyLabel || '공급 구분 불러오는 중'}] ${name} | ${item.sellerCommissionRate === undefined ? '수수료 확인 필요' : `${rateValue(item.sellerCommissionRate)}%`}`
-  }
+  const conditionLabel = (item: SettlementSkuCondition) => skuConditionLabel(item, detailProducts)
   const productLabel = (item: SettlementSkuCondition) => item.productName.match(/^\[([^\]]+)\]/)?.[1] ?? item.productName.replace(/\s*·.*$/, '').trim()
   useEffect(() => {
     if (!restored) return
@@ -143,7 +133,7 @@ export function UploadConditionsReview({ rows, conditions, preferredProductIds =
         const selected = allConditions.find((item) => item.skuId === event.target.value)
         if (!selected) return
         applyCondition(optionGroups.find(group => group.some(item => item.id === row.id)) ?? [row], selected)
-      }}><option value="">SKU를 선택하세요</option>{allConditions.filter((item) => item.skuId === row.skuId || (normalizedProductQuery ? (item.productName + ' ' + item.optionName + ' ' + item.supplyLabel).toLocaleLowerCase('ko-KR').replace(/\s+/g, '').includes(normalizedProductQuery) : (availableProductIds.has(item.productId) || (supplyAudience === 'vendor' && item.supplyLabel?.includes(vendorName || '\0'))))).sort((a, b) => Number(b.supplyLabel === `${vendorName} 공급`) - Number(a.supplyLabel === `${vendorName} 공급`)).map((item) => <option key={item.skuId} value={item.skuId}>{conditionLabel(item)}</option>)}</select>{row.skuId && !parseFlavorPack(row.optionName) && allConditions.find((item) => item.skuId === row.skuId)?.optionName.trim() !== row.optionName.trim() && <button className="secondary-button sku-create-from-file" disabled={busy || Boolean(creatingRowId)} onClick={() => void createSkuForRows([row])} type="button">{creatingRowId === row.id ? '새 SKU 등록 중…' : `“${row.optionName}” 새 SKU로 등록`}</button>}</td>
+      }}><option value="">SKU를 선택하세요</option>{groupSkuConditions(allConditions.filter((item) => item.skuId === row.skuId || (normalizedProductQuery ? (item.productName + ' ' + item.optionName + ' ' + item.supplyLabel).toLocaleLowerCase('ko-KR').replace(/\s+/g, '').includes(normalizedProductQuery) : (availableProductIds.has(item.productId) || (supplyAudience === 'vendor' && item.supplyLabel?.includes(vendorName || '\0'))))).sort((a, b) => Number(b.supplyLabel === `${vendorName} 공급`) - Number(a.supplyLabel === `${vendorName} 공급`))).map((group) => <optgroup key={group.productId} label={skuConditionProductLabel(group.conditions[0], detailProducts)}>{group.conditions.map((item) => <option key={item.skuId} value={item.skuId}>{conditionLabel(item)}</option>)}</optgroup>)}</select>{row.skuId && !parseFlavorPack(row.optionName) && allConditions.find((item) => item.skuId === row.skuId)?.optionName.trim() !== row.optionName.trim() && <button className="secondary-button sku-create-from-file" disabled={busy || Boolean(creatingRowId)} onClick={() => void createSkuForRows([row])} type="button">{creatingRowId === row.id ? '새 SKU 등록 중…' : `“${row.optionName}” 새 SKU로 등록`}</button>}</td>
       <td>{(() => { const detail = skuDetailDisplay(detailProducts, row.productId, row.skuId); return detail ? <><strong>[{detail.brandName}] {detail.productName}</strong><small>옵션: {detail.optionName}</small><small>세부옵션: {row.detailOption || detail.detail}</small>{detail.inactive && <small style={{ background: '#fff9df' }} title="현재 미사용·삭제 보관된 SKU입니다. 과거 연결과 정산 조건은 유지됩니다.">이전연결</small>}</> : <small>{row.skuId ? '상세 확인 필요 · 기존 연결 유지' : 'SKU 선택 필요'}</small> })()}</td>
       <td>{(() => { const detail = skuDetailDisplay(detailProducts, row.productId, row.skuId); return <><small>회사 원가: {detail?.companySupplyPrice === undefined ? '확인 필요' : formatCurrency(detail.companySupplyPrice)}</small><small>셀러 적용: {detail?.sellerSupplyPrice === undefined ? '확인 필요' : formatCurrency(detail.sellerSupplyPrice)}</small><small>조회 전용 · 정산에 자동 반영하지 않음</small></> })()}</td>
       <td><input aria-label={`${row.optionName} 판매가`} disabled={busy} type="number" min="1" value={row.unitPrice || ''} onChange={(event) => change(row.id, { unitPrice: Number(event.target.value), agreedUnitPrice: Number(event.target.value), priceSource: 'manual' })} /><small>{row.priceSource === 'sku' ? 'SKU 조건 적용' : row.priceSource === 'manual' ? '직접 수정' : '파일 판매금액 기준'}{row.agreedUnitPrice ? ` · 등록/확정가 ${formatCurrency(row.agreedUnitPrice)}` : ''}</small></td>
