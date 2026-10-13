@@ -33,12 +33,20 @@ sellerCase.set(K.sellerSettlementRules,[{campaignId:campaign.id,salesChannelType
 sellerCase.set(K.salesDataRows,[{id:'TEST-row',salesDataImportId:'TEST-sales',matchStatus:'matched',productMatchStatus:'matched',skuId:'TEST-sku',productId:'TEST-product',optionName:'TEST item',netQuantity:1,unitPrice:1000000,netSales:1000000,totalCommissionRate:20,sellerCommissionRate:10}])
 const sellerPlan=planBatchPaymentRequests([settlement.id],'seller',sellerCase,'TEST requester')
 assert.equal(sellerPlan.items[0].reason,'',sellerPlan.items[0].reason);assert.equal(sellerPlan.items[0].request.recipientType,'seller');assert(sellerPlan.items[0].amount>0)
+const {isOwnPaymentCampaign,unrequestedForTarget}=await v.ssrLoadModule('/src/shared/utils/paymentRequestScope.ts')
+const {settlementPaymentOverview}=await v.ssrLoadModule('/src/shared/utils/settlementPaymentOverview.ts')
+const partial={...settlement,sellerPaymentCompleted:true,currentCalculation:{...settlement.currentCalculation,finalSellerPaymentAmount:96700,finalPaymentAmount:49350}}
+const unpaid=settlementPaymentOverview([partial],[],new Map([[campaign.id,campaign]])).unrequested
+assert.equal(unrequestedForTarget(unpaid,'seller').length,0);assert.equal(unrequestedForTarget(unpaid,'manager').length,1);assert.equal(unrequestedForTarget(unpaid,'both').length,1)
+assert(isOwnPaymentCampaign({id:campaign.managerId,display_name:'other'},campaign))
+assert(!isOwnPaymentCampaign({id:'unrelated',display_name:'other'},campaign))
 // Mock the server boundary: preview and failed commits never mutate browser state.
-let role='manager', rpcFailure=false, calls=0
+let role='manager', userId='TEST', rpcFailure=false, calls=0
 let rows=[...base].filter(([k])=>[K.paymentRequests,K.settlements,K.campaigns,K.salesDataImports,K.salesDataRows,K.sellerSettlementRules,K.settlementDeductions,K.managerMasters,K.sellerMasters,K.withholdingTaxItems,K.paymentEvidence,K.settlementActivityLogs,K.settlementRevisionRequests].includes(k)).map(([storage_key,payload])=>({storage_key,payload,revision:1,updated_at:'2026-10-13T00:00:00Z',deleted:false}))
-const client={auth:{getUser:async()=>({data:{user:{id:'TEST'}},error:null})},from(table){return {select(){return this},eq(){return this},in(){return this},single:async()=>({data:{display_name:'TEST requester',role,active:true,approval_status:'approved'},error:null}),then(resolve,reject){return Promise.resolve({data:structuredClone(rows),error:null}).then(resolve,reject)}}},rpc:async(name,args)=>{calls++;if(rpcFailure)return {error:new Error('TEST atomic save failure')};rows=rows.map(row=>{const write=args.p_rows.find(r=>r.storage_key===row.storage_key);return write?{...row,payload:write.payload,revision:row.revision+1,updated_at:'2026-10-13T01:00:00Z'}:row});return {data:rows.filter(row=>args.p_rows.some(r=>r.storage_key===row.storage_key)),error:null}}}
+const client={auth:{getUser:async()=>({data:{user:{id:userId}},error:null})},from(table){return {select(){return this},eq(){return this},in(){return this},single:async()=>({data:{display_name:'TEST requester',role,active:true,approval_status:'approved'},error:null}),then(resolve,reject){return Promise.resolve({data:structuredClone(rows),error:null}).then(resolve,reject)}}},rpc:async(name,args)=>{calls++;if(rpcFailure)return {error:new Error('TEST atomic save failure')};rows=rows.map(row=>{const write=args.p_rows.find(r=>r.storage_key===row.storage_key);return write?{...row,payload:write.payload,revision:row.revision+1,updated_at:'2026-10-13T01:00:00Z'}:row});return {data:rows.filter(row=>args.p_rows.some(r=>r.storage_key===row.storage_key)),error:null}}}
 const refresh=async()=>{}
-await assert.rejects(()=>previewBatchPaymentRequests([settlement.id],'manager',client,refresh),/정산 담당자/);assert.equal(calls,0)
+await assert.rejects(()=>previewBatchPaymentRequests([settlement.id],'manager',client,refresh),/본인이 담당/);assert.equal(calls,0)
+userId=campaign.managerId;const ownPreview=await previewBatchPaymentRequests([settlement.id],'manager',client,refresh);assert.equal(ownPreview.items[0].reason,'');assert.equal(calls,0)
 role='ceo';let preview=await previewBatchPaymentRequests([settlement.id],'manager',client,refresh)
 rows[0].revision++;await assert.rejects(()=>submitBatchPaymentRequests(preview,client,refresh),/변경/);assert.equal(calls,0)
 preview=await previewBatchPaymentRequests([settlement.id],'manager',client,refresh);rpcFailure=true
