@@ -1,3 +1,5 @@
+import { isOwnPaymentCampaign } from '../utils/paymentRequestScope'
+import type { CompanyProfile } from '../../features/auth/AuthGate'
 import { supabase } from '../lib/supabase'
 import { captureStorageWrites, STORAGE_KEYS as K, storageService } from './storageService'
 import { rememberWorkspaceRow } from './workspacePayloadCache'
@@ -80,23 +82,31 @@ export function planBatchPaymentRequests(ids:string[], target:BatchRequestTarget
 async function context(client:NonNullable<typeof supabase>, refreshMasters:()=>Promise<unknown>) {
   const user=await client.auth.getUser(); if(user.error || !user.data.user) throw new Error('다시 로그인해주세요.')
   const profile=await client.from('profiles').select('display_name,role,active,approval_status').eq('id',user.data.user.id).single()
-  if(profile.error || !profile.data.active || profile.data.approval_status!=='approved' || !['ceo','admin','settlement_cs'].includes(profile.data.role)) throw new Error('대표·관리자·정산 담당자만 일괄 지급신청할 수 있습니다.')
+  if(profile.error || !profile.data.active || profile.data.approval_status!=='approved' || !['ceo','admin','settlement_cs','manager'].includes(profile.data.role)) throw new Error('대표·관리자·정산 담당자 또는 담당 매니저만 일괄 지급신청할 수 있습니다.')
   const result=await client.from('workspace_state').select('storage_key,payload,revision,updated_at,deleted').eq('workspace_id','wisevendor').in('storage_key',keys)
   if(result.error) throw result.error
   const rows=(result.data ?? []) as Row[]
   if(![K.paymentRequests,K.settlements,K.campaigns].every(key=>rows.some(row=>row.storage_key===key && !row.deleted && Array.isArray(row.payload)))) throw new Error('신청에 필요한 운영 데이터를 모두 불러오지 못했습니다.')
   await refreshMasters()
-  return {rows,name:profile.data.display_name as string}
+  return {rows,name:profile.data.display_name as string,actor:{...profile.data,id:user.data.user.id} as CompanyProfile}
+}
+function requireScope(ids:string[],rows:Row[],actor:CompanyProfile) {
+  if(actor.role!=='manager')return
+  const campaigns=rows.find(row=>row.storage_key===K.campaigns)!.payload as import('../types/campaign').Campaign[]
+  const settlements=rows.find(row=>row.storage_key===K.settlements)!.payload as import('../types/settlement').Settlement[]
+  if(ids.some(id=>{const s=settlements.find(row=>row.id===id);return !s || !isOwnPaymentCampaign(actor,campaigns.find(c=>c.id===s.campaignId))})) throw new Error('본인이 담당한 공구만 지급신청할 수 있습니다.')
 }
 export async function previewBatchPaymentRequests(ids:string[],target:BatchRequestTarget,client=supabase, refreshMasters=()=>sellerMasterService.loadSellers(true)):Promise<BatchRequestPreview> {
   if(!client) throw new Error('운영 서버 연결을 확인해주세요.')
-  const {rows,name}=await context(client,refreshMasters)
+  const {rows,name,actor}=await context(client,refreshMasters)
+  requireScope(ids,rows,actor)
   const plan=planBatchPaymentRequests(ids,target,new Map(rows.map(row=>[row.storage_key,row.payload])),name)
   return {ids:[...new Set(ids)],target,versions:rows,items:plan.items,actorName:name}
 }
 export async function submitBatchPaymentRequests(preview:BatchRequestPreview,client=supabase, refreshMasters=()=>sellerMasterService.loadSellers(true)) {
   if(!client) throw new Error('운영 서버 연결을 확인해주세요.')
-  const {rows,name}=await context(client,refreshMasters)
+  const {rows,name,actor}=await context(client,refreshMasters)
+  requireScope(preview.ids,rows,actor)
   const versions=(r:Row[])=>JSON.stringify(r.map(row=>[row.storage_key,row.revision,row.updated_at]).sort())
   if(versions(rows)!==versions(preview.versions)) throw new Error('확인 이후 데이터가 변경되었습니다. 다시 일괄 확인해주세요.')
   const plan=planBatchPaymentRequests(preview.ids,preview.target,new Map(rows.map(row=>[row.storage_key,row.payload])),name)

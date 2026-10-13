@@ -2,9 +2,9 @@
 create or replace function public.payment_request_batch_commit(p_rows jsonb, p_expected jsonb)
 returns jsonb language plpgsql security invoker set search_path = '' as $$
 declare r jsonb; expected jsonb; old_payload jsonb; new_payments jsonb; old_payments jsonb;
-  settlements jsonb; s jsonb; request jsonb; before_item jsonb; changed integer; actor_name text; result jsonb;
+  settlements jsonb; s jsonb; request jsonb; before_item jsonb; changed integer; actor_name text; actor_role text; result jsonb; candidate jsonb;
 begin
-  select display_name into actor_name from public.profiles where id=auth.uid() and active and approval_status='approved' and role in ('ceo','admin','settlement_cs');
+  select display_name,role into actor_name,actor_role from public.profiles where id=auth.uid() and active and approval_status='approved' and role in ('ceo','admin','settlement_cs','manager');
   if actor_name is null then raise exception '일괄 지급신청 권한이 없습니다.'; end if;
   if jsonb_typeof(p_rows) is distinct from 'array' or jsonb_typeof(p_expected) is distinct from 'array' or jsonb_array_length(p_rows)=0 then raise exception '신청 데이터를 확인해주세요.'; end if;
   if (select count(distinct e->>'storage_key') from jsonb_array_elements(p_expected) e)<>jsonb_array_length(p_expected) then raise exception '중복 버전 정보'; end if;
@@ -26,6 +26,7 @@ begin
     select e into s from jsonb_array_elements(settlements) e where e->>'id'=request->>'settlementId';
     if s is null or s->>'status' in ('completed','canceled','revision_required') or (s->>'settlementConfirmed')='false' or not (coalesce((s->>'settlementConfirmed')::boolean,false) or (s->'calculationSnapshot' is not null and s->'calculationSnapshot'<>'null'::jsonb) or s->>'status' in ('manager_reviewed','approval_pending','approved','payment_ready','partially_paid')) then raise exception '정산서 확정 필요'; end if;
     if not exists(select 1 from public.workspace_state w cross join lateral jsonb_array_elements(w.payload) c where workspace_id='wisevendor' and storage_key='t3_company_os_campaigns' and c->>'id'=s->>'campaignId' and request->>'campaignId'=s->>'campaignId' and (case when request->>'recipientType'='seller' then c->>'sellerId' else c->>'managerId' end)=request->>'recipientId' and (request->>'recipientType'='seller' or (c->>'managerId'<>'u-001' and c->>'managerName'<>'허윤정'))) then raise exception '공구 지급대상 연결 확인 필요'; end if;
+    if actor_role='manager' and not exists(select 1 from public.workspace_state w cross join lateral jsonb_array_elements(w.payload) c where workspace_id='wisevendor' and storage_key='t3_company_os_campaigns' and c->>'id'=s->>'campaignId' and (c->>'managerId'=auth.uid()::text or (length(trim(actor_name))>0 and lower(regexp_replace(normalize(c->>'managerName',NFKC),'\s','','g'))=lower(regexp_replace(normalize(actor_name,NFKC),'\s','','g'))))) then raise exception '본인이 담당한 공구만 지급신청할 수 있습니다.'; end if;
     if (request->>'sourceVersion') is distinct from (s->>'settlementVersion') then raise exception '정산 버전이 다릅니다.'; end if;
     if request->>'recipientType' not in ('seller','manager') or request->>'recipientType' is null or coalesce(request->>'recipientId','')='' or request->>'status' not in ('approval_pending','evidence_pending') or request->>'status' is null or request->>'direction' is distinct from 'company_to_seller' or request->>'requestedBy' is distinct from actor_name then raise exception '신청 상태 또는 요청자 확인 필요'; end if;
     if coalesce((request->>'finalPaymentAmount')::numeric,0)<=0 or coalesce(request->>'bankNameSnapshot','')='' or coalesce(request->>'accountNumberSnapshot','')='' or coalesce(request->>'accountHolderSnapshot','')='' then raise exception '지급액 또는 계좌 확인 필요'; end if;
@@ -40,6 +41,23 @@ begin
       if jsonb_array_length(old_payload)<>jsonb_array_length(r->'payload') then raise exception '일정·정산 개수 변경 금지'; end if;
       for before_item in select value from jsonb_array_elements(old_payload) loop
         if not exists(select 1 from jsonb_array_elements(r->'payload') e where e->>'id'=before_item->>'id' and (e-array['sellerPaymentRequestStatus','managerPaymentRequestStatus','updatedAt'])=(before_item-array['sellerPaymentRequestStatus','managerPaymentRequestStatus','updatedAt'])) then raise exception '정산 Snapshot·금액·일정 변경 금지'; end if;
+        select e into candidate from jsonb_array_elements(r->'payload') e where e->>'id'=before_item->>'id';
+        if exists(select 1 from (values('seller','sellerPaymentRequestStatus'),('manager','managerPaymentRequestStatus')) f(owner_type,status_field) where candidate->f.status_field is distinct from before_item->f.status_field and not exists(select 1 from jsonb_array_elements(new_payments) q where not exists(select 1 from jsonb_array_elements(old_payments) o where o->>'id'=q->>'id') and q->>'recipientType'=f.owner_type and q->>'status'=candidate->>f.status_field and (case when r->>'storage_key'='t3_company_os_settlements' then q->>'settlementId' else q->>'campaignId' end)=before_item->>'id')) then raise exception '신청 대상 외 상태 변경 금지'; end if;
+      end loop;
+    end if;
+    if actor_role='manager' and r->>'storage_key' in ('t3_company_os_payment_evidence','t3_company_os_settlement_activity_logs','t3_company_os_withholding_tax_items') then
+      for before_item in select value from jsonb_array_elements(coalesce(nullif(old_payload,'null'::jsonb),'[]'::jsonb)) loop
+        select e into candidate from jsonb_array_elements(r->'payload') e where e->>'id'=before_item->>'id';
+        if candidate is null then raise exception '기존 이력 삭제 금지'; end if;
+        if candidate is distinct from before_item then
+          if r->>'storage_key'='t3_company_os_settlement_activity_logs' then raise exception '기존 정산 로그 수정 금지'; end if;
+          if r->>'storage_key'='t3_company_os_payment_evidence' and (candidate-'paymentRequestId') is distinct from (before_item-'paymentRequestId') then raise exception '기존 증빙 수정 금지'; end if;
+          if r->>'storage_key'='t3_company_os_withholding_tax_items' and before_item->>'status' in ('uploaded','reported','paid') then raise exception '기존 신고 내역 수정 금지'; end if;
+        end if;
+      end loop;
+      for candidate in select e from jsonb_array_elements(r->'payload') e where not exists(select 1 from jsonb_array_elements(coalesce(nullif(old_payload,'null'::jsonb),'[]'::jsonb)) o where o=e) loop
+        if not exists(select 1 from jsonb_array_elements(new_payments) q where not exists(select 1 from jsonb_array_elements(old_payments) o where o->>'id'=q->>'id') and q->>'settlementId'=candidate->>'settlementId' and (r->>'storage_key'='t3_company_os_settlement_activity_logs' or (q->>'id'=candidate->>'paymentRequestId' and q->>'recipientType'=candidate->>'ownerType' and q->>'recipientId'=candidate->>'ownerId'))) then raise exception '본인 신청에 연결된 이력만 저장 가능합니다.'; end if;
+        if r->>'storage_key'='t3_company_os_withholding_tax_items' and candidate->>'status' not in ('ready','missing') then raise exception '원천세 승인·신고 변경 금지'; end if;
       end loop;
     end if;
     update public.workspace_state set payload=r->'payload',deleted=false where workspace_id='wisevendor' and storage_key=r->>'storage_key';

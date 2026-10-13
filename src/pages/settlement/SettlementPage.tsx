@@ -1,3 +1,6 @@
+import { MyPaymentRequests } from './components/MyPaymentRequests'
+import { unrequestedForTarget } from '../../shared/utils/paymentRequestScope'
+import type { BatchRequestTarget } from '../../shared/services/paymentBatchRequestService'
 import { BatchPaymentRequestButton } from './components/BatchPaymentRequestButton'
 import { CompanyBusinessInfoCopy } from './components/CompanyBusinessInfoCopy'
 import { settlementPaymentOverview } from '../../shared/utils/settlementPaymentOverview'
@@ -332,9 +335,10 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
   const [selectedRequests, setSelectedRequests] = useState<string[]>([])
   const toggleRequest = (id: string) => setSelectedRequests(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids,id])
   const [settlements, setSettlements] = useState(() => settlementService.getSettlements())
-  const [view, setView] = useState<'list' | 'unrequested' | 'archive' | 'managers' | 'calendar' | 'references'>('list')
+  const [view, setView] = useState<'list' | 'unrequested' | 'ownRequests' | 'archive' | 'managers' | 'calendar' | 'references'>(requestActor?.role === 'manager' ? 'ownRequests' : 'list')
+  const [unrequestedTarget,setUnrequestedTarget]=useState<BatchRequestTarget>('both')
   const [kpiFilter,setKpiFilter] = useState('')
-  const changeView = (next: 'list' | 'unrequested' | 'archive' | 'managers' | 'calendar' | 'references') => {
+  const changeView = (next: 'list' | 'unrequested' | 'ownRequests' | 'archive' | 'managers' | 'calendar' | 'references') => {
     setView(next)
     setKpiFilter('')
     sessionStorage.setItem('settlement-view', next)
@@ -344,7 +348,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
     const defaults = { query: '', manager: '', brand: '', from: '', to: '' }
     try { return { ...defaults, ...JSON.parse(sessionStorage.getItem('settlement-search-v1') ?? '{}') } as typeof defaults } catch { return defaults }
   })
-  useEffect(() => { sessionStorage.setItem('settlement-search-v1', JSON.stringify(listFilters)); setSelectedRequests([]) }, [listFilters,view,kpiFilter])
+  useEffect(() => { sessionStorage.setItem('settlement-search-v1', JSON.stringify(listFilters)); setSelectedRequests([]) }, [listFilters,view,kpiFilter,unrequestedTarget])
   const [creationError, setCreationError] = useState('')
   const [quick, setQuick] = useState<SettlementStatus | 'all'>(() => { const saved = sessionStorage.getItem('settlement-list-filter') as SettlementStatus | 'all' | null; return saved === 'completed' ? 'all' : saved ?? 'all' })
 
@@ -391,7 +395,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
   const overview = settlementPaymentOverview(settlements,paymentRequestService.getOperationalPaymentRequests(),campaignsById)
   const filtered = settlements.filter(item => {
     if (isArchivedSettlement(item) !== (view === 'archive')) return false
-    if(view==='unrequested' && !overview.unrequestedIds.has(item.id))return false
+    if(view==='unrequested' && !unrequestedForTarget(overview.unrequested,unrequestedTarget).some(row=>row.settlementId===item.id))return false
     const campaign = campaignsById.get(item.campaignId)
     if(kpiFilter==='지급신청 승인 대기' && !overview.recipients.some(row=>row.settlementId===item.id && row.request?.status==='approval_pending'))return false
     if(kpiFilter==='승인 완료 · 지급 대기' && !overview.recipients.some(row=>row.settlementId===item.id && ['approved','sent'].includes(row.request?.status || '')))return false
@@ -446,7 +450,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
           {view === 'list' && <button className="primary-button" disabled={!eligibleSales.length} onClick={createFirstReadySettlement} type="button">정산 생성</button>}
         </div>
         <nav className="settlement-view-tabs" aria-label="정산 관리 화면 선택">
-          {([['list', '처리할 정산'], ['unrequested', `지급신청 미신청 (${overview.unrequestedIds.size})`], ['archive', `완료 내역 (${archivedCount})`], ['managers', '매니저별 KPI'], ['calendar', '정산 달력'], ['references', '매출 레퍼런스']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={view === id} className={view === id ? 'is-active' : ''} onClick={() => changeView(id)}>{label}</button>)}
+          {([['list', '처리할 정산'], ['ownRequests', '내 정산 신청'], ['unrequested', `지급신청 미신청 (${overview.unrequestedIds.size})`], ['archive', `완료 내역 (${archivedCount})`], ['managers', '매니저별 KPI'], ['calendar', '정산 달력'], ['references', '매출 레퍼런스']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={view === id} className={view === id ? 'is-active' : ''} onClick={() => changeView(id)}>{label}</button>)}
         </nav>
         {(view === 'list' || view === 'unrequested') && <>
         <div className="settlement-kpi-grid">
@@ -480,6 +484,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
 
       {view === 'managers' && <div className="settlement-view"><ManagerPerformance settlements={settlements} onOpenDetail={onOpenDetail} /></div>}
 
+      {view === 'ownRequests' && <MyPaymentRequests onOpenDetail={onOpenDetail} onSaved={sync} />}
       {(view === 'list' || view === 'unrequested' || view === 'archive') && <section className="panel settlement-view">
         <div className="panel__header">
           <div>
@@ -496,7 +501,8 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
               <label>기간 시작<input type="date" value={listFilters.from} onChange={event => setListFilters({ ...listFilters, from: event.target.value })} /></label>
               <label>기간 종료<input type="date" value={listFilters.to} onChange={event => setListFilters({ ...listFilters, to: event.target.value })} /></label>
             </div>
-          {canBatchRequest && view !== 'archive' && <BatchPaymentRequestButton ids={selectedRequests} onSaved={() => { setSelectedRequests([]); sync() }} onOpenDetail={onOpenDetail} />}
+          {view === 'unrequested' && <nav className="settlement-view-tabs" aria-label="미신청 지급대상">{([['seller','셀러 미신청'],['manager','매니저 미신청'],['both','둘 다']] as const).map(([value,label])=><button key={value} type="button" aria-pressed={unrequestedTarget===value} className={unrequestedTarget===value?'is-active':''} onClick={()=>setUnrequestedTarget(value)}>{label}</button>)}</nav>}
+          {canBatchRequest && view !== 'archive' && <BatchPaymentRequestButton fixedTarget={view==='unrequested'?unrequestedTarget:undefined} ids={selectedRequests} onSaved={() => { setSelectedRequests([]); sync() }} onOpenDetail={onOpenDetail} />}
           {filtered.length === 0 && <p className="empty-state">{view === 'archive' ? '검색 조건에 맞는 완료 정산이 없습니다.' : '검색 조건에 맞는 정산이 없습니다.'}</p>}
           <div className="schedule-table-wrap settlement-table-wrap">
             <table className="schedule-table settlement-table">
@@ -513,15 +519,15 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
                   return (
                     <tr key={settlement.id}>
                       {canBatchRequest && view !== 'archive' && <td><input type="checkbox" aria-label={`${campaign?.campaignName ?? settlement.id} 지급신청 선택`} checked={selectedRequests.includes(settlement.id)} onChange={() => toggleRequest(settlement.id)} /></td>}
-                      <td><button className="settlement-name-link" onClick={() => { sessionStorage.setItem('settlement-list-scroll', String(window.scrollY)); onOpenDetail(settlement.id) }} type="button"><strong>{campaign?.campaignName ?? settlement.campaignId}</strong><span>{formatKoreanDate(campaign?.startDate || salesImport?.salesStartDate)} ~ {formatKoreanDate(campaign?.endDate || salesImport?.salesEndDate)}</span></button>{view==='unrequested' && <small>{overview.unrequested.filter(row=>row.settlementId===settlement.id).map(row=>`${row.ownerType==='seller'?'셀러':'매니저'} ${row.rejected?'반려·재신청':settlementService.isSettlementConfirmed(settlement)?'확정 후 미신청':'확정 전 작성 중'}`).join(' · ')}</small>}</td>
+                      <td><button className="settlement-name-link" onClick={() => { sessionStorage.setItem('settlement-list-scroll', String(window.scrollY)); onOpenDetail(settlement.id) }} type="button"><strong>{campaign?.campaignName ?? settlement.campaignId}</strong><span>{formatKoreanDate(campaign?.startDate || salesImport?.salesStartDate)} ~ {formatKoreanDate(campaign?.endDate || salesImport?.salesEndDate)}</span></button>{view==='unrequested' && <small>{unrequestedForTarget(overview.unrequested,unrequestedTarget).filter(row=>row.settlementId===settlement.id).map(row=>`${row.ownerType==='seller'?'셀러':'매니저'} ${row.rejected?'반려·재신청':settlementService.isSettlementConfirmed(settlement)?'확정 후 미신청':'확정 전 작성 중'}`).join(' · ')}</small>}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.grossSales)}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.grossCommission)}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.vendorCommission)}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.deductionTotal)}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.distributableVendorCommission)}</td>
-                      <td className="amount-cell">{money(settlement.currentCalculation.managerAmount)}</td>
+                      <td className="amount-cell">{view==='unrequested' ? unrequestedTarget==='seller' ? '—' : overview.unrequested.some(row=>row.settlementId===settlement.id && row.ownerType==='manager') ? money(settlement.currentCalculation.managerAmount) : '신청·지급 완료' : money(settlement.currentCalculation.managerAmount)}</td>
                       <td className="amount-cell">{money(settlement.currentCalculation.companyAmount)}</td>
-                      <td className="amount-cell">{money(settlement.currentCalculation.finalSellerPaymentAmount)}</td>
+                      <td className="amount-cell">{view==='unrequested' ? unrequestedTarget==='manager' ? '—' : overview.unrequested.some(row=>row.settlementId===settlement.id && row.ownerType==='seller') ? money(settlement.currentCalculation.finalSellerPaymentAmount) : '신청·지급 완료' : money(settlement.currentCalculation.finalSellerPaymentAmount)}</td>
                       <td>{settlement.evidenceStatus === 'confirmed' ? '확인 완료' : '미확인'}</td>
                       <td><Badge label={settlementWorkflowLabel(settlement, statusLabel(settlement.status))} tone={statusTone[settlement.status]} /></td>
                       <td>{settlement.assigneeName}</td>
