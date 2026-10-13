@@ -1,3 +1,4 @@
+import { CompanyBusinessInfoCopy } from './components/CompanyBusinessInfoCopy'
 import { settlementPaymentOverview } from '../../shared/utils/settlementPaymentOverview'
 import { StatementIdentityRows, waitForStatementIdentity } from './components/StatementIdentityRows'
 import { matchesBusinessSearch } from '../../shared/utils/statementIdentity'
@@ -1238,45 +1239,6 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     }
   }
 
-  const copySellerDocumentImageAndMessage = async () => {
-    if (!window.isSecureContext || !navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
-      showClipboardToast('이 브라우저에서는 이미지와 문구를 함께 복사할 수 없습니다.', true)
-      return
-    }
-    try {
-      const pngPromise = createSellerDocumentPng()
-      const copiedAt = new Date()
-      const message = buildSellerMessage(currentMessageShare(), copiedAt)
-      const htmlPromise = pngPromise.then(async png => {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('이미지를 읽지 못했습니다.'))
-        reader.onerror = () => reject(reader.error ?? new Error('이미지를 읽지 못했습니다.'))
-        reader.readAsDataURL(png)
-      })
-      const escapedMessage = message
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#039;')
-        .replaceAll('\n', '<br>')
-      const html = `<div><img alt="셀러 정산서" src="${dataUrl}"><p>${escapedMessage}</p></div>`
-      return new Blob([html], { type: 'text/html' })
-      })
-      await navigator.clipboard.write([new ClipboardItem({
-        'image/png': pngPromise,
-        'text/html': htmlPromise,
-        'text/plain': new Blob([message], { type: 'text/plain' }),
-      })])
-      settlementService.markSellerDelivered(settlement.id, copiedAt.toISOString())
-      await cloudSyncService.syncKeys([STORAGE_KEYS.settlements])
-      showClipboardToast(`이미지를 복사했습니다. ${copiedMessageNotice()}`)
-    } catch {
-      showClipboardToast('이미지와 문구를 함께 복사하지 못했습니다. 다시 시도해주세요.', true)
-    }
-  }
-
   const saveManagerDocumentImage = async () => {
     try {
       const blob = await createDocumentPng(managerDocumentRef, 'seller-document--exporting', true)
@@ -1428,7 +1390,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
               {hasThreePartyDocuments && <div className="document-view-tabs vendor-document-selector" role="tablist" aria-label="거래 정산서 선택">{transactionDocumentTabs.filter((tab) => !tab.requiresManagerAccess || canAccessManagerDocument).map((tab) => <button key={tab.id} role="tab" type="button" aria-selected={vendorDocumentTab === tab.id} className={vendorDocumentTab === tab.id ? 'is-active' : ''} onClick={() => { setVendorCompare(false); setExpandedDocument(null); setVendorDocumentTab(tab.id) }}>{tab.label}</button>)}</div>}
               <article hidden={hasThreePartyDocuments && vendorDocumentTab !== 'seller' && !(vendorSupply && vendorCompare)} className={`settlement-document-column ${expandedDocument === 'seller' ? 'is-expanded' : ''}`} id="seller-settlement-document">
                 <div className="settlement-document-column__heading"><h3>{vendorSupply ? '벤더 전달용 정산서' : sellerCollectsPayment ? '셀러 입금 요청 정산서' : '셀러 정산서'}</h3>{expandedDocument === 'seller' && <button aria-label="닫기" className="settlement-expanded-close no-print" onClick={() => setExpandedDocument(null)} type="button">×</button>}</div>
-                <SettlementDocumentActions receivableDocument={sellerCollectsPayment} vendorDocument={vendorSupply} hasRequest={settlementConfirmed && !hasUnresolvedRevision && Boolean(sellerPaymentRequest)} statusNotice={sellerCollectsPayment ? sellerCollectionStatusNotice : settlementConfirmed && !hasUnresolvedRevision ? sellerStatusNotice : unconfirmedStatusNotice} warnings={settlementConfirmed && !hasUnresolvedRevision ? sellerWarningActions : []} onCopyImage={copySellerDocumentImage} onCopyImageAndMessage={copySellerDocumentImageAndMessage} onCopyMessage={copySellerMessage} onInfo={openSellerInfo} onPreview={() => setExpandedDocument('seller')} onRequestPayment={() => setPaymentRequestTarget('seller')} onSaveImage={saveSellerDocumentImage} paymentDisabled={!settlementConfirmed || hasUnresolvedRevision || sellerButtonBlockReasons.length > 0} />
+                <SettlementDocumentActions receivableDocument={sellerCollectsPayment} vendorDocument={vendorSupply} hasRequest={settlementConfirmed && !hasUnresolvedRevision && Boolean(sellerPaymentRequest)} statusNotice={sellerCollectsPayment ? sellerCollectionStatusNotice : settlementConfirmed && !hasUnresolvedRevision ? sellerStatusNotice : unconfirmedStatusNotice} warnings={settlementConfirmed && !hasUnresolvedRevision ? sellerWarningActions : []} onCopyImage={copySellerDocumentImage} onCopyMessage={copySellerMessage} onInfo={openSellerInfo} onPreview={() => setExpandedDocument('seller')} onRequestPayment={() => setPaymentRequestTarget('seller')} onSaveImage={saveSellerDocumentImage} paymentDisabled={!settlementConfirmed || hasUnresolvedRevision || sellerButtonBlockReasons.length > 0} />
                 {!vendorSupply && salesImport && <div className="seller-excel-share no-print">
                   <div><strong>셀러용 구매내역 Excel</strong><span>{salesImport.originalSalesFileStoragePath ? `원본 주문파일 연결 완료 · ${salesImport.fileName || '원본 파일'}` : '주문 원본 미연결 · 수기/집계 자료는 판매집계 Excel로 생성됩니다.'}</span><small>셀러용 파일에는 허용된 주문 컬럼만 포함됩니다. 알 수 없는 컬럼·내부 조건·수식은 전달하지 않습니다.</small></div>
                   <input ref={sellerExcelInputRef} hidden type="file" accept=".xlsx,.xls,.csv" onChange={(event) => void uploadSellerExcel(event.target.files?.[0])} />
@@ -1889,7 +1851,7 @@ function ManagerSettlementDocument({ documentRef, rows, settlement }: { document
   }), { quantity: 0, supplyAmount: 0, salesAmount: 0, salesCommission: 0 })
   return <div className="seller-document-shell"><div className="seller-document seller-statement manager-document manager-statement" ref={documentRef}>
     <header className="seller-document__header"><h2>[와이즈벤더 {companyDirect ? '회사 귀속' : '매니저'} 정산서]</h2><p><span>정산 버전</span><strong>v{settlement.settlementVersion}</strong></p></header>
-    <table className="seller-document__table seller-document__meta-table"><tbody><tr><th>공구기간</th><td>{formatKoreanDate(campaign?.startDate)} ~ {formatKoreanDate(campaign?.endDate)}</td></tr><StatementIdentityRows campaign={campaign} rows={rows} /><tr><th>셀러명</th><td>{campaign?.sellerName ?? '-'}</td></tr><tr><th>사업자명 / 유형</th><td>{managerProfile?.businessName || '사업자명 미등록'} / {businessTypeLabels[managerBusinessType]}</td></tr><tr><th>담당 매니저</th><td>{campaign?.managerName ?? '-'}</td></tr></tbody></table>
+    <table className="seller-document__table seller-document__meta-table"><tbody><tr><th>공구기간</th><td>{formatKoreanDate(campaign?.startDate)} ~ {formatKoreanDate(campaign?.endDate)}</td></tr><StatementIdentityRows campaign={campaign} rows={rows} compact /><tr><th>사업자명 / 유형</th><td>{managerProfile?.businessName || '사업자명 미등록'} / {businessTypeLabels[managerBusinessType]}</td></tr><tr><th>담당 매니저</th><td>{campaign?.managerName ?? '-'}</td></tr></tbody></table>
     <section className="manager-document__section"><h3>상품별 내부 정산표</h3><p className="manager-product-table-notice">* 본 정산서의 금액은 부가세 포함 금액을 기준으로 합니다. 수수료율은 소수점 이하를 버려 표시합니다.</p><div className="settlement-work-table-wrap"><table className="seller-document__table manager-product-table"><thead><tr><th>상품명</th><th>구분</th><th>판매수량</th><th>공급가</th><th>공구가</th><th>총수수료율</th><th>상품당 수수료</th><th>총 판매 수수료<br />(셀러+벤더)</th><th>비고</th></tr></thead><tbody>{managerProductRows.length ? <>{managerProductRows.map(({ row, totalRate, productAmount, productName, productRowSpan }) => <tr key={row.id}>{productRowSpan > 0 && <td rowSpan={productRowSpan}>{productName}</td>}<td>{row.optionName}</td><td className="amount-cell">{productAmount.quantity.toLocaleString('ko-KR')}</td><td className="amount-cell">{money(productAmount.supplyPrice)}</td><td className="amount-cell">{money(row.unitPrice)}</td><td className="amount-cell">{formatFloorRate(totalRate)}</td><td className="amount-cell">{money(productAmount.unitCommission)}</td><td className="amount-cell">{money(productAmount.salesCommission)}</td><td>{row.validationStatus === 'valid' ? '-' : row.validationMessage}</td></tr>)}<tr className="seller-subtotal-row manager-subtotal-row"><th colSpan={2}>판매 소계</th><td className="amount-cell">{managerProductSubtotal.quantity.toLocaleString('ko-KR')}개</td><td className="amount-cell">{money(managerProductSubtotal.supplyAmount)}</td><td className="amount-cell">{money(managerProductSubtotal.salesAmount)}</td><td></td><td></td><td className="amount-cell">{money(managerProductSubtotal.salesCommission)}</td><td></td></tr></> : <tr><td colSpan={9}>SKU별 판매 데이터가 아직 연결되지 않았습니다.</td></tr>}</tbody></table></div></section>
     <section className="manager-document__section"><h3>정산 계산</h3><table className="seller-document__table manager-calculation-table"><tbody>
       <tr className="manager-calculation-total"><th>총수수료</th><td className="amount-cell">{money(settlement.currentCalculation.grossCommission)}</td></tr>
@@ -1916,7 +1878,7 @@ function PayoutStatusBanner({ notice }: { notice?: PayoutStatusNotice }) {
 }
 
 function ManagerDocumentActions({ companyDirect, hasRequest, statusNotice, warnings, onAccount, onCopy, onPreview, onRequestPayment, onSave, paymentDisabled }: { companyDirect: boolean; hasRequest: boolean; statusNotice: PayoutStatusNotice; warnings: PaymentWarningAction[]; onAccount: () => void; onCopy: () => void; onPreview: () => void; onRequestPayment: () => void; onSave: () => void; paymentDisabled: boolean }) {
-  return <div className="document-action-bar no-print"><div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview}>확대 보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><button className="secondary-button" onClick={onAccount}>매니저 정보 확인하기</button>{companyDirect && !hasRequest ? <span className="status-badge done">회사 직속 · 매니저 배분·지급 없음</span> : <button className={`${hasRequest ? 'payment-edit-button' : 'primary-button'} document-payment-action`} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '매니저 지급요청 수정하기' : '매니저 지급 요청'}</button>}</div><div className={`document-status-region ${statusNotice.tone === 'unconfirmed' ? 'is-unconfirmed' : ''}`}><PayoutStatusBanner notice={statusNotice} /><PaymentBlockReasons ownerLabel="매니저" warnings={warnings} /></div></div>
+  return <div className="document-action-bar no-print"><div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview}>확대 보기</button><button className="secondary-button" onClick={onSave}>PNG 저장</button><button className="primary-button" onClick={onCopy}>이미지 복사</button><CompanyBusinessInfoCopy /><button className="secondary-button" onClick={onAccount}>매니저 정보 확인하기</button>{companyDirect && !hasRequest ? <span className="status-badge done">회사 직속 · 매니저 배분·지급 없음</span> : <button className={`${hasRequest ? 'payment-edit-button' : 'primary-button'} document-payment-action`} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '매니저 지급요청 수정하기' : '매니저 지급 요청'}</button>}</div><div className={`document-status-region ${statusNotice.tone === 'unconfirmed' ? 'is-unconfirmed' : ''}`}><PayoutStatusBanner notice={statusNotice} /><PaymentBlockReasons ownerLabel="매니저" warnings={warnings} /></div></div>
 }
 
 function SellerSettlementDocument({ rows, sellerDocumentRef, settlement }: { rows: SalesDataRow[]; sellerDocumentRef: RefObject<HTMLDivElement | null>; settlement: Settlement }) {
@@ -1987,8 +1949,7 @@ function SellerSettlementDocument({ rows, sellerDocumentRef, settlement }: { row
 
         <table className="seller-document__table seller-document__meta-table"><tbody>
           <tr><th>공구기간</th><td>{formatKoreanDate(salesImport?.salesStartDate ?? campaign?.startDate)} ~ {formatKoreanDate(salesImport?.salesEndDate ?? campaign?.endDate)}</td></tr>
-          <StatementIdentityRows campaign={campaign} rows={rows} />
-          <tr><th>셀러명</th><td>{campaign?.sellerName ?? '-'}</td></tr>
+          <StatementIdentityRows campaign={campaign} rows={rows} compact />
           <tr><th>사업자명 / 유형</th><td>{sellerProfile?.businessName || '사업자명 미등록'} / {sellerBusinessLabel}</td></tr>
           <tr><th>담당 매니저</th><td>{campaign?.managerName ?? '데이터 미연결'}</td></tr>
         </tbody></table>
@@ -2038,10 +1999,10 @@ function SellerSettlementDocument({ rows, sellerDocumentRef, settlement }: { row
   )
 }
 
-function SettlementDocumentActions({ receivableDocument = false, vendorDocument = false, hasRequest, statusNotice, warnings, onCopyImage, onCopyImageAndMessage, onCopyMessage, onInfo, onPreview, onRequestPayment, onSaveImage, paymentDisabled }: { receivableDocument?: boolean; vendorDocument?: boolean; hasRequest: boolean; statusNotice: PayoutStatusNotice; warnings: PaymentWarningAction[]; onCopyImage: () => void; onCopyImageAndMessage: () => void; onCopyMessage: () => void; onInfo: () => void; onPreview: () => void; onRequestPayment: () => void; onSaveImage: () => void; paymentDisabled: boolean }) {
+function SettlementDocumentActions({ receivableDocument = false, vendorDocument = false, hasRequest, statusNotice, warnings, onCopyImage, onCopyMessage, onInfo, onPreview, onRequestPayment, onSaveImage, paymentDisabled }: { receivableDocument?: boolean; vendorDocument?: boolean; hasRequest: boolean; statusNotice: PayoutStatusNotice; warnings: PaymentWarningAction[]; onCopyImage: () => void; onCopyMessage: () => void; onInfo: () => void; onPreview: () => void; onRequestPayment: () => void; onSaveImage: () => void; paymentDisabled: boolean }) {
   return (
     <div className="document-action-bar no-print">
-      <div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview} type="button">확대 보기</button><button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button><button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button><button className="primary-button" onClick={onCopyImageAndMessage} type="button">이미지 + 문구 복사</button><button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button><button className="secondary-button" onClick={onInfo} type="button">{vendorDocument ? '벤더 정보 등록·수정' : '셀러 정보 확인하기'}</button>{!receivableDocument && (!vendorDocument || hasRequest) && <button className={`${hasRequest ? 'payment-edit-button' : 'primary-button'} document-payment-action`} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '셀러 지급요청 수정하기' : '셀러 지급 요청'}</button>}</div>
+      <div className="action-row seller-document-actions"><button className="secondary-button" onClick={onPreview} type="button">확대 보기</button><button className="secondary-button" onClick={onSaveImage} type="button">PNG 저장</button><button className="primary-button" onClick={onCopyImage} type="button">이미지 복사</button><CompanyBusinessInfoCopy /><button className="secondary-button" onClick={onCopyMessage} type="button">전달 문구 복사</button><button className="secondary-button" onClick={onInfo} type="button">{vendorDocument ? '벤더 정보 등록·수정' : '셀러 정보 확인하기'}</button>{!receivableDocument && (!vendorDocument || hasRequest) && <button className={`${hasRequest ? 'payment-edit-button' : 'primary-button'} document-payment-action`} disabled={paymentDisabled} onClick={onRequestPayment} type="button">{hasRequest ? '셀러 지급요청 수정하기' : '셀러 지급 요청'}</button>}</div>
       <div className={`document-status-region ${statusNotice.tone === 'unconfirmed' ? 'is-unconfirmed' : ''}`}><PayoutStatusBanner notice={statusNotice} /><PaymentBlockReasons ownerLabel="셀러" warnings={vendorDocument || receivableDocument ? [] : warnings} /></div>
     </div>
   )

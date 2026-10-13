@@ -11,7 +11,11 @@ function readProduct(id: string) {
   if (!read) { read = productService.getProductById(id).catch(() => { reads.delete(id); return null }); reads.set(id,read) }
   return read
 }
-export function StatementIdentityRows({campaign,rows=[]}:{campaign?:Campaign;rows?:SalesDataRow[]}) {
+export function StatementIdentityRows({ campaign, rows = [], compact = false }: { campaign?: Campaign; rows?: SalesDataRow[]; compact?: boolean }) {
+  return compact ? <tr><th>진행 공구</th><td>{statementIdentity(campaign, rows).campaignName}</td></tr> : <DetailedStatementIdentityRows campaign={campaign} rows={rows} />
+}
+
+function DetailedStatementIdentityRows({campaign,rows=[]}:{campaign?:Campaign;rows?:SalesDataRow[]}) {
   const [products,setProducts] = useState<ProductMaster[]>([])
   const ids = [...new Set([campaign?.productId,...rows.map(row=>row.productId)].filter((id):id is string=>!!id))].sort().join(',')
   useEffect(()=> { let active=true; setProducts([]); if(ids) void Promise.all(ids.split(',').map(readProduct)).then(items=>{if(active)setProducts(items.filter((item):item is ProductMaster=>!!item))}); return()=>{active=false} },[ids])
