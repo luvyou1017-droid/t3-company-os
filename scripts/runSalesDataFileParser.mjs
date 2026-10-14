@@ -44,6 +44,20 @@ XLSX.utils.book_append_sheet(srookpayWorkbook, XLSX.utils.aoa_to_sheet([
 const srookpayBuffer = XLSX.write(srookpayWorkbook, { type: 'array', bookType: 'xlsx' })
 const srookpayParsed = await parseSalesDataFile(new File([srookpayBuffer], 'srookpay-orders.xlsx'), { id: 'srookpay-test', campaignId: 'campaign-test' })
 
+const canceledOptionWorkbook = XLSX.utils.book_new()
+XLSX.utils.book_append_sheet(canceledOptionWorkbook, XLSX.utils.aoa_to_sheet([
+  ['주문번호', '주문상태', '상품명', '고객선택옵션', '주문수량', '취소수량', '상품금액(옵션포함)'],
+  ['order-1', '배송완료', '캐리어', '라운드 20인치', 1, 0, 129000],
+  ['order-2', '배송완료', '캐리어', '일자형 20인치', 1, 0, 139000],
+  ['order-3', '배송완료', '캐리어', '화이트 20인치', 1, 0, 115000],
+  ['order-4', '배송완료', '캐리어', '핑크 20인치', 1, 0, 115000],
+  ['order-5', '배송완료', '캐리어', '바퀴', 1, 0, 10000],
+  ['order-6', '배송완료(부분취소)', '캐리어', '라운드 20인치', 1, 1, 0],
+  ['order-7', '배송완료(부분취소)', '캐리어', '바퀴', 1, 1, 0],
+]), 'srookpay')
+const canceledOptionBuffer = XLSX.write(canceledOptionWorkbook, { type: 'array', bookType: 'xlsx' })
+const canceledOptionParsed = await parseSalesDataFile(new File([canceledOptionBuffer], 'canceled-options.xlsx'), { id: 'canceled-options', campaignId: 'campaign-test' })
+
 const orderLookupWorkbook = XLSX.utils.book_new()
 XLSX.utils.book_append_sheet(orderLookupWorkbook, XLSX.utils.aoa_to_sheet([
   ['상품주문번호', '주문상태', '클레임상태', '상품명', '옵션정보', '수량'],
@@ -204,6 +218,7 @@ const checks = [
   ['스룩페이 취소·반품을 판매행에 분리', srookpayParsed.rows.reduce((sum, row) => sum + row.canceledQuantity, 0) === 1 && srookpayParsed.rows.reduce((sum, row) => sum + row.refundedQuantity, 0) === 1],
   ['스룩페이 순매출 계산', srookpayParsed.rows.reduce((sum, row) => sum + row.netSales, 0) === 398000],
   ['스룩페이 배송비 매출 분리', srookpayParsed.analysis.includedShippingRevenue === 20000],
+  ['전액 취소된 0원 옵션이 가격 확인을 막지 않음', canceledOptionParsed.rows.length === 5 && canceledOptionParsed.analysis.includedGrossSales === 508000],
   ['발주모아 판매사상품명 인식', orderHubParsed.analysis.detectedColumns.includes('판매사상품명') && orderHubParsed.analysis.includedGrossSales === 79800],
   ['금액 없는 스마트스토어 주문조회는 상품 DB 공구가 적용', orderLookupParsed.analysis.includedGrossSales === 79800 && orderLookupParsed.rows[0]?.unitPrice === 39900],
   ['상단 옵션별 단가표를 하단 주문조회에 자동 적용', embeddedPriceParsed.analysis.includedQuantity === 26 && embeddedPriceParsed.analysis.includedGrossSales === 752200 && embeddedPriceParsed.rows.length === 2],

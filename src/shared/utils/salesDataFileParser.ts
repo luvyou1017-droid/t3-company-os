@@ -6,7 +6,7 @@ import { readDispatchWorkbook } from './dispatchWorkbook.ts'
 import { sheetToRows } from './spreadsheetRows.ts'
 
 type Cell = string | number | boolean | Date | null | undefined
-type ParsedColumn = 'orderId' | 'product' | 'option' | 'quantity' | 'unitPrice' | 'grossSales' | 'collectedAmount' | 'orderStatus' | 'claimStatus' | 'eventType'
+type ParsedColumn = 'orderId' | 'product' | 'option' | 'quantity' | 'canceledQuantity' | 'unitPrice' | 'grossSales' | 'collectedAmount' | 'orderStatus' | 'claimStatus' | 'eventType'
 
 export type SalesPriceCandidate = {
   skuOptionName?: string
@@ -39,6 +39,7 @@ const aliases: Record<ParsedColumn, string[]> = {
   product: ['상품명', '판매사상품명', '진행상품명', '제품명', '품명', 'productname'],
   option: ['판매사옵션명', '고객선택옵션', '옵션정보', '판매옵션정보', '옵션명', '옵션', '구성명', '상품옵션', 'option'],
   quantity: ['수량', '판매수량', '주문수량', 'quantity', 'qty'],
+  canceledQuantity: ['취소수량'],
   unitPrice: ['옵션판매가', '개당판매가', '공동구매가', '판매단가', '단가', '결제단가', 'unitprice'],
   // 할인 전 금액과 할인 후 금액이 모두 있는 파일은 실제 정산 기준 금액을 우선합니다.
   grossSales: ['상품금액(옵션포함)', '최종매출', '총주문금액', '실결제금액', '총판매가', '총판매금액', '상품합계', '결제금액', '판매금액', '판매가', '총매출', '옵션별총액', 'amount'],
@@ -365,10 +366,14 @@ export async function parseSalesDataFile(file: File, salesImport: SalesDataImpor
     const rawOptionName = optionCell || productName
     const optionName = isOrderHubFormat && header.columns.option === undefined ? extractOrderHubOptionName(rawOptionName) : rawOptionName
     if (isSummaryLabel(optionName) || isSummaryLabel(productName)) continue
-    const candidate = lookupCandidate(productName, optionName)
-    const catalogUnitPrice = candidate?.groupBuyPrice ?? 0
     const reportedGrossSales = header.columns.grossSales === undefined ? 0 : numberValue(row[header.columns.grossSales])
     const reportedUnitPrice = header.columns.unitPrice === undefined ? 0 : numberValue(row[header.columns.unitPrice])
+    // Srookpay leaves the original order quantity on fully canceled, zero-sale lines.
+    // They must not trigger a missing catalog price or become a sale at the SKU price.
+    const canceledQuantity = header.columns.canceledQuantity === undefined ? 0 : numberValue(row[header.columns.canceledQuantity])
+    if (quantity > 0 && canceledQuantity >= quantity && reportedGrossSales === 0 && reportedUnitPrice <= 0) continue
+    const candidate = lookupCandidate(productName, optionName)
+    const catalogUnitPrice = candidate?.groupBuyPrice ?? 0
     const requiresCatalogPrice = reportedGrossSales === 0 && reportedUnitPrice <= 0
     if (requiresCatalogPrice && optionName && quantity > 0 && catalogUnitPrice <= 0) {
       unmatchedCatalogOptions.add(optionName)
