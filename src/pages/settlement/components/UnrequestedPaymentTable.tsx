@@ -7,12 +7,13 @@ import { managerPaymentService } from '../../../shared/services/managerPaymentSe
 import { paymentEvidenceService } from '../../../shared/services/paymentEvidenceService'
 import { formatCurrency } from '../../../shared/utils/salesData'
 import { BatchPaymentRequestButton } from './BatchPaymentRequestButton'
+import { BatchSettlementConfirmButton } from './BatchSettlementConfirmButton'
 
 type Recipient = { settlementId:string; ownerType:'seller'|'manager'; amount:number; rejected:boolean }
 type Tab = 'seller'|'manager'|'both'
 const businessLabels:Record<string,string> = { corporation:'법인', general_business:'일반 개인사업자', simplified_business:'간이사업자', freelancer:'개인 프리랜서' }
 
-export function UnrequestedPaymentTable({settlements,recipients,campaigns,canBatchRequest,onOpenDetail,onSaved}:{settlements:Settlement[];recipients:Recipient[];campaigns:Map<string,Campaign>;canBatchRequest:boolean;onOpenDetail:(id:string)=>void;onSaved:()=>void}) {
+export function UnrequestedPaymentTable({settlements,recipients,campaigns,canBatchRequest,confirmedBy,onOpenDetail,onSaved}:{settlements:Settlement[];recipients:Recipient[];campaigns:Map<string,Campaign>;canBatchRequest:boolean;confirmedBy:string;onOpenDetail:(id:string)=>void;onSaved:()=>void}) {
   const [tab,setTab]=useState<Tab>('both')
   const [selected,setSelected]=useState<string[]>([])
   const byId=new Map(settlements.map(item=>[item.id,item]))
@@ -25,7 +26,7 @@ export function UnrequestedPaymentTable({settlements,recipients,campaigns,canBat
       {([['seller','셀러 미신청'],['manager','매니저 미신청'],['both','셀러·매니저 미신청']] as const).map(([key,label])=><button type="button" key={key} className={tab===key?'is-active':''} aria-pressed={tab===key} onClick={()=>{setTab(key);setSelected([])}}>{label} ({recipients.filter(row=>byId.has(row.settlementId)&&(key==='both'||row.ownerType===key)).length})</button>)}
     </nav>
     <p className="inline-notice">정산서 확정은 공구 공통 상태입니다. 금액·사업자 유형·증빙·신청 선택은 지급 대상별로 확인하세요. 셀러 링크의 회사 수금 건은 이 목록에 포함되지 않습니다.</p>
-    {canBatchRequest && <BatchPaymentRequestButton ids={[...new Set(visibleSelected.map(key=>key.split(':')[0]))]} selectedKeys={visibleSelected} onSaved={()=>{setSelected([]);onSaved()}} onOpenDetail={onOpenDetail} />}
+    {canBatchRequest && <><BatchSettlementConfirmButton key={`confirm:${visibleSelected.join('|')}`} ids={visibleSelected.map(key=>key.split(':')[0])} confirmedBy={confirmedBy} onSaved={()=>{setSelected([]);onSaved()}} onOpenDetail={onOpenDetail} /><BatchPaymentRequestButton ids={[...new Set(visibleSelected.map(key=>key.split(':')[0]))]} selectedKeys={visibleSelected} onSaved={()=>{setSelected([]);onSaved()}} onOpenDetail={onOpenDetail} /></>}
     {!rows.length && <p className="empty-state">이 대상의 미신청 건이 없습니다.</p>}
     {!!rows.length && <div className="schedule-table-wrap payment-recipient-table"><table className="schedule-table"><thead><tr><th>{canBatchRequest && <input type="checkbox" aria-label="현재 지급 대상 전체 선택" checked={keys.length>0 && keys.every(key=>visibleSelected.includes(key))} onChange={()=>setSelected(keys.every(key=>visibleSelected.includes(key))?[]:keys)} />}</th><th>공동구매 / 지급 대상</th><th>정산서 확정 / 총매출</th><th>사업자 유형</th><th>지급 예정액</th><th>증빙 상태</th><th>신청 상태</th></tr></thead><tbody>{rows.map(row=>{
       const settlement=byId.get(row.settlementId)!
