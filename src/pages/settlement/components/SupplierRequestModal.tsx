@@ -39,6 +39,13 @@ export function SupplierRequestModal({ source, rows, campaign, deductions, onClo
   // Showing them as references avoids inventing a sign or deducting twice.
   const ambiguous = (payment ? [] : deductions).filter(item => item.amount !== 0)
   const finalAmount = ambiguous.length ? undefined : offset.finalAmount
+  const copyDepositRequest = async () => {
+    if (!base.supplierCollects || finalAmount === undefined || !Number.isFinite(finalAmount) || finalAmount <= 0 || offset.needsReview) return
+    try {
+      await navigator.clipboard.writeText(`안녕하세요. ${campaign?.campaignName || '공동구매'} 정산에 따른 입금 요청드립니다.\n입금 요청액: ${money(finalAmount)}\n입금 계좌: ${company.settlementBankName} ${company.settlementBankAccount} (예금주 ${company.settlementAccountHolder})\n첨부 정산서를 확인하신 뒤 입금 부탁드립니다.`)
+      setNotice('입금 요청 문구를 복사했습니다. 전달 후 실제 입금은 별도로 확인해주세요.')
+    } catch { setNotice('입금 요청 문구를 복사하지 못했습니다. 브라우저의 클립보드 권한을 확인해주세요.') }
+  }
   const exportImage = async (copy: boolean) => {
     if (busy) return
     setBusy(true); setNotice('')
@@ -58,7 +65,7 @@ export function SupplierRequestModal({ source, rows, campaign, deductions, onClo
   }
   return <dialog ref={dialog} className="supplier-request-modal" aria-labelledby="supplier-request-title" onCancel={onClose}>
     <div className="section-heading"><h2 id="supplier-request-title">공급사 입금 요청용 정산서</h2><button type="button" className="secondary-button" onClick={onClose}>닫기</button></div>
-    <div className="button-row"><button type="button" className="primary-button" disabled={busy} onClick={() => void exportImage(true)}>이미지 복사</button><button type="button" className="secondary-button" disabled={busy} onClick={() => void exportImage(false)}>PNG 저장</button></div>
+    <div className="button-row"><button type="button" className="primary-button" disabled={busy} onClick={() => void exportImage(true)}>이미지 복사</button><button type="button" className="secondary-button" disabled={busy} onClick={() => void exportImage(false)}>PNG 저장</button>{base.supplierCollects && <button type="button" className="secondary-button" disabled={busy || finalAmount === undefined || finalAmount <= 0 || offset.needsReview} title={finalAmount === undefined || offset.needsReview ? '정산금액과 상계 항목을 확인한 뒤 이용할 수 있습니다.' : undefined} onClick={() => void copyDepositRequest()}>입금 요청 문구 복사</button>}</div>
     {notice && <p role="status">{notice}</p>}
     {onSavePayment && !base.supplierCollects && <SupplierPaymentEditor rows={rows} products={products} value={payment} onSave={onSavePayment} />}
     {!base.supplierCollects && !preserveLegacy && base.supply === undefined && <p role="alert">회사 실제 공급가 확인 필요</p>}
