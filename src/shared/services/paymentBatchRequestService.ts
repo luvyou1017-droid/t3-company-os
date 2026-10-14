@@ -16,13 +16,14 @@ const keys = [K.paymentRequests,K.settlements,K.campaigns,K.salesDataImports,K.s
 type Row = { storage_key:string; payload:unknown; revision:number; updated_at:string; deleted:boolean }
 export type BatchRequestTarget = 'both' | 'seller' | 'manager'
 export type BatchRequestItem = { key:string; settlementId:string; ownerType:'seller'|'manager'; campaignName:string; recipientName:string; amount:number; reason:string; request?:PaymentRequest }
-export type BatchRequestPreview = { ids:string[]; target:BatchRequestTarget; versions:Row[]; items:BatchRequestItem[]; actorName:string }
+export type BatchRequestPreview = { ids:string[]; target:BatchRequestTarget; selectedKeys?:string[]; versions:Row[]; items:BatchRequestItem[]; actorName:string }
 
-export function planBatchPaymentRequests(ids:string[], target:BatchRequestTarget, values:Map<string,unknown>, actorName:string) {
+export function planBatchPaymentRequests(ids:string[], target:BatchRequestTarget, values:Map<string,unknown>, actorName:string, selectedKeys?:string[]) {
   const seed = new Map<string,unknown>(Object.values(K).map(key => [key,values.get(key) ?? []]))
   const items:BatchRequestItem[]=[]
   const writes=new Map<string,unknown>()
   for(const settlementId of [...new Set(ids)]) for(const ownerType of target==='both' ? ['seller','manager'] as const : [target]) {
+    if(selectedKeys && !selectedKeys.includes(`${settlementId}:${ownerType}`)) continue
     const item:BatchRequestItem={key:`${settlementId}:${ownerType}`,settlementId,ownerType,campaignName:settlementId,recipientName:'',amount:0,reason:''}
     try {
       const captured=captureStorageWrites(seed,()=> {
@@ -88,18 +89,18 @@ async function context(client:NonNullable<typeof supabase>, refreshMasters:()=>P
   await refreshMasters()
   return {rows,name:profile.data.display_name as string}
 }
-export async function previewBatchPaymentRequests(ids:string[],target:BatchRequestTarget,client=supabase, refreshMasters=()=>sellerMasterService.loadSellers(true)):Promise<BatchRequestPreview> {
+export async function previewBatchPaymentRequests(ids:string[],target:BatchRequestTarget,client=supabase, refreshMasters=()=>sellerMasterService.loadSellers(true), selectedKeys?:string[]):Promise<BatchRequestPreview> {
   if(!client) throw new Error('운영 서버 연결을 확인해주세요.')
   const {rows,name}=await context(client,refreshMasters)
-  const plan=planBatchPaymentRequests(ids,target,new Map(rows.map(row=>[row.storage_key,row.payload])),name)
-  return {ids:[...new Set(ids)],target,versions:rows,items:plan.items,actorName:name}
+  const plan=planBatchPaymentRequests(ids,target,new Map(rows.map(row=>[row.storage_key,row.payload])),name,selectedKeys)
+  return {ids:[...new Set(ids)],target,selectedKeys:selectedKeys?[...new Set(selectedKeys)]:undefined,versions:rows,items:plan.items,actorName:name}
 }
 export async function submitBatchPaymentRequests(preview:BatchRequestPreview,client=supabase, refreshMasters=()=>sellerMasterService.loadSellers(true)) {
   if(!client) throw new Error('운영 서버 연결을 확인해주세요.')
   const {rows,name}=await context(client,refreshMasters)
   const versions=(r:Row[])=>JSON.stringify(r.map(row=>[row.storage_key,row.revision,row.updated_at]).sort())
   if(versions(rows)!==versions(preview.versions)) throw new Error('확인 이후 데이터가 변경되었습니다. 다시 일괄 확인해주세요.')
-  const plan=planBatchPaymentRequests(preview.ids,preview.target,new Map(rows.map(row=>[row.storage_key,row.payload])),name)
+  const plan=planBatchPaymentRequests(preview.ids,preview.target,new Map(rows.map(row=>[row.storage_key,row.payload])),name,preview.selectedKeys)
   const signature=(items:BatchRequestItem[])=>JSON.stringify(items.map(i=>[i.key,i.amount,i.reason,i.request?.bankNameSnapshot,i.request?.accountNumberSnapshot,i.request?.accountHolderSnapshot,i.request?.businessType]))
   if(signature(plan.items)!==signature(preview.items)) throw new Error('계좌·금액·대상이 변경되었습니다. 다시 확인해주세요.')
   const ready=plan.items.filter(item=>item.request)

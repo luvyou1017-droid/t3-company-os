@@ -33,6 +33,10 @@ sellerCase.set(K.sellerSettlementRules,[{campaignId:campaign.id,salesChannelType
 sellerCase.set(K.salesDataRows,[{id:'TEST-row',salesDataImportId:'TEST-sales',matchStatus:'matched',productMatchStatus:'matched',skuId:'TEST-sku',productId:'TEST-product',optionName:'TEST item',netQuantity:1,unitPrice:1000000,netSales:1000000,totalCommissionRate:20,sellerCommissionRate:10}])
 const sellerPlan=planBatchPaymentRequests([settlement.id],'seller',sellerCase,'TEST requester')
 assert.equal(sellerPlan.items[0].reason,'',sellerPlan.items[0].reason);assert.equal(sellerPlan.items[0].request.recipientType,'seller');assert(sellerPlan.items[0].amount>0)
+const managerOnly=planBatchPaymentRequests([settlement.id],'both',sellerCase,'TEST requester',[`${settlement.id}:manager`])
+assert.deepEqual(managerOnly.items.map(item=>item.ownerType),['manager']);assert.deepEqual(managerOnly.writes.get(K.paymentRequests).map(item=>item.recipientType),['manager'])
+const sellerOnly=planBatchPaymentRequests([settlement.id],'both',sellerCase,'TEST requester',[`${settlement.id}:seller`])
+assert.deepEqual(sellerOnly.items.map(item=>item.ownerType),['seller']);assert.deepEqual(sellerOnly.writes.get(K.paymentRequests).map(item=>item.recipientType),['seller'])
 // Mock the server boundary: preview and failed commits never mutate browser state.
 let role='manager', rpcFailure=false, calls=0
 let rows=[...base].filter(([k])=>[K.paymentRequests,K.settlements,K.campaigns,K.salesDataImports,K.salesDataRows,K.sellerSettlementRules,K.settlementDeductions,K.managerMasters,K.sellerMasters,K.withholdingTaxItems,K.paymentEvidence,K.settlementActivityLogs,K.settlementRevisionRequests].includes(k)).map(([storage_key,payload])=>({storage_key,payload,revision:1,updated_at:'2026-10-13T00:00:00Z',deleted:false}))

@@ -2,22 +2,22 @@ import { useEffect, useState } from 'react'
 import { previewBatchPaymentRequests, submitBatchPaymentRequests, type BatchRequestPreview, type BatchRequestTarget } from '../../../shared/services/paymentBatchRequestService'
 import { formatCurrency } from '../../../shared/utils/salesData'
 
-export function BatchPaymentRequestButton({ids,onSaved,onOpenDetail}:{ids:string[];onSaved:()=>void;onOpenDetail:(id:string)=>void}) {
+export function BatchPaymentRequestButton({ids,selectedKeys,onSaved,onOpenDetail}:{ids:string[];selectedKeys?:string[];onSaved:()=>void;onOpenDetail:(id:string)=>void}) {
   const [target,setTarget]=useState<BatchRequestTarget>('both')
   const [preview,setPreview]=useState<BatchRequestPreview|null>(null)
   const [busy,setBusy]=useState(false)
   const [notice,setNotice]=useState('')
   const [confirmed,setConfirmed]=useState(false)
-  const selection=ids.join(',')
+  const selection=selectedKeys?.join(',') ?? ids.join(',')
   useEffect(()=>{setPreview(null);setConfirmed(false)},[selection])
   async function review() {
     setBusy(true);setNotice('');setConfirmed(false)
-    try { setPreview(await previewBatchPaymentRequests(ids,target)) }
+    try { setPreview(await previewBatchPaymentRequests(ids,selectedKeys?'both':target,undefined,undefined,selectedKeys)) }
     catch(e){setNotice(e instanceof Error?e.message:'일괄 확인 실패')}
     finally{setBusy(false)}
   }
   async function submit() {
-    if(!preview || !confirmed || busy)return
+    if(!preview || !confirmed || busy || (selectedKeys && preview.selectedKeys?.join(',')!==selectedKeys.join(',')))return
     setBusy(true)
     try { const count=await submitBatchPaymentRequests(preview);setPreview(null);setNotice(`${count}건 지급신청을 운영 서버에 저장했습니다.`);onSaved() }
     catch(e){setNotice(e instanceof Error?e.message:'신청 실패');setPreview(null);setConfirmed(false)}
@@ -25,7 +25,7 @@ export function BatchPaymentRequestButton({ids,onSaved,onOpenDetail}:{ids:string
   }
   const ready=preview?.items.filter(item=>!item.reason) ?? []
   return <div className="no-print">
-    <div className="action-row"><span>선택 {ids.length}건</span><label>신청 대상 <select value={target} disabled={busy} onChange={e=>{setTarget(e.target.value as BatchRequestTarget);setPreview(null)}}><option value="both">셀러 + 매니저</option><option value="seller">셀러만</option><option value="manager">매니저만</option></select></label><button type="button" className="primary-button" disabled={!ids.length || busy} onClick={()=>void review()}>{busy?'확인 중…':'선택 건 일괄 지급신청'}</button></div>
+    <div className="action-row"><span>선택 {selectedKeys?.length ?? ids.length}개 지급 대상</span>{!selectedKeys && <label>신청 대상 <select value={target} disabled={busy} onChange={e=>{setTarget(e.target.value as BatchRequestTarget);setPreview(null)}}><option value="both">셀러 + 매니저</option><option value="seller">셀러만</option><option value="manager">매니저만</option></select></label>}<button type="button" className="primary-button" disabled={!(selectedKeys?.length ?? ids.length) || busy} onClick={()=>void review()}>{busy?'확인 중…':'선택 건 일괄 지급신청'}</button></div>
     {notice && <p role="status">{notice}</p>}
     {preview && <div className="settlement-modal-backdrop"><section role="dialog" aria-modal="true" aria-label="선택 건 일괄 지급신청" className="settlement-readiness-modal">
       <h2>선택 건 일괄 지급신청</h2><p>신청 가능 {ready.length}건 · 총 {formatCurrency(ready.reduce((sum,item)=>sum+item.amount,0))} · 제외 {preview.items.length-ready.length}건</p>
