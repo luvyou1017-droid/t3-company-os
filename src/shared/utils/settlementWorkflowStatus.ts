@@ -3,6 +3,7 @@ import type { Settlement } from '../types/settlement'
 // Display only: no persisted state transition and no calculation changes.
 export function settlementWorkflowLabel(settlement: Settlement, fallback: string) {
   if (settlement.status === 'completed' && settlement.sellerLinkReceipt) return '입금 확인 · 정산 완료'
+  if (settlement.sellerLinkReceipt) return '셀러 입금 확인 · 매니저 지급 대기'
   const states = [settlement.sellerPaymentRequestStatus, settlement.managerPaymentRequestStatus].filter(Boolean)
   if (states.includes('approval_pending') || settlement.status === 'approval_pending') return '대표 승인 대기'
   if (states.includes('on_hold')) return '지급 보류'
