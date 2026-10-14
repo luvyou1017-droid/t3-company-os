@@ -10,7 +10,7 @@ import { BatchPaymentRequestButton } from './BatchPaymentRequestButton'
 
 type Recipient = { settlementId:string; ownerType:'seller'|'manager'; amount:number; rejected:boolean }
 type Tab = 'seller'|'manager'|'both'
-const businessLabels:Record<string,string> = { general_business:'일반과세', simplified_business:'간이과세', freelancer:'프리랜서 3.3%', tax_exempt_business:'면세사업자' }
+const businessLabels:Record<string,string> = { corporation:'법인', general_business:'일반 개인사업자', simplified_business:'간이사업자', freelancer:'개인 프리랜서' }
 
 export function UnrequestedPaymentTable({settlements,recipients,campaigns,canBatchRequest,onOpenDetail,onSaved}:{settlements:Settlement[];recipients:Recipient[];campaigns:Map<string,Campaign>;canBatchRequest:boolean;onOpenDetail:(id:string)=>void;onSaved:()=>void}) {
   const [tab,setTab]=useState<Tab>('both')
