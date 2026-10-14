@@ -81,19 +81,19 @@ try {
     const aggregate = XLSX.read(aggregatedSellerWorkbook([{ productName:'상품',optionName:'민트',quantity:2,unitPrice:20000,grossSales:40000,canceledQuantity:0,refundedQuantity:0,netQuantity:2,netSales:40000,settlementSupplyPrice:22000,totalCommissionRate:40 }]),{type:'array'})
     assert.ok(!JSON.stringify(XLSX.utils.sheet_to_json(aggregate.Sheets[aggregate.SheetNames[0]])).includes('공급'))
   })
-  await check('셀러 링크 14일 TTL·생성파일만 교체·원본 보존 (Storage 모의)', async () => {
+  await check('셀러 링크 7일 TTL·생성파일만 교체·원본 보존 (Storage 모의)', async () => {
     const { supabase } = await server.ssrLoadModule('/src/shared/lib/supabase.ts')
     const { sellerSettlementFileService: service } = await server.ssrLoadModule('/src/shared/services/sellerSettlementFileService.ts')
     assert.ok(supabase, 'Existing public configuration required; no network calls made')
     const originalFrom = supabase.storage.from
     const calls = []
-    const expiry = Math.floor(Date.now()/1000) + 14*24*60*60
+    const expiry = Math.floor(Date.now()/1000) + 7*24*60*60
     const token = `header.${Buffer.from(JSON.stringify({exp:expiry})).toString('base64url')}.signature`
     supabase.storage.from = bucket => {
       assert.equal(bucket, 'seller-documents')
       return {
         upload: async (path, bytes, options) => { calls.push(['upload',path]); assert.equal(options.upsert,false); assert.ok(bytes.length); return {error:null} },
-        createSignedUrl: async (path, ttl) => { assert.equal(ttl,14*24*60*60); return {data:{signedUrl:`https://test.invalid/file?token=${token}`},error:null} },
+        createSignedUrl: async (path, ttl) => { assert.equal(ttl,7*24*60*60); return {data:{signedUrl:`https://test.invalid/file?token=${token}`},error:null} },
         remove: async paths => { calls.push(['remove',...paths]); return {error:null} },
       }
     }

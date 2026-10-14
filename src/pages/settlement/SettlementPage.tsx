@@ -1050,7 +1050,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const showClipboardToast = (message: string, error = false) => setClipboardToast({ message, error })
 
   const sellerExcelShareText = (share: { url: string; expiresAt: string } | null = sellerExcelShare) => share && new Date(share.expiresAt).getTime() > Date.now()
-    ? `\n\n셀러용 구매내역 엑셀: ${share.url}\n다운로드 기한: ${new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(share.expiresAt))}까지 (14일)`
+    ? `\n\n셀러용 구매내역 엑셀: ${share.url}\n다운로드 기한: ${new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(share.expiresAt))}까지 (이후 링크 만료)`
     : ''
 
   const buildSellerMessage = (share: { url: string; expiresAt: string } | null = sellerExcelShare, copiedAt = new Date()) => {
@@ -1092,7 +1092,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
       salesDataService.updateSalesDataImport({ ...currentImport, sellerExcelExport: share })
       await cloudSyncService.syncKeys([STORAGE_KEYS.salesDataImports])
       setSellerExcelShare(share)
-      showClipboardToast('내부정보를 제외한 셀러용 Excel과 14일 링크를 만들었습니다.')
+      showClipboardToast('내부정보를 제외한 셀러용 Excel을 만들었습니다. 링크는 7일 후 만료되고 생성 파일은 14일 후 삭제됩니다.')
       return share
     } catch (error) {
       const message = `정산 확정은 유지되었으나 Excel/링크 생성이 완료되지 않았습니다. 재시도해주세요. ${error instanceof Error ? error.message : '구매내역 링크 생성 실패'}`
