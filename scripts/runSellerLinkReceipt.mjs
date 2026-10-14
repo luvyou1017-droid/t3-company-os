@@ -34,9 +34,20 @@ try {
   if (!fails(() => settlementService.confirmSellerLinkReceipt(base.id, amount + 1, day, '대표', '대표'))) throw new Error('금액 검증 실패')
   const completed = settlementService.confirmSellerLinkReceipt(base.id, amount, day, '대표', '대표')
   if (completed.status !== 'completed' || completed.sellerLinkReceipt?.amount !== amount || completed.sellerPaymentCompleted !== draft.sellerPaymentCompleted || completed.managerPaymentCompleted !== draft.managerPaymentCompleted || !fails(() => settlementService.confirmSellerLinkReceipt(base.id, amount, day, '대표', '대표'))) throw new Error('입금 완료 또는 중복 방지 실패')
-  const second = { ...base, id: `${base.id}-pending`, status: 'approved', settlementConfirmed: true, hasSourceChanged: false, supplierPayment: undefined }
+  const second = { ...base, id: `${base.id}-pending`, status: 'approved', settlementConfirmed: true, hasSourceChanged: false, supplierPayment: undefined, currentCalculation: { ...calculation, managerAmount: 1000 } }
+  const sellerSource = { ...importForTest, supplyAudience: 'seller' }
+  salesDataService.updateSalesDataImport(sellerSource)
+  campaignService.saveCampaigns(campaignService.getCampaigns().map(item => item.id === campaign.id ? { ...item, managerId: 'manager-receipt-test', managerName: '매니저 테스트' } : item))
   settlementService.saveSettlements([...settlementService.getSettlements(), second])
-  storageService.setItem(STORAGE_KEYS.paymentRequests, [{ id: 'request-test', settlementId: second.id, status: 'approved' }])
-  if (!fails(() => settlementService.confirmSellerLinkReceipt(second.id, amount, day, '대표', '대표'))) throw new Error('미완료 지급요청 차단 실패')
-  console.log('셀러링크 입금 확인: 금액·권한·중복·지급요청 검증 통과')
+  storageService.setItem(STORAGE_KEYS.paymentRequests, [{ id: 'manager-request', settlementId: second.id, recipientType: 'manager', status: 'approved' }])
+  const secondAmount = sellerLinkReceiptAmount(second, sellerSource, salesDataService.getSettlementRowsByImportId(source.id), campaign)
+  const received = settlementService.confirmSellerLinkReceipt(second.id, secondAmount, day, '대표', '대표')
+  if (received.status !== 'partially_paid' || !received.sellerLinkReceipt || received.managerPaymentCompleted || !fails(() => settlementService.confirmSellerLinkReceipt(second.id, secondAmount, day, '대표', '대표'))) throw new Error('매니저 지급 중 입금 확인 분리 실패')
+  const paid = settlementService.markManagerPaymentCompleted(second.id)
+  if (paid?.status !== 'completed' || !paid.sellerLinkReceipt || !paid.managerPaymentCompleted) throw new Error('매니저 지급 후 최종 완료 실패')
+  const third = { ...second, id: `${base.id}-seller-request` }
+  settlementService.saveSettlements([...settlementService.getSettlements(), third])
+  storageService.setItem(STORAGE_KEYS.paymentRequests, [{ id: 'seller-request', settlementId: third.id, recipientType: 'seller', status: 'approved' }])
+  if (!fails(() => settlementService.confirmSellerLinkReceipt(third.id, secondAmount, day, '대표', '대표'))) throw new Error('셀러 중복 지급요청 차단 실패')
+  console.log('셀러링크 입금 확인: 금액·권한·중복·매니저 지급 분리·최종 완료 검증 통과')
 } finally { await vite.close() }

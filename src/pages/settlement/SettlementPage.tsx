@@ -1347,17 +1347,17 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     setReceiptError('')
     try {
       const next = settlementService.confirmSellerLinkReceipt(settlement.id, Number(receiptAmount), receiptDate, currentUser.name, currentUser.role)
-      if (salesImport) {
+      if (salesImport && next.status === 'completed') {
         salesDataService.updateSalesDataImport({ ...salesImport, settlementStatus: '정산 완료' })
       }
       await cloudSyncService.syncKeys([
         STORAGE_KEYS.settlements,
         STORAGE_KEYS.settlementActivityLogs,
-        ...(salesImport ? [STORAGE_KEYS.salesDataImports] : []),
+        ...(salesImport && next.status === 'completed' ? [STORAGE_KEYS.salesDataImports] : []),
       ])
       setSettlement(next)
       setReceiptAcknowledged(false)
-      showClipboardToast('입금 확인을 기록하고 정산을 완료했습니다. 완료 내역에서 확인할 수 있습니다.')
+      showClipboardToast(next.status === 'completed' ? '입금 확인을 기록하고 정산을 완료했습니다. 완료 내역에서 확인할 수 있습니다.' : '셀러 입금 확인을 기록했습니다. 매니저 지급은 별도로 진행해주세요.')
     } catch (error) {
       setReceiptError(error instanceof Error ? error.message : '입금 확인을 저장하지 못했습니다.')
       setSettlement(settlementService.getSettlementById(settlement.id) ?? settlement)
@@ -1385,12 +1385,12 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
         {hasUnresolvedRevision ? <div className="settlement-confirmation-state is-revision"><strong>⚠ 정산서 수정 요청</strong><span>{pendingRevisionRequest?.reason}</span><small>수정 요청이 처리되어야 정산서를 확정할 수 있습니다.</small></div> : settlementConfirmed ? <div className="settlement-confirmation-state is-confirmed"><strong>✓ 정산서 확정 완료</strong><span>확정일 {formatKoreanDateTime(settlement.settlementConfirmedAt ?? settlement.updatedAt)} · 확정자 {settlement.settlementConfirmedBy ?? settlement.assigneeName}</span></div> : <div className="settlement-confirmation-state"><strong>정산서 검토 대기</strong><span>확정 후 셀러·매니저 지급 요청이 가능합니다.</span></div>}
 
         {sellerCollectsPayment && canEditCurrentSettlement && <section className="settlement-page-section no-print" aria-label="셀러링크 입금 확인">
-          <div className="section-heading"><div><h2>셀러링크 입금 확인</h2><p>외부셀러·벤더가 판매대금을 수령하고 회사로 입금하는 건입니다. 실제 입금을 확인한 뒤 완료 내역으로 옮깁니다.</p></div></div>
+          <div className="section-heading"><div><h2>셀러링크 입금 확인</h2><p>외부셀러·벤더가 회사로 보낸 판매대금을 확인합니다. 매니저 지급은 별도로 진행하며, 남은 지급이 끝나야 정산이 완료됩니다.</p></div></div>
           {settlement.sellerLinkReceipt ? <p>입금 확인 완료 · {money(settlement.sellerLinkReceipt.amount)} · 입금일 {settlement.sellerLinkReceipt.receivedDate} · 확인자 {settlement.sellerLinkReceipt.confirmedBy}</p> : <>
             <p>정산서 입금 요청액: <strong>{expectedSellerLinkReceipt === undefined ? '계산 확인 필요' : money(expectedSellerLinkReceipt)}</strong></p>
             <div className="inline-form"><label>실제 입금액<input type="number" min="0" step="1" value={receiptAmount} onChange={event => setReceiptAmount(event.target.value)} /></label><label>입금일<input type="date" value={receiptDate} onChange={event => setReceiptDate(event.target.value)} /></label></div>
-            <label><input type="checkbox" checked={receiptAcknowledged} onChange={event => setReceiptAcknowledged(event.target.checked)} /> 은행 입금내역과 추가 셀러·매니저·공급사 지급 의무가 없음을 확인했습니다.</label>
-            <div className="action-row"><button className="primary-button" type="button" disabled={receiptBusy || !settlementConfirmed || hasUnresolvedRevision || expectedSellerLinkReceipt === undefined || !receiptAmount || !receiptAcknowledged} onClick={() => void confirmSellerLinkReceipt()}>{receiptBusy ? '저장 중…' : '입금 확인하고 정산 완료'}</button></div>
+            <label><input type="checkbox" checked={receiptAcknowledged} onChange={event => setReceiptAcknowledged(event.target.checked)} /> 실제 은행 입금내역과 입금액·입금일을 확인했습니다.</label>
+            <div className="action-row"><button className="primary-button" type="button" disabled={receiptBusy || !settlementConfirmed || hasUnresolvedRevision || expectedSellerLinkReceipt === undefined || !receiptAmount || !receiptAcknowledged} onClick={() => void confirmSellerLinkReceipt()}>{receiptBusy ? '저장 중…' : '셀러 입금 확인'}</button></div>
             {receiptError && <p className="seller-excel-share__error" role="alert">{receiptError}</p>}
           </>}
         </section>}

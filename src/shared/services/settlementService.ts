@@ -978,24 +978,26 @@ export const settlementService = {
     const source = salesDataService.getSalesDataImportById(settlement.salesDataImportId)
     const campaign = campaignService.getCampaignById(settlement.campaignId)
     if (!source || campaignChannel(campaign, source) !== 'seller_checkout') throw new Error('셀러링크 판매대금 입금 건에만 사용할 수 있습니다.')
-    if (storageService.getItem<PaymentRequest[]>(STORAGE_KEYS.paymentRequests, []).some(request => request.settlementId === settlementId && !['canceled', 'rejected'].includes(request.status))) throw new Error('진행 중이거나 완료된 지급요청이 있습니다. 지급 상태를 별도로 확인해주세요.')
-    if (settlement.currentCalculation.managerAmount > 0 && source.supplyAudience !== 'vendor' && !isCompanyDirectManager(campaign?.managerId, campaign?.managerName)) throw new Error('매니저 지급액이 남아 있어 입금만으로 완료할 수 없습니다.')
+    if (storageService.getItem<PaymentRequest[]>(STORAGE_KEYS.paymentRequests, []).some(request => request.settlementId === settlementId && (request.recipientType ?? request.ownerType) === 'seller' && !['canceled', 'rejected'].includes(request.status))) throw new Error('셀러 지급요청이 있습니다. 셀러에게 중복 지급되지 않도록 지급 상태를 확인해주세요.')
     if (settlement.supplierPayment && (calculateSupplierPayment(settlement.supplierPayment, salesDataService.getSettlementRowsByImportId(source.id)).amount ?? Infinity) > 0) throw new Error('공급사 지급액이 남아 있어 입금만으로 완료할 수 없습니다.')
     const expected = sellerLinkReceiptAmount(settlement, source, salesDataService.getSettlementRowsByImportId(source.id), campaign)
     if (expected === undefined || !Number.isFinite(expected) || expected < 0) throw new Error('입금 요청액 계산이 완료되지 않았습니다. 정산 조건을 확인해주세요.')
     if (!Number.isSafeInteger(amount) || amount !== expected) throw new Error(`실제 입금액과 정산 요청액이 다릅니다. 요청액 ${expected.toLocaleString('ko-KR')}원을 확인해주세요.`)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(receivedDate) || Number.isNaN(Date.parse(receivedDate)) || receivedDate > new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' })) throw new Error('실제 입금일을 확인해주세요.')
     const confirmedAt = now()
-    const next: Settlement = { ...settlement, sellerLinkReceipt: { amount, receivedDate, confirmedAt, confirmedBy, sourceVersion: settlement.settlementVersion }, status: 'completed', updatedAt: confirmedAt }
+    const managerPayoutPending = settlement.currentCalculation.managerAmount > 0 && source.supplyAudience !== 'vendor'
+      && !isCompanyDirectManager(campaign?.managerId, campaign?.managerName) && !settlement.managerPaymentCompleted
+    const next: Settlement = { ...settlement, sellerLinkReceipt: { amount, receivedDate, confirmedAt, confirmedBy, sourceVersion: settlement.settlementVersion }, status: managerPayoutPending ? 'partially_paid' : 'completed', updatedAt: confirmedAt }
     this.saveSettlements(this.getSettlements().map(item => item.id === settlementId ? next : item))
-    this.addActivity({ ...next, assigneeName: confirmedBy }, 'seller_link_receipt_confirmed', settlement.status, 'completed', `셀러링크 입금 확인 · ${amount.toLocaleString('ko-KR')}원 · ${receivedDate}`)
+    this.addActivity({ ...next, assigneeName: confirmedBy }, 'seller_link_receipt_confirmed', settlement.status, next.status, `셀러링크 입금 확인 · ${amount.toLocaleString('ko-KR')}원 · ${receivedDate}`)
     return next
   },
   markPaymentFlag(settlementId: string, key: 'sellerPaymentCompleted' | 'managerPaymentCompleted' | 'companySettlementCompleted', action: SettlementActivityAction, reason: string) {
     const settlement = this.getSettlementById(settlementId)
     if (!settlement) return undefined
     const partial = { ...settlement, [key]: true, status: 'partially_paid' as const, updatedAt: now() }
-    const next = isSettlementCompleted(partial) ? { ...partial, status: 'completed' as const } : partial
+    const next = isSettlementCompleted(partial) || (key === 'managerPaymentCompleted' && partial.sellerLinkReceipt)
+      ? { ...partial, status: 'completed' as const } : partial
     this.saveSettlements(this.getSettlements().map((item) => (item.id === settlementId ? next : item)))
     this.addActivity(next, action, settlement.status, next.status, reason)
     if (next.status === 'completed') this.addActivity(next, 'completed', partial.status, 'completed', '최종 완료')
