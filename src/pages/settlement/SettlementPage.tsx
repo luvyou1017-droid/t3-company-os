@@ -74,6 +74,7 @@ import { sanitizeAccountNumberInput } from '../../shared/utils/accountNumber'
 import { isCompanyDirectManager } from '../../shared/utils/managerPayment'
 import { campaignChannel, channelLabels } from '../../shared/utils/uploadSettlementConditions'
 import { sellerSettlementFileService } from '../../shared/services/sellerSettlementFileService'
+import { sellerLinkReceiptAmount } from '../../shared/utils/sellerLinkReceipt'
 
 type DocumentMode = '내부 검토용' | '셀러 전달용' | '매니저 정산서'
 type TransactionDocumentTab = 'seller' | 'manager' | 'company' | 'supplier'
@@ -624,6 +625,11 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const [sellerExcelShare, setSellerExcelShare] = useState<{ url: string; expiresAt: string } | null>(null)
   const [sellerExcelBusy, setSellerExcelBusy] = useState(false)
   const [sellerExcelError, setSellerExcelError] = useState('')
+  const [receiptAmount, setReceiptAmount] = useState('')
+  const [receiptDate, setReceiptDate] = useState(() => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }))
+  const [receiptAcknowledged, setReceiptAcknowledged] = useState(false)
+  const [receiptBusy, setReceiptBusy] = useState(false)
+  const [receiptError, setReceiptError] = useState('')
   const requestedDocument = new URLSearchParams(window.location.search).get('document')
   const requestedTransactionDocument: TransactionDocumentTab | null = requestedDocument === 'seller' || requestedDocument === 'manager' || requestedDocument === 'company' || requestedDocument === 'supplier' ? requestedDocument : null
   const [vendorDocumentTab, setVendorDocumentTab] = useState<TransactionDocumentTab>(() => requestedTransactionDocument ?? getDefaultTransactionDocument(settlement))
@@ -789,6 +795,7 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
   const salesRows = salesDataService.getSettlementRowsByImportId(settlement.salesDataImportId)
   const salesChannel = campaignChannel(campaign, salesImport)
   const sellerCollectsPayment = salesChannel === 'seller_checkout'
+  const expectedSellerLinkReceipt = salesImport && sellerCollectsPayment ? sellerLinkReceiptAmount(settlement, salesImport, salesRows, campaign) : undefined
   const vendorSupply = salesImport?.supplyAudience === 'vendor'
   const hasThreePartyDocuments = vendorSupply || sellerCollectsPayment
   const supplierDocumentLabel = salesChannel === 'supplier_link' ? '공급사 입금 요청용' : '공급사 지급용'
@@ -1331,6 +1338,25 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
 
   const sellerWarningActions = sellerActionReasons.map((reason) => makePaymentWarningAction('seller', reason))
   const managerWarningActions = managerActionReasons.map((reason) => makePaymentWarningAction('manager', reason))
+  const confirmSellerLinkReceipt = async () => {
+    if (receiptBusy || !receiptAcknowledged) return
+    setReceiptBusy(true)
+    setReceiptError('')
+    try {
+      const next = settlementService.confirmSellerLinkReceipt(settlement.id, Number(receiptAmount), receiptDate, currentUser.name, currentUser.role)
+      await cloudSyncService.syncKeys([STORAGE_KEYS.settlements, STORAGE_KEYS.settlementActivityLogs])
+      if (salesImport) {
+        salesDataService.updateSalesDataImport({ ...salesImport, settlementStatus: '정산 완료' })
+        await cloudSyncService.syncKeys([STORAGE_KEYS.salesDataImports])
+      }
+      setSettlement(next)
+      setReceiptAcknowledged(false)
+      showClipboardToast('입금 확인을 기록하고 정산을 완료했습니다. 완료 내역에서 확인할 수 있습니다.')
+    } catch (error) {
+      setReceiptError(error instanceof Error ? error.message : '입금 확인을 저장하지 못했습니다.')
+      setSettlement(settlementService.getSettlementById(settlement.id) ?? settlement)
+    } finally { setReceiptBusy(false) }
+  }
   return (
     <section className="settlement-detail-page">
         {canEditCurrentSettlement && <SellerReceivablePanel key={settlement.id} settlement={settlement} user={currentUser} onSaved={setSettlement} />}
@@ -1351,6 +1377,17 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
         </div>
 
         {hasUnresolvedRevision ? <div className="settlement-confirmation-state is-revision"><strong>⚠ 정산서 수정 요청</strong><span>{pendingRevisionRequest?.reason}</span><small>수정 요청이 처리되어야 정산서를 확정할 수 있습니다.</small></div> : settlementConfirmed ? <div className="settlement-confirmation-state is-confirmed"><strong>✓ 정산서 확정 완료</strong><span>확정일 {formatKoreanDateTime(settlement.settlementConfirmedAt ?? settlement.updatedAt)} · 확정자 {settlement.settlementConfirmedBy ?? settlement.assigneeName}</span></div> : <div className="settlement-confirmation-state"><strong>정산서 검토 대기</strong><span>확정 후 셀러·매니저 지급 요청이 가능합니다.</span></div>}
+
+        {sellerCollectsPayment && canEditCurrentSettlement && <section className="settlement-page-section no-print" aria-label="셀러링크 입금 확인">
+          <div className="section-heading"><div><h2>셀러링크 입금 확인</h2><p>외부셀러·벤더가 판매대금을 수령하고 회사로 입금하는 건입니다. 실제 입금을 확인한 뒤 완료 내역으로 옮깁니다.</p></div></div>
+          {settlement.sellerLinkReceipt ? <p>입금 확인 완료 · {money(settlement.sellerLinkReceipt.amount)} · 입금일 {settlement.sellerLinkReceipt.receivedDate} · 확인자 {settlement.sellerLinkReceipt.confirmedBy}</p> : <>
+            <p>정산서 입금 요청액: <strong>{expectedSellerLinkReceipt === undefined ? '계산 확인 필요' : money(expectedSellerLinkReceipt)}</strong></p>
+            <div className="inline-form"><label>실제 입금액<input type="number" min="0" step="1" value={receiptAmount} onChange={event => setReceiptAmount(event.target.value)} /></label><label>입금일<input type="date" value={receiptDate} onChange={event => setReceiptDate(event.target.value)} /></label></div>
+            <label><input type="checkbox" checked={receiptAcknowledged} onChange={event => setReceiptAcknowledged(event.target.checked)} /> 은행 입금내역과 추가 셀러·매니저·공급사 지급 의무가 없음을 확인했습니다.</label>
+            <div className="action-row"><button className="primary-button" type="button" disabled={receiptBusy || !settlementConfirmed || hasUnresolvedRevision || expectedSellerLinkReceipt === undefined || !receiptAmount || !receiptAcknowledged} onClick={() => void confirmSellerLinkReceipt()}>{receiptBusy ? '저장 중…' : '입금 확인하고 정산 완료'}</button></div>
+            {receiptError && <p className="seller-excel-share__error" role="alert">{receiptError}</p>}
+          </>}
+        </section>}
 
         <section className="seller-excel-share settlement-page-section no-print" id="seller-order-file" aria-label="구매내역 Excel 링크">
           <div><strong>{vendorSupply ? '거래처용 구매내역 Excel 링크' : '셀러용 구매내역 Excel 링크'}</strong><span>{salesImport ? salesImport.originalSalesFileStoragePath ? `원본 주문파일 연결 완료 · ${salesImport.fileName || '원본 파일'}` : '주문 원본 미연결 · 수기/집계 자료는 판매집계 Excel로 생성됩니다.' : '판매데이터가 연결되지 않았습니다.'}</span><small>공유 파일에는 허용된 주문 컬럼만 포함되며, 내부 공급가·수수료와 수식은 제외됩니다.</small></div>
