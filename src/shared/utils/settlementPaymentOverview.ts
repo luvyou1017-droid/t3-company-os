@@ -1,10 +1,12 @@
 import type { Settlement } from '../types/settlement'
 import type { PaymentRequest } from '../types/sellerSettlement'
 import type { Campaign } from '../types/campaign'
+import type { SalesDataImport } from '../types/salesData'
 import { isCompanyDirectManager } from './managerPayment'
+import { campaignChannel } from './uploadSettlementConditions'
 const paid = new Set(['payment_completed','remittance_confirmed'])
 const active = new Set(['evidence_pending','request_ready','approval_pending','approved','sent','on_hold'])
-export function settlementPaymentOverview(settlements:Settlement[],requests:PaymentRequest[],campaigns:Map<string,Campaign>) {
+export function settlementPaymentOverview(settlements:Settlement[],requests:PaymentRequest[],campaigns:Map<string,Campaign>,salesById?:Map<string,SalesDataImport>) {
  const byId = new Map<string,PaymentRequest>()
  for(const request of requests){const old=byId.get(request.id);if(!old || !paid.has(old.status))byId.set(request.id,request)}
  const unique = [...byId.values()]
@@ -12,6 +14,8 @@ export function settlementPaymentOverview(settlements:Settlement[],requests:Paym
   const campaign=campaigns.get(settlement.campaignId)
   return (['seller','manager'] as const).flatMap(ownerType=> {
    if(ownerType==='manager' && (campaign?.supplyAudience==='vendor' || isCompanyDirectManager(campaign?.managerId,campaign?.managerName)))return []
+   const sales=salesById?.get(settlement.salesDataImportId)
+   if(ownerType==='seller' && ((sales?.supplyAudience ?? campaign?.supplyAudience)==='vendor' || campaignChannel(campaign,sales)==='seller_checkout'))return []
    const matching=unique.filter(request=>request.settlementId===settlement.id && request.recipientType===ownerType)
    if((ownerType==='seller'?settlement.sellerPaymentCompleted:settlement.managerPaymentCompleted) || matching.some(request=>paid.has(request.status)))return []
    const pending=matching.filter(request=>active.has(request.status)).sort((a,b)=>(b.requestedAt || '').localeCompare(a.requestedAt || ''))[0]

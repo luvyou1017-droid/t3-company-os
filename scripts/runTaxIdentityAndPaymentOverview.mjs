@@ -29,6 +29,8 @@ try {
  assert.equal(settlementPaymentOverview([{...settlement,status:'canceled'}],[],campaigns).sellerDue,0)
  assert.equal(settlementPaymentOverview([settlement],[paid,{...paid,status:'approved'}],campaigns).sellerDue,0)
  assert.equal(settlementPaymentOverview([settlement],[paid,{...pending,documentCheckStatus:'follow_up'}],campaigns).evidenceMissing,1)
+ const sellerLink=settlementPaymentOverview([{...settlement,salesDataImportId:'link'}],[],new Map([['c1',{...campaigns.get('c1'),salesChannelType:'seller_checkout'}]]),new Map([['link',{id:'link',salesChannelType:'seller_checkout'}]]))
+ assert.equal(sellerLink.unrequested.some(item=>item.ownerType==='seller'),false,'company receivable must not appear as seller payout')
  const sql=readFileSync('docs/SECURE_TAXPAYER_IDENTITY.sql','utf8')
  assert.match(sql,/vault\.create_secret/);assert.match(sql,/security invoker/);assert.match(sql,/Tax identity permission denied/)
  assert.match(sql,/enable row level security/);assert.match(sql,/Identity changed/);assert.match(sql,/export blocked/)

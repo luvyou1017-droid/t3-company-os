@@ -6124,6 +6124,11 @@
 .settlement-view-tabs button { border: 1px solid var(--border); border-radius: 9px; background: #fff; padding: 11px 18px; color: #475569; font: inherit; cursor: pointer; }
 .settlement-view-tabs button.is-active { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 700; }
 .settlement-view-tabs button:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+.payment-recipient-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.payment-recipient-tabs button { border: 1px solid var(--border); border-radius: 8px; background: #fff; padding: 9px 13px; color: #334155; font: inherit; cursor: pointer; }
+.payment-recipient-tabs button.is-active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; font-weight: 700; }
+.payment-recipient-table { margin-top: 12px; }
+.payment-recipient-table .settlement-name-link { text-align: left; }
 .settlement-view[hidden] { display: none; }
 
 .upload-conditions-review input, .upload-conditions-review select { width: 100%; min-width: 100px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; }
