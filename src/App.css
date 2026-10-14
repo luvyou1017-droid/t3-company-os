@@ -5919,7 +5919,7 @@
 .proposal-view-toggle { display: flex; padding: 4px; border: 1px solid #dbe3ef; border-radius: 11px; background: #f8fafc; }
 .proposal-view-toggle button { padding: 9px 13px; border: 0; border-radius: 8px; color: #64748b; background: transparent; font-weight: 800; cursor: pointer; }
 .proposal-view-toggle button.is-active { color: #1d4ed8; background: #fff; box-shadow: 0 1px 4px rgba(15,23,42,.12); }
-.proposal-filters { display: grid; grid-template-columns: minmax(260px, 1fr) 220px auto; gap: 10px; margin-bottom: 18px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; }
+.proposal-filters { display: grid; grid-template-columns: minmax(230px, 1fr) minmax(150px, 190px) minmax(150px, 190px) auto auto; gap: 10px; margin-bottom: 18px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; }
 .proposal-filters > input:not([type="checkbox"]), .proposal-filters select { min-width: 0; padding: 11px 12px; border: 1px solid #cfd7e3; border-radius: 9px; background: #fff; }
 .proposal-filters .checkbox-label { padding: 0 6px; white-space: nowrap; }
 .proposal-filters .checkbox-label input { min-width: auto; padding: 0; border: 0; }
@@ -5930,6 +5930,11 @@
 .proposal-archive-message { margin: -6px 0 16px; color: #334155; font-weight: 700; }
 .proposal-product-select { flex: none; width: 18px; height: 18px; accent-color: #1d4ed8; }
 .proposal-catalog { display: grid; gap: 18px; }
+.proposal-vendor { overflow: hidden; border: 1px solid #cbd5e1; border-radius: 18px; background: #f8fafc; }
+.proposal-vendor > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 20px; background: #eaf1fb; }
+.proposal-vendor > header h2 { margin: 0; font-size: 18px; }
+.proposal-vendor > header span { color: #475569; font-size: 13px; }
+.proposal-vendor .proposal-brand { margin: 14px; }
 .proposal-brand { overflow: hidden; border: 1px solid #dbe3ef; border-radius: 17px; background: #fff; box-shadow: 0 6px 20px rgba(15,23,42,.04); }
 .proposal-brand > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 20px; border-bottom: 1px solid #dbe3ef; background: #f8fafc; }
 .proposal-brand > header > div { display: flex; align-items: center; gap: 11px; }

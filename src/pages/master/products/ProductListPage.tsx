@@ -13,8 +13,8 @@ const rateLabel = (value: number) => value > 0 ? `${formatRate(value)}%` : '수�
 const hasMissingRate = (product: ProductMaster) => configurations(product).some(item => !(item.sellerCommissionRate ?? product.sellerCommissionRate))
 type ViewMode = 'proposal' | 'admin'
 const LIST_STATE_KEY = 't3-product-list-state-v1'
-type StoredListState = { query: string; brand: string; includeInactive: boolean; viewMode: ViewMode; scrollY: number }
-const readListState = (): StoredListState => { try { return JSON.parse(sessionStorage.getItem(LIST_STATE_KEY) ?? '') as StoredListState } catch { return { query: '', brand: '', includeInactive: false, viewMode: 'proposal', scrollY: 0 } } }
+type StoredListState = { query: string; vendor?: string; brand: string; includeInactive: boolean; viewMode: ViewMode; scrollY: number }
+const readListState = (): StoredListState => { try { return JSON.parse(sessionStorage.getItem(LIST_STATE_KEY) ?? '') as StoredListState } catch { return { query: '', vendor: '', brand: '', includeInactive: false, viewMode: 'proposal', scrollY: 0 } } }
 
 function configurations(product: ProductMaster) {
   const active = product.skus.filter((sku) => sku.active && !sku.sampleOnly)
@@ -41,6 +41,7 @@ export function ProductListPage({ onOpen, permission }: { onOpen: (id?: string) 
   const [products, setProducts] = useState<ProductMaster[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState(restored.query)
+  const [vendor, setVendor] = useState(restored.vendor ?? '')
   const [brand, setBrand] = useState(restored.brand)
   const [includeInactive, setIncludeInactive] = useState(restored.includeInactive)
   const [missingRatesOnly, setMissingRatesOnly] = useState(false)
@@ -63,21 +64,32 @@ export function ProductListPage({ onOpen, permission }: { onOpen: (id?: string) 
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false; window.cancelAnimationFrame(frame) }
   }, [restored.scrollY])
-  useEffect(() => { sessionStorage.setItem(LIST_STATE_KEY, JSON.stringify({ query, brand, includeInactive, viewMode, scrollY: window.scrollY })) }, [query, brand, includeInactive, viewMode])
+  useEffect(() => { sessionStorage.setItem(LIST_STATE_KEY, JSON.stringify({ query, vendor, brand, includeInactive, viewMode, scrollY: window.scrollY })) }, [query, vendor, brand, includeInactive, viewMode])
   const openProduct = (id?: string) => {
-    sessionStorage.setItem(LIST_STATE_KEY, JSON.stringify({ query, brand, includeInactive, viewMode, scrollY: window.scrollY }))
+    sessionStorage.setItem(LIST_STATE_KEY, JSON.stringify({ query, vendor, brand, includeInactive, viewMode, scrollY: window.scrollY }))
     onOpen(id)
   }
 
   const brands = useMemo(() => [...new Set(products.map((product) => product.brandName))].sort((a, b) => a.localeCompare(b, 'ko')), [products])
+  const vendors = useMemo(() => [...new Set(products.map((product) => product.vendorName?.trim() || '공급처 확인 필요'))].sort((a, b) => a.localeCompare(b, 'ko')), [products])
   const filtered = useMemo(() => products.filter((product) => {
     const names = [product.brandName,product.productName,product.vendorName,product.settlementVendorName,...product.skus.flatMap(sku=>[sku.productName,sku.optionName,sku.skuCode])]
-    return (viewMode === 'admin' || (!product.sampleOnly && product.skus.some(sku => !sku.sampleOnly))) && ((viewMode === 'admin' && includeInactive) || (product.lifecycleStatus ?? (product.active ? 'active' : 'inactive')) === 'active') && (!missingRatesOnly || hasMissingRate(product)) && matchesBusinessSearch(query,names) && (!brand || product.brandName === brand)
-  }).sort((a, b) => a.brandName.localeCompare(b.brandName, 'ko') || a.productName.localeCompare(b.productName, 'ko')), [products, query, brand, includeInactive, missingRatesOnly, viewMode])
+    return (viewMode === 'admin' || (!product.sampleOnly && product.skus.some(sku => !sku.sampleOnly))) && ((viewMode === 'admin' && includeInactive) || (product.lifecycleStatus ?? (product.active ? 'active' : 'inactive')) === 'active') && (!missingRatesOnly || hasMissingRate(product)) && matchesBusinessSearch(query,names) && (!vendor || (product.vendorName?.trim() || '공급처 확인 필요') === vendor) && (!brand || product.brandName === brand)
+  }).sort((a, b) => (a.vendorName ?? '').localeCompare(b.vendorName ?? '', 'ko') || a.brandName.localeCompare(b.brandName, 'ko') || a.productName.localeCompare(b.productName, 'ko')), [products, query, vendor, brand, includeInactive, missingRatesOnly, viewMode])
   const grouped = useMemo(() => {
-    const map = new Map<string, ProductMaster[]>()
-    filtered.filter((product) => product.active).forEach((product) => map.set(product.brandName, [...(map.get(product.brandName) ?? []), product]))
-    return Array.from(map, ([brandName, items]) => ({ brandName, items }))
+    const vendors = new Map<string, { vendorName: string; brands: Map<string, { brandName: string; items: ProductMaster[] }> }>()
+    filtered.filter((product) => product.active).forEach((product) => {
+      const vendorName = product.vendorName?.trim() || '공급처 확인 필요'
+      const vendorKey = product.vendorId?.trim() || `name:${vendorName}`
+      const vendor = vendors.get(vendorKey) ?? { vendorName, brands: new Map() }
+      const brandName = product.brandName?.trim() || '브랜드 확인 필요'
+      const brandKey = product.brandId?.trim() || `name:${brandName}`
+      const brandGroup = vendor.brands.get(brandKey) ?? { brandName, items: [] }
+      brandGroup.items.push(product)
+      vendor.brands.set(brandKey, brandGroup)
+      vendors.set(vendorKey, vendor)
+    })
+    return [...vendors].map(([vendorKey, vendor]) => ({ vendorKey, vendorName: vendor.vendorName, brands: [...vendor.brands].map(([brandKey, group]) => ({ brandKey, ...group })) }))
   }, [filtered])
   const selectable = viewMode === 'proposal' ? filtered.filter(product => product.active) : filtered.filter(product => product.lifecycleStatus !== 'archived')
   const selectedVisible = selectable.filter(product => selectedIds.has(product.id))
@@ -152,18 +164,21 @@ export function ProductListPage({ onOpen, permission }: { onOpen: (id?: string) 
     </div>
     {copied && <div className="copy-toast" role="status">✓ {copied}</div>}
     {loading && <p role="status" aria-live="polite">상품을 불러오는 중입니다…</p>}
-    <div className="proposal-filters"><input aria-label="상품 검색" placeholder="브랜드 또는 상품명 검색" value={query} onChange={(event) => setQuery(event.target.value)} /><select aria-label="브랜드 선택" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">전체 브랜드</option>{brands.map((item) => <option key={item}>{item}</option>)}</select><label className="checkbox-label"><input checked={missingRatesOnly} onChange={(event) => setMissingRatesOnly(event.target.checked)} type="checkbox" /> 수수료 확인 필요만</label>{viewMode === 'admin' && <label className="checkbox-label"><input checked={includeInactive} onChange={(event) => setIncludeInactive(event.target.checked)} type="checkbox" /> 미사용 포함</label>}</div>
+    <div className="proposal-filters"><input aria-label="상품 검색" placeholder="공급처·브랜드·상품·SKU 검색" value={query} onChange={(event) => setQuery(event.target.value)} /><select aria-label="공급처 선택" value={vendor} onChange={(event) => setVendor(event.target.value)}><option value="">전체 공급처</option>{vendors.map((item) => <option key={item}>{item}</option>)}</select><select aria-label="브랜드 선택" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">전체 브랜드</option>{brands.map((item) => <option key={item}>{item}</option>)}</select><label className="checkbox-label"><input checked={missingRatesOnly} onChange={(event) => setMissingRatesOnly(event.target.checked)} type="checkbox" /> 수수료 확인 필요만</label>{viewMode === 'admin' && <label className="checkbox-label"><input checked={includeInactive} onChange={(event) => setIncludeInactive(event.target.checked)} type="checkbox" /> 미사용 포함</label>}</div>
     {permission.canDeactivate && <div className="proposal-bulk-actions"><label className="checkbox-label"><input type="checkbox" aria-label="현재 보이는 상품 전체 선택" checked={selectable.length > 0 && selectable.every(product => selectedIds.has(product.id))} onChange={(event) => setSelectedIds(current => { const next = new Set(current); selectable.forEach(product => event.target.checked ? next.add(product.id) : next.delete(product.id)); return next })} disabled={archiving || !selectable.length} /> 현재 보이는 상품 전체 선택</label><span>{selectedVisible.length}개 선택</span><button type="button" className="secondary-button" disabled={archiving || !selectedVisible.length} onClick={() => void archiveSelected()}>{archiving ? '연결 확인·보관 중…' : '선택 상품 삭제 보관'}</button>{selectedVisible.length > 0 && <button type="button" className="text-button" disabled={archiving} onClick={() => setSelectedIds(new Set())}>선택 해제</button>}</div>}
     {archiveMessage && <p className="proposal-archive-message" role="status" aria-live="polite">{archiveMessage}</p>}
 
     {viewMode === 'proposal' ? <div className="proposal-catalog">
-      {grouped.map((group) => <section className="proposal-brand" key={group.brandName}>
+      {grouped.map((vendor) => <section className="proposal-vendor" key={vendor.vendorKey}>
+        <header><h2>공급처 · {vendor.vendorName}</h2><span>브랜드 {vendor.brands.length}개</span></header>
+        {vendor.brands.map((group) => <section className="proposal-brand" key={group.brandKey}>
         <header><div><span className="brand-mark" aria-hidden="true">{group.brandName.slice(0, 1)}</span><div><h2>{group.brandName}</h2><p>상품 {group.items.length}개</p></div></div><button className="copy-button" onClick={() => void copy(`${group.brandName} 전체`, group.items.map(proposalText).join('\n\n'))}>브랜드 전체 복사</button></header>
         <div className="proposal-product-list">{group.items.map((product) => <article className="proposal-product" key={product.id}>
           <div className="proposal-product__intro">{permission.canDeactivate && <input type="checkbox" className="proposal-product-select" aria-label={`${product.productName} 선택`} checked={selectedIds.has(product.id)} disabled={archiving} onChange={() => toggleSelected(product.id)} />}<div className="product-thumb">{product.representativeImageUrl || product.imageUrl ? <img src={product.representativeImageUrl ?? product.imageUrl} alt="" loading="lazy" decoding="async" /> : '이미지 없음'}</div><div><h3>{product.productName}{product.supplyAudience === 'vendor' ? ` · ${product.settlementVendorName} 전용` : ''}</h3><p>{product.category ?? '카테고리 미등록'} · {product.vendorName ?? '공급처 미지정'}</p></div></div>
-          <div className="proposal-price-table"><div className="proposal-price-head"><span>상품명</span><span>구성</span><span>정상가</span><span>공구가</span><span>할인</span><span>{product.supplyAudience === 'vendor' ? '벤더 수수료' : '셀러 수수료'}</span></div>{configurations(product).map((item) => <div className="proposal-price-row" key={item.id}><strong>{item.productName ?? product.productName}</strong><span>{item.optionName}</span><span>{money(item.regularPrice)}</span><b>{money(item.groupBuyPrice)}</b><em>{discount(item.regularPrice, item.groupBuyPrice)}%</em><span>{rateLabel(item.sellerCommissionRate ?? product.sellerCommissionRate)}</span></div>)}</div>
+          <div className="proposal-price-table"><div className="proposal-price-head"><span>SKU / 구성</span><span>세부옵션</span><span>정상가</span><span>공구가</span><span>할인</span><span>{product.supplyAudience === 'vendor' ? '벤더 수수료' : '셀러 수수료'}</span></div>{configurations(product).map((item) => <div className="proposal-price-row" key={item.id}><strong>{item.optionName}</strong><span>{'optionValues' in item && item.optionValues ? Object.values(item.optionValues).join(' / ') || '—' : '—'}</span><span>{money(item.regularPrice)}</span><b>{money(item.groupBuyPrice)}</b><em>{discount(item.regularPrice, item.groupBuyPrice)}%</em><span>{rateLabel(item.sellerCommissionRate ?? product.sellerCommissionRate)}</span></div>)}</div>
           <div className="proposal-product__foot"><p>배송 {product.shippingFee ? money(product.shippingFee) : '무료'} · 샘플 {product.sampleAvailable ? (product.sampleSupportType || '지원 가능') : '협의'} · 진행 레퍼런스 {(product.campaignReferences ?? []).length}건</p><div>{product.productUrl && <a className="secondary-button product-link-button" href={product.productUrl} target="_blank" rel="noreferrer">상품 링크</a>}<button type="button" className="copy-button" onClick={() => void copy(product.productName, proposalText(product))}>상품 복사</button><button type="button" className="secondary-button" onClick={() => openProduct(product.id)}>{permission.canEdit ? '상세 수정' : '상세 보기'}</button></div></div>
         </article>)}</div>
+        </section>)}
       </section>)}
       {!loading && !grouped.length && <div className="workspace-empty"><h2>표시할 상품이 없습니다.</h2><p>상품을 추가하거나 검색 조건을 바꿔주세요.</p></div>}
     </div> : <div className="panel"><div className="panel__header"><div><h2>내부 상품 관리</h2><p>공급가, 구성 코드, 공개 상태처럼 운영에 필요한 상세 정보를 관리합니다. 미사용·삭제 보관 항목도 기존 이력 연결은 유지됩니다.</p></div></div><div className="table-wrap"><table className="product-master-table"><thead><tr>{permission.canDeactivate && <th>선택</th>}<th>브랜드</th><th>상품명</th><th>공급처</th><th>구성 수</th><th>공구가</th><th>셀러 공개</th><th>상태</th><th>관리</th></tr></thead><tbody>{filtered.map((product) => { const status = product.lifecycleStatus ?? (product.active ? 'active' : 'inactive'); return <tr key={product.id}>{permission.canDeactivate && <td><input type="checkbox" aria-label={`${product.productName} 선택`} checked={selectedIds.has(product.id)} disabled={archiving || status === 'archived'} onChange={() => toggleSelected(product.id)} /></td>}<td>{product.brandName}</td><td>{product.productName}{product.supplyAudience === 'vendor' ? ` · ${product.settlementVendorName} 전용` : ''}</td><td>{product.vendorName ?? '-'}</td><td>{configurations(product).length}개</td><td>{money(Math.min(...configurations(product).map((item) => item.groupBuyPrice)))}</td><td>{product.sellerPortalVisible ? '공개' : '비공개'}</td><td>{status === 'archived' ? '삭제 보관' : status === 'active' ? '사용' : '미사용'}</td><td><div className="table-actions"><button type="button" onClick={() => openProduct(product.id)}>{permission.canEdit ? '상세 수정' : '상세 보기'}</button>{permission.canDeactivate && status !== 'archived' && <button type="button" className={product.active ? 'danger-text' : 'text-button'} onClick={() => void toggleActive(product)}>{product.active ? '미사용 전환' : '사용 중 전환'}</button>}{permission.canDeactivate && <button type="button" className="text-button" onClick={() => void productService.setProductLifecycleStatus(product.id, status === 'archived' ? 'inactive' : 'archived').then(load)}>{status === 'archived' ? '보관 해제' : '삭제 보관'}</button>}</div></td></tr>})}</tbody></table></div></div>}
