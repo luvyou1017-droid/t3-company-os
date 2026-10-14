@@ -1,4 +1,6 @@
 import { UnrequestedPaymentTable } from './components/UnrequestedPaymentTable'
+import { SellerLinkReceiptQueue } from './components/SellerLinkReceiptQueue'
+import { pendingSellerLinkReceipts } from '../../shared/utils/settlementQueues'
 import { CompanyBusinessInfoCopy } from './components/CompanyBusinessInfoCopy'
 import { settlementPaymentOverview } from '../../shared/utils/settlementPaymentOverview'
 import { StatementIdentityRows, waitForStatementIdentity } from './components/StatementIdentityRows'
@@ -331,9 +333,9 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
   const { profile: requestActor } = useCompanyAuth()
   const canBatchRequest = Boolean(requestActor && ['ceo','admin','settlement_cs'].includes(requestActor.role))
   const [settlements, setSettlements] = useState(() => settlementService.getSettlements())
-  const [view, setView] = useState<'list' | 'unrequested' | 'archive' | 'managers' | 'calendar' | 'references'>('list')
+  const [view, setView] = useState<'list' | 'unrequested' | 'receipts' | 'archive' | 'managers' | 'calendar' | 'references'>('list')
   const [kpiFilter,setKpiFilter] = useState('')
-  const changeView = (next: 'list' | 'unrequested' | 'archive' | 'managers' | 'calendar' | 'references') => {
+  const changeView = (next: 'list' | 'unrequested' | 'receipts' | 'archive' | 'managers' | 'calendar' | 'references') => {
     setView(next)
     setKpiFilter('')
     sessionStorage.setItem('settlement-view', next)
@@ -388,16 +390,19 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
   const rowNamesByImport = new Map<string, string[]>()
   for (const row of salesDataService.getSalesDataRows()) rowNamesByImport.set(row.salesDataImportId, [...(rowNamesByImport.get(row.salesDataImportId) ?? []), row.productName || '', row.optionName])
   const overview = settlementPaymentOverview(settlements,paymentRequestService.getOperationalPaymentRequests(),campaignsById,salesById)
+  const pendingReceipts = pendingSellerLinkReceipts(settlements,campaignsById,salesById)
+  const pendingReceiptIds = new Set(pendingReceipts.map(item=>item.id))
   const filtered = settlements.filter(item => {
     if (isArchivedSettlement(item) !== (view === 'archive')) return false
     if(view==='unrequested' && !overview.unrequestedIds.has(item.id))return false
+    if(view==='receipts' && !pendingReceiptIds.has(item.id))return false
     const campaign = campaignsById.get(item.campaignId)
     if(kpiFilter==='지급신청 승인 대기' && !overview.recipients.some(row=>row.settlementId===item.id && row.request?.status==='approval_pending'))return false
     if(kpiFilter==='승인 완료 · 지급 대기' && !overview.recipients.some(row=>row.settlementId===item.id && ['approved','sent'].includes(row.request?.status || '')))return false
     if(kpiFilter==='확정 전 작성 중' && (item.status!=='draft' || settlementService.isSettlementConfirmed(item)))return false
     if(kpiFilter==='수정·재신청 필요' && item.status!=='revision_required' && !overview.unrequested.some(row=>row.settlementId===item.id && row.rejected))return false
     const pendingApproval = item.sellerPaymentRequestStatus === 'approval_pending' || item.managerPaymentRequestStatus === 'approval_pending'
-    const statusMatch = view === 'archive' || view === 'unrequested' || quick === 'all' || (quick === 'approval_pending' ? pendingApproval || item.status === quick : item.status === quick)
+    const statusMatch = view === 'archive' || view === 'unrequested' || view === 'receipts' || quick === 'all' || (quick === 'approval_pending' ? pendingApproval || item.status === quick : item.status === quick)
     const query = listFilters.query
     const names = [campaign?.campaignName, campaign?.sellerName, campaign?.brandName, campaign?.productName, campaign?.round, campaign?.managerName, ...(rowNamesByImport.get(item.salesDataImportId) ?? [])]
     const end = campaign?.endDate || ''
@@ -445,7 +450,7 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
           {view === 'list' && <button className="primary-button" disabled={!eligibleSales.length} onClick={createFirstReadySettlement} type="button">정산 생성</button>}
         </div>
         <nav className="settlement-view-tabs" aria-label="정산 관리 화면 선택">
-          {([['list', '처리할 정산'], ['unrequested', `지급신청 미신청 (${overview.unrequestedIds.size})`], ['archive', `완료 내역 (${archivedCount})`], ['managers', '매니저별 KPI'], ['calendar', '정산 달력'], ['references', '매출 레퍼런스']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={view === id} className={view === id ? 'is-active' : ''} onClick={() => changeView(id)}>{label}</button>)}
+          {([['list', '처리할 정산'], ['unrequested', `지급신청 미신청 (${overview.unrequestedIds.size})`], ['receipts', `셀러링크 입금 확인 (${pendingReceipts.length})`], ['archive', `완료 내역 (${archivedCount})`], ['managers', '매니저별 KPI'], ['calendar', '정산 달력'], ['references', '매출 레퍼런스']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={view === id} className={view === id ? 'is-active' : ''} onClick={() => changeView(id)}>{label}</button>)}
         </nav>
         {(view === 'list' || view === 'unrequested') && <>
         <div className="settlement-kpi-grid">
@@ -479,11 +484,11 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
 
       {view === 'managers' && <div className="settlement-view"><ManagerPerformance settlements={settlements} onOpenDetail={onOpenDetail} /></div>}
 
-      {(view === 'list' || view === 'unrequested' || view === 'archive') && <section className="panel settlement-view">
+      {(view === 'list' || view === 'unrequested' || view === 'receipts' || view === 'archive') && <section className="panel settlement-view">
         <div className="panel__header">
           <div>
-            <h2>{view === 'archive' ? '완료 내역' : view==='unrequested' ? '지급신청 미신청' : '처리할 정산'}</h2>
-            <p>{view === 'unrequested' ? '아직 지급신청이 없는 대상만 표시합니다. 확정 전 작성 중, 확정 후 미신청, 취소·반려 후 재신청을 구분해 확인해주세요.' : view === 'archive' ? '최종 정산 완료된 건입니다. 검색으로 과거 기록과 정산서를 확인할 수 있습니다.' : '아직 최종 완료되지 않은 정산만 표시합니다. 완료된 건은 완료 내역에서 확인해주세요.'}</p>
+            <h2>{view === 'archive' ? '완료 내역' : view==='unrequested' ? '지급신청 미신청' : view==='receipts' ? '셀러링크 입금 확인' : '처리할 정산'}</h2>
+            <p>{view === 'unrequested' ? '아직 지급신청이 없는 대상만 표시합니다. 확정 전 작성 중, 확정 후 미신청, 취소·반려 후 재신청을 구분해 확인해주세요.' : view==='receipts' ? '회사로 받아야 할 셀러링크 판매대금입니다. 실제 입금을 확인한 뒤 정산 상세에서 완료해주세요.' : view === 'archive' ? '최종 정산 완료된 건입니다. 검색으로 과거 기록과 정산서를 확인할 수 있습니다.' : '아직 최종 완료되지 않은 정산만 표시합니다. 완료된 건은 완료 내역에서 확인해주세요.'}</p>
           </div>
           <strong className="result-count">{filtered.length}건</strong>
         </div>
@@ -495,8 +500,9 @@ export function SettlementPage({ onOpenDetail }: { onOpenDetail: (settlementId: 
               <label>기간 시작<input type="date" value={listFilters.from} onChange={event => setListFilters({ ...listFilters, from: event.target.value })} /></label>
               <label>기간 종료<input type="date" value={listFilters.to} onChange={event => setListFilters({ ...listFilters, to: event.target.value })} /></label>
             </div>
-          {view === 'unrequested' && <UnrequestedPaymentTable settlements={filtered} recipients={overview.unrequested} campaigns={campaignsById} canBatchRequest={canBatchRequest} onOpenDetail={onOpenDetail} onSaved={sync} />}
-          {view !== 'unrequested' && <>
+          {view === 'unrequested' && <UnrequestedPaymentTable settlements={filtered} recipients={overview.unrequested} campaigns={campaignsById} canBatchRequest={canBatchRequest} confirmedBy={requestActor?.display_name ?? ''} onOpenDetail={onOpenDetail} onSaved={sync} />}
+          {view === 'receipts' && <SellerLinkReceiptQueue settlements={filtered} campaigns={campaignsById} sales={salesById} onOpenDetail={onOpenDetail} />}
+          {view !== 'unrequested' && view !== 'receipts' && <>
           {filtered.length === 0 && <p className="empty-state">{view === 'archive' ? '검색 조건에 맞는 완료 정산이 없습니다.' : '검색 조건에 맞는 정산이 없습니다.'}</p>}
           <div className="schedule-table-wrap settlement-table-wrap">
             <table className="schedule-table settlement-table">
