@@ -4,7 +4,7 @@ import { aggregatedSellerWorkbook, sanitizeSellerWorkbook } from '../utils/selle
 import type { SalesDataImport, SalesDataRow } from '../types/salesData'
 
 export const SELLER_DOCUMENTS_BUCKET = 'seller-documents'
-export const SELLER_EXCEL_LINK_TTL_SECONDS = 14 * 24 * 60 * 60
+export const SELLER_EXCEL_LINK_TTL_SECONDS = 7 * 24 * 60 * 60
 const MAX_SELLER_EXCEL_SIZE = 25 * 1024 * 1024
 
 function safeFileName(name: string) {
