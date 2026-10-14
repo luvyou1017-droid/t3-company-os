@@ -1347,11 +1347,14 @@ export function SettlementDetailPage({ settlementId, onBack, onOpenSalesData }: 
     setReceiptError('')
     try {
       const next = settlementService.confirmSellerLinkReceipt(settlement.id, Number(receiptAmount), receiptDate, currentUser.name, currentUser.role)
-      await cloudSyncService.syncKeys([STORAGE_KEYS.settlements, STORAGE_KEYS.settlementActivityLogs])
       if (salesImport) {
         salesDataService.updateSalesDataImport({ ...salesImport, settlementStatus: '정산 완료' })
-        await cloudSyncService.syncKeys([STORAGE_KEYS.salesDataImports])
       }
+      await cloudSyncService.syncKeys([
+        STORAGE_KEYS.settlements,
+        STORAGE_KEYS.settlementActivityLogs,
+        ...(salesImport ? [STORAGE_KEYS.salesDataImports] : []),
+      ])
       setSettlement(next)
       setReceiptAcknowledged(false)
       showClipboardToast('입금 확인을 기록하고 정산을 완료했습니다. 완료 내역에서 확인할 수 있습니다.')
