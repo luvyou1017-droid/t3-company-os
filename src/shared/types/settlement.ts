@@ -149,6 +149,7 @@ export type SettlementActivityAction =
   | 'seller_payment_completed'
   | 'manager_payment_completed'
   | 'company_settlement_completed'
+  | 'seller_link_receipt_confirmed'
   | 'completed'
 
 export type SettlementActivityLog = {
@@ -208,6 +209,7 @@ export type SettlementVersion = {
 }
 
 export type Settlement = {
+  sellerLinkReceipt?: { amount: number; receivedDate: string; confirmedAt: string; confirmedBy: string; sourceVersion: number }
   sellerReceivable?: import("../utils/sellerReceivable").SellerReceivable
   sellerReceivableOffsets?: import("../utils/sellerReceivable").ReceivableOffset[]
   supplierPayment?: import('../utils/supplierPayment').SupplierPayment
